@@ -1,0 +1,74 @@
+import { approveThrough, expect, startSession, test } from "./fixtures.ts";
+
+async function noHorizontalScroll(page: import("@playwright/test").Page): Promise<void> {
+	const widths = await page.evaluate(() => [document.documentElement.scrollWidth, document.body.scrollWidth, window.innerWidth]);
+	expect(Math.max(widths[0] ?? 0, widths[1] ?? 0)).toBeLessThanOrEqual(widths[2] ?? 0);
+}
+
+test.describe("platform fit", () => {
+	test.use({ viewport: { width: 375, height: 740 } });
+
+	test("never scrolls horizontally at 375 px", async ({ page }) => {
+		await page.goto("/");
+		await noHorizontalScroll(page);
+		await startSession(page, `Add a shout() function — ${"averyveryverylongwordwithoutanyspaces".repeat(4)}`);
+		await approveThrough(page);
+		await expect(page.getByRole("region", { name: "Report" })).toBeVisible({ timeout: 30_000 });
+		for (const summary of await page.locator("details.activity > summary, details.thinking > summary").all()) await summary.tap();
+		for (const summary of await page.locator("details.call > summary").all()) await summary.tap();
+		await noHorizontalScroll(page);
+		await page.getByRole("region", { name: "Report" }).getByRole("button", { name: "View changes" }).tap();
+		await page.locator("details.diff-file > summary").first().tap();
+		await noHorizontalScroll(page);
+		await page.getByRole("button", { name: "Close" }).tap();
+		await page.getByRole("button", { name: /^Sessions/ }).tap();
+		await noHorizontalScroll(page);
+	});
+
+	test("works in dark mode without console errors", async ({ page, errors }) => {
+		await page.emulateMedia({ colorScheme: "dark" });
+		await startSession(page, "Add a shout() function");
+		await expect(page.getByRole("region", { name: "Questions waiting for your answer" })).toBeVisible();
+		const background = await page.evaluate(() => getComputedStyle(document.documentElement).backgroundColor);
+		expect(background).toBe("rgb(17, 17, 19)");
+		const text = await page.evaluate(() => getComputedStyle(document.body).color);
+		expect(text).toBe("rgb(244, 244, 246)");
+		await page.getByRole("button", { name: "Send answers" }).tap();
+		await page.getByRole("button", { name: "Approve" }).tap();
+		await expect(page.getByRole("region", { name: "Report" })).toBeVisible({ timeout: 30_000 });
+		await page.getByRole("button", { name: /^Sessions/ }).tap();
+		expect(errors).toEqual([]);
+	});
+
+	test("touch targets are at least 44 points", async ({ page }) => {
+		await startSession(page, "Add a shout() function");
+		await expect(page.getByRole("region", { name: "Questions waiting for your answer" })).toBeVisible();
+		const small = await page.evaluate(() =>
+			[...document.querySelectorAll("button, a.button, a.row, label.option, summary, select")]
+				.filter((element) => element.getClientRects().length > 0)
+				.map((element) => ({ element: element.textContent?.trim().slice(0, 30) ?? element.tagName, box: element.getBoundingClientRect() }))
+				.filter(({ box }) => box.height < 44 || box.width < 44)
+				.map(({ element, box }) => `${element}: ${Math.round(box.width)}x${Math.round(box.height)}`),
+		);
+		expect(small).toEqual([]);
+	});
+});
+
+test.describe("recovery", () => {
+	test("the phone catches up on its own after a server restart", async ({ page, server }) => {
+		await startSession(page, "Add a shout() function");
+		const questions = page.getByRole("region", { name: "Questions waiting for your answer" });
+		await expect(questions).toBeVisible();
+		await server.restart();
+		await page.getByRole("button", { name: /^Sessions/ }).tap();
+		await expect(page.getByRole("status").filter({ hasText: "Connected" })).toBeVisible({ timeout: 30_000 });
+		await page.locator(".backdrop").tap({ position: { x: 370, y: 400 } });
+		await questions.getByRole("button", { name: "Send answers" }).tap();
+		await expect(page.getByRole("region", { name: "Plan: Add shout()" }).getByText("Waiting for your approval")).toBeVisible();
+		await page.getByRole("button", { name: "Approve" }).tap();
+		await expect(page.getByRole("region", { name: "Report" })).toBeVisible({ timeout: 30_000 });
+		// The transcript is whole: nothing was lost or duplicated across the restart.
+		await expect(page.locator(".person")).toHaveCount(1);
+		await expect(page.getByRole("region", { name: "Answered questions" })).toHaveCount(1);
+	});
+});

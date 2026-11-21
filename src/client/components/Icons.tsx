@@ -1,0 +1,41 @@
+// Line icons drawn inline, so they follow the text colour in both themes and need no requests.
+import type { JSX } from "preact";
+
+const paths = {
+	menu: "M4 7h16M4 12h16M4 17h16",
+	plus: "M12 5v14M5 12h14",
+	send: "M12 19V5M6 11l6-6 6 6",
+	stop: "M8 8h8v8H8z",
+	clip: "M21 11.5l-8.6 8.6a5 5 0 0 1-7.1-7.1l8.6-8.6a3.3 3.3 0 0 1 4.7 4.7l-8.6 8.6a1.7 1.7 0 0 1-2.4-2.4l7.9-7.9",
+	chevron: "M9 6l6 6-6 6",
+	check: "M5 12.5l4.5 4.5L19 7.5",
+	close: "M6 6l12 12M18 6L6 18",
+	alert: "M12 8v5M12 16.5v.01M10.3 4.2L2.6 18a2 2 0 0 0 1.7 3h15.4a2 2 0 0 0 1.7-3L13.7 4.2a2 2 0 0 0-3.4 0z",
+	branch: "M7 4v12M7 16a2 2 0 1 0 0 4 2 2 0 0 0 0-4zM17 8a2 2 0 1 0 0-4 2 2 0 0 0 0 4zM17 8c0 5-10 3-10 8",
+	archive: "M4 7h16v13H4zM3 3h18v4H3zM10 11h4",
+	bell: "M6 16V11a6 6 0 0 1 12 0v5l2 2H4zM10 20a2 2 0 0 0 4 0",
+} as const;
+
+export type IconName = keyof typeof paths;
+
+export function Icon(props: { name: IconName; size?: number; label?: string }): JSX.Element {
+	const size = props.size ?? 22;
+	return (
+		<svg
+			width={size}
+			height={size}
+			viewBox="0 0 24 24"
+			fill="none"
+			stroke="currentColor"
+			stroke-width="2"
+			stroke-linecap="round"
+			stroke-linejoin="round"
+			aria-hidden={props.label === undefined ? "true" : undefined}
+			aria-label={props.label}
+			role={props.label === undefined ? undefined : "img"}
+			class="icon"
+		>
+			<path d={paths[props.name]} />
+		</svg>
+	);
+}

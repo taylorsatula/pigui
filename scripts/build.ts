@@ -1,0 +1,107 @@
+// Builds the phone app into dist/public: one esbuild bundle for the app and one for the service worker, the static
+// shell, and the icons, drawn here so the repository holds no binary assets.
+import { createHash } from "node:crypto";
+import { copyFile, mkdir, rm, writeFile } from "node:fs/promises";
+import { join } from "node:path";
+import { deflateSync } from "node:zlib";
+import { build } from "esbuild";
+
+const root = join(import.meta.dirname, "..");
+const out = join(root, "dist", "public");
+const client = join(root, "src", "client");
+
+await rm(out, { recursive: true, force: true });
+await mkdir(join(out, "icons"), { recursive: true });
+
+const app = await build({
+	entryPoints: [join(client, "main.tsx")],
+	outfile: join(out, "app.js"),
+	bundle: true,
+	format: "esm",
+	platform: "browser",
+	target: ["safari16", "chrome110"],
+	minify: true,
+	sourcemap: true,
+	jsx: "automatic",
+	jsxImportSource: "preact",
+	metafile: true,
+	logLevel: "warning",
+});
+const buildId = createHash("sha256").update(JSON.stringify(app.metafile.outputs)).digest("hex").slice(0, 12);
+
+await build({
+	entryPoints: [join(root, "src", "sw", "sw.ts")],
+	outfile: join(out, "sw.js"),
+	bundle: true,
+	format: "iife",
+	platform: "browser",
+	target: ["safari16", "chrome110"],
+	minify: true,
+	define: { BUILD_ID: JSON.stringify(buildId) },
+	logLevel: "warning",
+});
+
+for (const file of ["index.html", "app.css", "manifest.webmanifest"]) await copyFile(join(client, file), join(out, file));
+
+// ---- Icons: a white π on a blue field, as PNGs (the format iOS home screens need).
+
+const CRC_TABLE = Array.from({ length: 256 }, (_, n) => {
+	let c = n;
+	for (let k = 0; k < 8; k++) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1;
+	return c >>> 0;
+});
+
+function crc32(bytes: Uint8Array): number {
+	let crc = 0xffffffff;
+	for (const byte of bytes) crc = (CRC_TABLE[(crc ^ byte) & 0xff] ?? 0) ^ (crc >>> 8);
+	return (crc ^ 0xffffffff) >>> 0;
+}
+
+function chunk(type: string, data: Uint8Array): Buffer {
+	const length = Buffer.alloc(4);
+	length.writeUInt32BE(data.length);
+	const body = Buffer.concat([Buffer.from(type, "ascii"), data]);
+	const crc = Buffer.alloc(4);
+	crc.writeUInt32BE(crc32(body));
+	return Buffer.concat([length, body, crc]);
+}
+
+function png(size: number, pixel: (x: number, y: number) => [number, number, number]): Buffer {
+	const rows = Buffer.alloc(size * (size * 3 + 1));
+	for (let y = 0; y < size; y++) {
+		const offset = y * (size * 3 + 1);
+		for (let x = 0; x < size; x++) rows.set(pixel(x, y), offset + 1 + x * 3);
+	}
+	const header = Buffer.alloc(13);
+	header.writeUInt32BE(size, 0);
+	header.writeUInt32BE(size, 4);
+	header.set([8, 2, 0, 0, 0], 8);
+	return Buffer.concat([Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]), chunk("IHDR", header), chunk("IDAT", deflateSync(rows)), chunk("IEND", new Uint8Array())]);
+}
+
+/** π in unit coordinates: a bar across the top and two legs, the right one curling out at its foot. */
+function inPi(u: number, v: number): boolean {
+	const bar = v > 0.28 && v < 0.38 && u > 0.2 && u < 0.82;
+	const left = u > 0.34 && u < 0.44 && v >= 0.33 && v < 0.74 - (0.44 - u) * 0.4;
+	const right = u > 0.58 && u < 0.68 && v >= 0.33 && v < 0.72;
+	const foot = v > 0.64 && v < 0.74 && u > 0.6 && u < 0.78;
+	return bar || left || right || foot;
+}
+
+function icon(size: number, inset: number): Buffer {
+	const blue: [number, number, number] = [37, 99, 235];
+	const white: [number, number, number] = [255, 255, 255];
+	return png(size, (x, y) => {
+		const u = (x / size - inset) / (1 - 2 * inset);
+		const v = (y / size - inset) / (1 - 2 * inset);
+		return inPi(u, v) ? white : blue;
+	});
+}
+
+await writeFile(join(out, "icons", "icon-192.png"), icon(192, 0));
+await writeFile(join(out, "icons", "icon-512.png"), icon(512, 0));
+await writeFile(join(out, "icons", "apple-touch-icon.png"), icon(180, 0));
+// Maskable icons keep their glyph inside the central safe zone.
+await writeFile(join(out, "icons", "icon-maskable-512.png"), icon(512, 0.12));
+
+process.stdout.write(`Built the app into ${out} (build ${buildId}).\n`);

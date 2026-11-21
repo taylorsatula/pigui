@@ -1,0 +1,13 @@
+import { render } from "preact";
+import { App } from "./app.tsx";
+
+const root = document.getElementById("app");
+if (root !== null) render(<App />, root);
+
+if ("serviceWorker" in navigator) {
+	void navigator.serviceWorker.register("/sw.js", { scope: "/" }).catch(() => undefined);
+	// A tapped notification asks an open app to show its session.
+	navigator.serviceWorker.addEventListener("message", (event: MessageEvent<{ type?: string; url?: string }>) => {
+		if (event.data.type === "open" && typeof event.data.url === "string") location.hash = new URL(event.data.url, location.origin).hash;
+	});
+}
