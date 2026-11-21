@@ -167,7 +167,14 @@ One `defineExtension({ name: "picloud", ... })` selected on every session's conv
 ## Decisions (2026-11-21)
 - **Scope rule:** nothing gets built unless it serves "pick repo, plan with questions, approve, run unattended,
   report, deliver". No browser, marketplace, multiplayer or self-editing.
-- **Model provider:** not Anthropic. Which provider is still open.
+- **Model provider:** use Pi's own configuration; picloud does no provider work of its own.
+  - **Sign-in:** the droplet has the `pi` CLI installed. You sign in once with `pi` → `/login`, or with env keys, and
+    Pi stores credentials in `~/.pi/agent/auth.json`.
+  - **Credentials:** `builtinModels({ credentials: AuthStorage.create() })`. `builtinModels` comes from
+    `@earendil-works/pi-ai` (`ai/src/providers/all.ts:186`). `AuthStorage` comes from
+    `@earendil-works/pi-coding-agent` (`coding-agent/src/core/auth-storage.ts:329`).
+  - **Default model:** `SettingsManager.getDefaultProvider()` / `getDefaultModel()`, from Pi's `settings.json`.
+  - **Per-session override:** optional, taken from the same model list.
 - **Access:** Tailscale only, with `tailscale serve` for HTTPS. There is no public port and no app-level login
   beyond the tailnet.
 - **Plan gate:** `begin_implementation` parks until the user approves the plan on the phone. The user can also
