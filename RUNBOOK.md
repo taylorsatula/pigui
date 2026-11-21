@@ -9,8 +9,9 @@ is out of scope for the implementer, except for the deploy files Part A must pro
 | | |
 |---|---|
 | Version | 1.0, frozen 2026-11-21 |
+| Language | **TypeScript everywhere**: server, browser client, service worker, tests and end-to-end tests. Pi Durable and its packages are TypeScript, so sharing their types end to end keeps the integration seamless. |
 | Platform | `@earendil-works/*` **1.6.0** from npm; Node.js ≥ 22.19; Ubuntu 24.04 for deployment |
-| Network needed to build | npm registry. Nothing else: the definition of done runs with no model credentials and no GitHub access. |
+| Network needed to build | npm registry, plus Playwright's Chromium download unless a Chromium is already installed (§A13.3). No model credentials and no GitHub access are needed: the definition of done runs entirely in fake mode. |
 
 ---
 
@@ -22,7 +23,7 @@ is out of scope for the implementer, except for the deploy files Part A must pro
 - A4 Architecture
 - A5 Dependencies (exact pins)
 - A6 Pi Durable 1.6.0 API facts
-- A7 Repository layout and size budget
+- A7 Repository layout
 - A8 Data model
 - A9 Session lifecycle
 - A10 The agent extension
@@ -106,10 +107,25 @@ plan-first workflow is a default taught by the system prompt, not a lock enforce
 - a file browser;
 - CI watching;
 - sessions spanning multiple repos;
-- bundlers or transpilers.
+- a bundler (`tsc` is the only build tool).
 
-**Rule 3: size budget (hard).** Server code ≤ **1,500** lines (`src/**/*.ts`). Client code ≤ **1,900** lines
-(`public/**/*.{js,css,html}`, excluding vendored libraries and icons). Tests and deploy files are not counted.
+**Rule 3: complete, correct and maintainable.** There is no size target. The implementation is judged on whether it
+is complete, works correctly, and stays maintainable over time. Concretely:
+- **Complete:** every behavior in Part A works, including the error paths and restart paths. A smaller
+  implementation that skips behavior is worse, not better.
+- **Clear boundaries:** each module has one responsibility (for example HTTP, sessions, GitHub, agent extension,
+  monitor, notifications, maintenance) and talks to others through small typed interfaces. UI components are split
+  by concern (navigation, transcript, cards, composer).
+- **One definition of each shape:** API payloads, SSE events, document shapes and session states are defined once
+  in shared TypeScript modules, and imported by both the server and the client.
+- **Strict TypeScript:** no `any`, except at a documented library boundary with a comment saying why. Prefer types
+  from `@earendil-works/*` over re-declaring them.
+- **Errors handled where they enter:** validate inputs at the HTTP boundary, wrap shell-outs with clear messages,
+  and never swallow an error silently.
+- **Nothing speculative:** no dead code, no unused abstractions, no options nobody asked for, and nothing from the
+  non-goals.
+- **Behavioral tests:** tests exercise behavior through public interfaces, not internals.
+- **Comments say why, not what.**
 
 ## A3. Glossary
 
@@ -164,23 +180,45 @@ Pin exact versions (`.npmrc` with `save-exact=true`) and commit `package-lock.js
 | `@earendil-works/chord` | 1.6.0 | runtime |
 | `@earendil-works/pi-schema` | 1.6.0 | runtime |
 | `web-push` | 4.0.0 | runtime. It ships no TypeScript types, so declare the few functions you use in a local `.d.ts`. |
-| `preact` | 11.2.0 | runtime (browser) |
-| `htm` | 3.1.1 | runtime (browser) |
+| `preact` | 11.2.0 | runtime (browser; includes `preact/jsx-runtime` for TSX) |
 | `marked` | 18.2.1 | runtime (browser) |
 | `dompurify` | 3.4.18 | runtime (browser) |
-| `typescript` | 5.9.3 | dev (typecheck only) |
+| `typescript` | 5.9.3 | dev: typechecks everything and compiles the browser code |
 | `@types/node` | 22.20.5 | dev |
-| `playwright` | 1.65.1 | dev (end-to-end tests) |
+| `@playwright/test` | 1.65.1 | dev: end-to-end tests, written in TypeScript |
 
-**Language and tooling:**
-- **Server TypeScript:** run directly by Node's built-in type stripping. No build step and no transpiler. Use only
-  erasable syntax (no `enum`, `namespace` or parameter properties), and import local files with the `.ts` extension.
-- **tsconfig:** `strict: true`, `noEmit: true`, `module` and `moduleResolution` set to `nodenext`, `target` es2023,
-  `allowImportingTsExtensions: true`, `skipLibCheck: true`, `types: ["node"]`.
-- **Client:** plain ES modules loaded through an **import map**. No bundler.
-- **Required npm scripts:** `start`, `dev:fake`, `test`, `e2e`, `check` (§A13).
-- **Node version:** if the environment's Node is older than 22.19, install a newer one (for example with nvm) before
-  starting.
+**Language and tooling: TypeScript everywhere, with `tsc` as the only build tool**
+- **Server** (`src/server`, `src/shared`): `.ts` files run directly by Node's built-in type stripping, with no build
+  step.
+  - Use only erasable syntax: no `enum`, `namespace` or parameter properties.
+  - Import local files with the `.ts` extension.
+  - tsconfig: `strict`, `noEmit`, `module` and `moduleResolution` set to `nodenext`, `target` es2023,
+    `allowImportingTsExtensions`, `skipLibCheck`, `types: ["node"]`.
+- **Browser client** (`src/client`, plus `src/shared`): TSX components using Preact's automatic JSX runtime.
+  - Compiled by `tsc` to ES modules in `build/`, with no bundler.
+  - tsconfig: `strict`, `module` esnext, `moduleResolution` bundler, `jsx` react-jsx, `jsxImportSource` preact,
+    `rewriteRelativeImportExtensions: true` (so source imports use `.ts`/`.tsx` and output uses `.js`), `lib` es2022
+    plus dom plus dom.iterable, `outDir` build.
+  - Bare imports (`preact`, `marked`, `@earendil-works/chord/delta`, and so on) stay bare in the output and are
+    resolved in the browser by the import map (§A14.8).
+  - Shared types are imported with `import type`, so they are erased.
+  - This pipeline was verified (§C3).
+- **Service worker** (`src/sw/sw.ts`): its own tsconfig with `lib` webworker, compiled to `build/sw.js`, and served
+  at `/sw.js`.
+- **Tests:** `node:test` files in TypeScript, run by Node directly. **End-to-end:** `@playwright/test` specs in
+  TypeScript.
+- **Required npm scripts:**
+
+  | Script | Does |
+  |---|---|
+  | `build` | compile the client and service worker |
+  | `check` | typecheck every tsconfig: server, client, service worker, tests |
+  | `start` | build, then run the server |
+  | `dev:fake` | build, then run in fake mode |
+  | `test` | unit and integration tests |
+  | `e2e` | Playwright, which starts `dev:fake` itself |
+- **Node version:** Node ≥ 22.19 is required. If the environment's Node is older and a newer one can't be installed,
+  record that in `DECISIONS.md`.
 
 ## A6. Pi Durable 1.6.0 API facts
 
@@ -220,8 +258,8 @@ The 1.6.0 shapes:
 - Call `await models.settleCredentialWrites()` before exit.
 - `models.getModel(provider, id)` returns a model whose `input` lists its modalities (`"text"`, `"image"`).
 - `SettingsManager.create(cwd, getAgentDir())` gives the defaults through `getDefaultProvider()`,
-  `getDefaultModel()` and `getDefaultThinkingLevel()`. Thinking level values are `"off" | "minimal" | "low" |
-  "medium" | "high" | "xhigh" | "max"` and are compatible with Durable's.
+  `getDefaultModel()` and `getDefaultThinkingLevel()`. Pass the thinking level through to the conversation's agent
+  unchanged, and omit it when it is undefined.
 
 **Opening the Harness**
 - `await Harness.open(storage, { models, registry, env, onReport? }, ctx)`.
@@ -279,7 +317,10 @@ The 1.6.0 shapes:
 **Documents**
 - Define with `defineDoc<T>({ kind, version, scope: "session", initial, checkpointWhen: () => false })`.
   `checkpointWhen` is **required**.
+- Durable's scope `"session"` means **one singleton per Harness**. That is not a picloud session. All picloud
+  documents use it; none are conversation-scoped.
 - Write inside a commit with `(await tx.doc(Token)).field = …`. `tx.doc` creates the document on first use.
+- The server writes with `harness.commit(async (tx) => { … }, ctx)`. Tools write with `api.commit(…)`.
 - Read with `harness.snapshot(Token, ctx)`, or `api.snapshot(Token, ctx)` inside tools and hooks.
 - Built-in conversation docs are read with `harness.snapshot(LiveDoc, conversationId, ctx)`.
 - **Documents must be JSON:** never store `undefined`; omit the key.
@@ -331,25 +372,30 @@ The 1.6.0 shapes:
   directly, for example `(await tx.doc(UsageDoc, conversationId)).models["test/x"] = { cost: { total: 9 } }`.
   Verified.
 
-## A7. Repository layout and size budget
+## A7. Repository layout
 
 Suggested layout. You may organize it differently, but the paths marked **(required)** must exist.
 ```
-package.json, package-lock.json, .npmrc, tsconfig.json         (required)
-README.md            (required) how to run dev:fake, tests, e2e; points to RUNBOOK.md Part B for deployment
+package.json, package-lock.json, .npmrc, tsconfig files        (required)
+README.md            (required) how to build, run dev:fake, test, e2e; points to RUNBOOK.md Part B for deployment
 DECISIONS.md         (required) choices made where this runbook was silent
 RUNBOOK.md           (required) this file, unchanged
-src/                 server: main, config, harness, extension, sessions, github (real+fake), monitor, push,
-                     maintenance, http
-public/              index.html, manifest.webmanifest, sw.js, app/transcript/cards/composer modules, style.css, icons/
+src/shared/          API payloads, SSE events, document shapes, session states: imported by server and client
+src/server/          main, config, harness, agent extension, sessions, github (real + fake), fake model, monitor,
+                     notifications, maintenance, http
+src/client/          TSX: app shell and routing, drawer, transcript, cards, composer, sheets, sync
+src/sw/              service worker
+public/              index.html, manifest.webmanifest, style.css, icons/  (static, no code)
+build/               tsc output for client and service worker (generated, not committed)
 test/                node:test suites (§A13.2)
-e2e/                 Playwright suite (§A13.3)
+e2e/                 Playwright specs (§A13.3)
 deploy/              (required) picloud.service, picloud-backup.service, picloud-backup.timer (§B5, §B7)
 ```
 
 ## A8. Data model
 
-All state lives in one SQLite file managed by Durable. picloud adds three session-scoped documents and one signal.
+All state lives in one SQLite file managed by Durable. picloud adds three Harness-wide singleton documents (Durable
+scope `"session"`, §A6.2) and one signal.
 
 ### A8.1 Document `picloud.sessions` (version 1)
 `{ items: Record<sessionId, SessionItem> }`, where `sessionId` is `String(conversationId)`.
@@ -370,6 +416,7 @@ All state lives in one SQLite file managed by Durable. picloud adds three sessio
 | `createdAt`, `updatedAt` | number | ms epoch; every change sets `updatedAt` |
 | `budgetUsd?` | number | spend cap for this session (from config; raisable) |
 | `plan?` | `{ title, summary, steps: string[], assumptions: string[], completed: number[] }` | from `submit_plan` / `update_plan`; `completed` holds 1-based step numbers |
+| `planApproved?` | true | set when the person approves the plan; cleared when a new plan is submitted |
 | `report?` | `{ summary, changes: string[], verification, notes: string[], commits: string[] }` | from `final_report` |
 | `error?` | string | for `failed` / `stopped` |
 | `archived?` | true | hidden from the main list |
@@ -402,12 +449,12 @@ so `(taskId, "reply")` is unique per card.
 | `planning` | exploring or planning | server after submit; `ask_user` answered; plan revised | Working |
 | `question` | `ask_user` parked | `ask_user` | Needs you |
 | `approval` | `submit_plan` parked | `submit_plan` | Needs you |
-| `implementing` | plan approved; nudge active | `submit_plan` approved; continue after an implementing failure | Working |
+| `implementing` | plan approved; nudge active | `submit_plan` approved; Continue when `planApproved` and no `report` | Working |
 | `working` | interactive follow-up run (no nudge) | server when a message starts a run on an idle or finished session | Working |
 | `idle` | run ended with an ordinary answer; the person's turn | monitor | Needs you |
 | `reported` | report filed; awaiting delivery choice | `final_report` | Needs you |
 | `delivered` | pushed (and maybe PR) | server deliver | Done |
-| `stopped` | Stop pressed, or budget reached | server, monitor | Done (budget: Needs you) |
+| `stopped` | Stop pressed, or budget reached (`error` begins `Budget of`) | server, monitor | Done; a budget stop is Needs you |
 | `failed` | setup or run failed | server, monitor | Needs you |
 
 **Transition rules:**
@@ -419,6 +466,12 @@ so `(taskId, "reply")` is unique per card.
   set `working`, which is the "keep working" path. A later `final_report` returns the session to `reported`.
 - **Delivery** is allowed only from `reported` or `delivered`, and only while no run is active.
 - **On server start,** any `preparing` session becomes `failed` ("Server restarted during setup").
+- **While `preparing`,** only Stop and Archive are accepted. Message, Answer, Continue, Budget and Deliver return
+  409 "Session is still setting up". Stop sets `stopped`, and setup must check the state before submitting the task:
+  if it is no longer `preparing`, setup leaves it as is.
+- **Archive** is allowed in any state.
+- **The state a run ends in is never overwritten by the monitor** if it is `reported`, `delivered`, `stopped` or
+  `failed` (§A11.6).
 
 ## A10. The agent extension
 
@@ -484,9 +537,11 @@ them with `api.memo`.
   }
   ```
 - **Behavior:**
-  - **Fresh call:** remember the current state, set state `question`, and notify "Pi has a question" with the first
-    question as the body. Then park on `picloud.reply`.
-  - **Woken:** restore the remembered state and return the signal's `text` as the result.
+  - **Fresh call or woken:** decide with `api.readSignal`. It is a reply only if the result has a `value`.
+  - **Fresh call:** memoize the current state with `api.memo` (first writer wins, so a rerun after a restart cannot
+    replace it with `question`). Set state `question`, notify "Pi has a question" with the first question as the
+    body (once per call, §A10.3), then park on `picloud.reply`.
+  - **Woken:** restore the memoized state and return the signal's `text` as the result.
 
 **`submit_plan`.** `replay: "safe"`.
 - **Description:** "Submit your implementation plan for the person to approve. Waits for approval. If they ask for
@@ -494,9 +549,10 @@ them with `api.memo`.
 - **Parameters:** `title` (1–60 chars), `summary` (≤ 600), `steps` (1–15 strings, each ≤ 300), `assumptions?` (≤ 10
   strings, each ≤ 300).
 - **Behavior:**
-  - **Fresh call:** store the `plan` (with `completed: []`), set the session `title`, set state `approval`, and
-    notify "Plan ready" with the plan title as the body. Park.
-  - **Woken with `approved: true`:** set state `implementing` and return "Approved. Implement the plan now, without
+  - **Fresh call:** store the `plan` (with `completed: []`), clear `planApproved`, set the session `title`, set state
+    `approval`, and notify "Plan ready" with the plan title as the body. Park. A rerun of this step after a restart
+    writes the same values, so it is harmless.
+  - **Woken with `approved: true`:** set `planApproved`, set state `implementing`, and return "Approved. Implement the plan now, without
     stopping to ask permission. Call update_plan as steps complete. Finish with final_report."
   - **Otherwise:** set state `planning` and return "The person asked for changes: {text}. Revise the plan and call
     submit_plan again."
@@ -527,7 +583,9 @@ them with `api.memo`.
   6. Return "Report filed. End your turn with one short sentence; do not repeat the report."
 
 ### A10.4 The `onYield` nudge
-Applies only when the session state is `implementing`.
+Applies only when the session state is `implementing`. A **nudge entry** is a `pi.user` entry whose message content
+is exactly the nudge text below. That is the only way to recognize one: the hook counts them, the fake model
+recognizes them, and the client hides them.
 1. Count the nudges already given in this stretch. Scan entries from newest to oldest. Stop at the `pi.tool-result`
    whose `toolName` is `submit_plan`, or at a `pi.user` entry that is not a nudge. Count the nudge entries passed on
    the way.
@@ -535,7 +593,12 @@ Applies only when the session state is `implementing`.
    `You have not called final_report yet. Continue the approved plan to completion, then call final_report.`
 3. Otherwise, let the run end.
 
-Every session conversation also gets `maxTurns` from config (default 200).
+The count restarts only at a plan approval or a real person's message. So a Continue after the nudges were exhausted
+gets no further nudges. This is intended: the person has seen the stop and chosen to continue.
+
+Every session conversation also gets `maxTurns` from config (default 200). Durable restarts the turn count at each
+`onYield` continuation, so one nudged run can take up to 4 × `maxTurns` turns. The spend budget (§A11.6) is the
+bound on cost.
 
 ## A11. Server behavior
 
@@ -553,10 +616,11 @@ Every session conversation also gets `maxTurns` from config (default 200).
 
 ### A11.2 Startup and shutdown
 **Startup:**
-1. Create the data and work directories.
-2. Load models: Pi's `ModelRuntime`, or faux in fake mode.
-3. Resolve the default model from Pi settings. Missing in real mode means exit with code 1 and this message: "No
-   default model. As user picloud run `pi`, then /login and /model."
+1. Load models: Pi's `ModelRuntime`, or faux in fake mode.
+2. Resolve the default model from Pi settings. Missing in real mode means exit with code 1 and this message: "No
+   default model. As user picloud run `pi`, then /login and /model." This happens before anything touches the data
+   directory.
+3. Create the data and work directories.
 4. Build the registry (§A10).
 5. Open SQLite storage and the Harness.
 6. Ensure the three documents exist, and create VAPID keys if absent.
@@ -601,7 +665,7 @@ All GitHub-specific operations go behind one interface with two implementations:
 ### A11.4 Session operations
 
 **Create** `(repo, branch?, text, attachments, requestId)`:
-- **Idempotent** by `requestId`.
+- **Idempotent** by `requestId`: a repeated `requestId` returns `201` with the existing session's `{ id }`.
 - **Create the conversation** with the default model, `cwd` = a new workspace path, and `maxTurns`. Store the item
   as `preparing` and **respond immediately**.
 - **Then, asynchronously:**
@@ -609,8 +673,10 @@ All GitHub-specific operations go behind one interface with two implementations:
   2. **New mode:** check out the chosen base (or the default branch) and create the working branch.
   3. **Continue mode:** check out the chosen branch tracking origin, and detect an existing PR.
   4. Set the git identity, add the exclude entry, and record `startSha` and `compareRef`.
-  5. Submit the task with `requestId` (attachments per §A11.5), set `planning`, and start the monitor.
+  5. If the state is still `preparing`, submit the task with `requestId` (attachments per §A11.5), set `planning`, and
+     start the monitor.
 - **Any failure** sets `failed` with `error`.
+- **Fake and real use the same git commands.** Only the clone source and the GitHub-API operations differ.
 
 **Message** `(text, attachments, requestId)`: route in this order.
 1. **A card is pending.** That means a `pi.live` tool slot with `status === "sleeping"` named `ask_user` or
@@ -624,16 +690,20 @@ All GitHub-specific operations go behind one interface with two implementations:
 **Answer** `(callId, payload)`:
 - **Find the card:** look up the slot by `callId`. It must be `sleeping`, otherwise return 409. The client never
   sends task IDs.
-- **`ask_user` text:** one line per question, `{header}: {answer}`. Multi-select answers are joined with `"; "`, and
-  a free-text answer becomes `Other: "{text}"`.
+- **`ask_user` text:** `answers` are matched to questions **by position**; `header` is carried for readability. Each
+  produces one line, `{header}: {answer}`. Selected labels are used verbatim, including any "(Recommended)".
+  Multi-select answers are joined with `"; "`. A free-text answer becomes `Other: "{text}"`.
 - **`submit_plan`:** `{ approved, text: feedback ?? "" }`.
 
 **Stop:** set `stopped`, then abort the conversation.
 
-**Continue:** used after `failed` or `stopped`. Submit `{ type: "continue" }`, then set `implementing` if a plan was
-approved and no report exists, otherwise `working`.
+**Continue:** used after `failed` or `stopped`. Submit `{ type: "continue" }`, then set `implementing` if
+`planApproved` is set and no `report` exists, otherwise `working`.
 
-**Budget** `(budgetUsd)`: set the session's cap. It must be greater than the current spend.
+**Budget** `(budgetUsd)`: set the session's cap. A value not greater than the current spend returns 400.
+
+**Spend check:** while the session's spend is at or above `budgetUsd`, Message and Continue return 409 "Budget
+reached; raise it first".
 
 **Deliver** `(kind: "push" | "pr")`:
 - **Preconditions:** the state is `reported` or `delivered`, no run is active, and the report has at least one commit.
@@ -659,15 +729,17 @@ Use one `observeConversation` per active session. Defer handling out of `advance
 | `runFailure.reason` | Action |
 |---|---|
 | `aborted` | do nothing; Stop or budget already set the state |
-| any other reason | `failed`, `error = reason + detail`, notify "Run failed" |
+| any other reason | `failed`, `error = detail ? "{reason}: {detail}" : reason`, notify "Run failed" |
 | no failure, state `planning` or `working` | `idle`, notify "Pi replied" (body: first 100 chars of the last assistant text) |
 | no failure, state `implementing` | `idle`, notify "Pi stopped without a report" |
+| no failure, any other state (e.g. `reported`) | no change |
 
-**Budget:** while a run is active and `budgetUsd` is set, total the cost from `pi.usage` (sum of every
-`cost.total`). When it reaches `budgetUsd`: set `stopped` with `error = "Budget of ${budgetUsd} reached"`, abort, and
-notify "Budget reached".
+**Budget:** evaluate on **every** `advance` of the conversation observer (a commit that only changes `pi.usage` also
+produces one; verified), and whenever the budget is changed. Total the cost from `pi.usage` (sum of every
+`cost.total`). When a run is active and the total reaches `budgetUsd`: set `stopped` with
+`error = "Budget of ${budgetUsd} reached"`, abort, and notify "Budget reached".
 
-**Detach** the observer when the session leaves the active states.
+**Detach** the observer only once no run is active and the session is not in an active state.
 
 ### A11.7 SSE streams
 - **Headers:** `text/event-stream` and `cache-control: no-store`.
@@ -685,14 +757,16 @@ For each session that is archived, delivered and not yet pruned, with `updatedAt
 `pruned`. Never delete anything else. Never delete a workspace with unpushed commits.
 
 ### A11.9 Static files and vendor mapping
-- **Static:** serve `public/`. `sw.js` gets `cache-control: no-cache`.
-- **Vendor:** serve `/vendor/...` from `node_modules`, with no copies:
+- **Static:** serve `public/`, and the compiled client at `/build/...`. Serve `build/sw.js` at `/sw.js` with
+  `cache-control: no-cache`, so its scope is the whole app.
+- **Vendor:** serve `/vendor/...` from `node_modules`, with no copies. Each path below was verified to exist in the pinned
+  versions:
 
   | URL | File |
   |---|---|
   | `/vendor/preact.mjs` | `preact/dist/preact.mjs` |
   | `/vendor/hooks.mjs` | `preact/hooks/dist/hooks.mjs` |
-  | `/vendor/htm.mjs` | `htm/dist/htm.mjs` |
+  | `/vendor/jsx-runtime.mjs` | `preact/jsx-runtime/dist/jsxRuntime.mjs` |
   | `/vendor/marked.mjs` | `marked/lib/marked.esm.js` |
   | `/vendor/purify.mjs` | `dompurify/dist/purify.es.mjs` |
   | `/vendor/chord/*` | `@earendil-works/chord/dist/*` (its `delta/index.js` imports only relative files) |
@@ -718,7 +792,7 @@ For each session that is archived, delivered and not yet pruned, with `updatedAt
 | `GET /api/events` | | SSE (§A11.7) |
 | `POST /api/sessions` | `{ repo, branch?: { mode: "new", base?: string } \| { mode: "continue", name: string }, text, attachments?, requestId }` | `201 { id }` |
 | `GET /api/sessions/:id/events` | | SSE (§A11.7) |
-| `GET /api/sessions/:id/entries?before=<entryId>&limit=50` | | `{ items }`, oldest first, strictly older than `before` |
+| `GET /api/sessions/:id/entries?before=<entryId>&limit=50` | | `{ items }`, oldest first, strictly older than `before` (`maxEntryId` is inclusive, so exclude `before` itself) |
 | `POST /api/sessions/:id/messages` | `{ text, attachments?, requestId }` | `202 {}` |
 | `POST /api/sessions/:id/answer` | `{ callId, answers?: [{ header, selected: string[], other?: string }], approved?: boolean, feedback?: string }` | `202 {}` |
 | `POST /api/sessions/:id/stop` | | `202 {}` |
@@ -738,8 +812,13 @@ and evaluation.
 **Fake model:** the pi-ai faux provider with a deterministic scenario. Each response is decided from that
 conversation's own messages (§A6.2), as a state machine:
 
-"The task" means the conversation's first user message. Any later user message is "a person's message". Rules are
-checked top to bottom.
+Definitions:
+- **The task:** the conversation's first user message.
+- **A nudge:** a user message whose content equals the §A10.4 nudge text exactly.
+- **A person's message:** any other later user message.
+- `chat` is matched case-insensitively as a substring of the task.
+
+Rules are checked top to bottom.
 
 | Last message in the conversation | Fake model responds with |
 |---|---|
@@ -751,7 +830,7 @@ checked top to bottom.
 | `write` result | `bash` `git add -A && git commit -qm "Add demo file"` |
 | `bash` result | `update_plan` `{ completed: [1, 2] }` |
 | `update_plan` result | `final_report` with summary `Added PICLOUD_DEMO.md.`, 1 change, verification `File exists.`, setupNotes `No build needed.` |
-| `final_report` result, or a nudge | text `Done.` |
+| a nudge, or a `final_report` result | text `Done.` |
 | a person's message (any state) | text `Noted.` |
 | anything else | text `Done.` |
 
@@ -763,8 +842,9 @@ checked top to bottom.
   - The repo list and branches come from those bare repos.
   - Clone with `git clone <bare path>`; push to the bare repo.
   - Identity is `picloud-dev <dev@picloud.invalid>`.
-  - PR create records a PR and returns `http://127.0.0.1:<port>/fake-pr/<n>`, which serves a page showing the title
-    and body. PR lookup finds recorded PRs.
+  - PR create records a PR as a JSON file under `<PICLOUD_DATA>/fake-origin/prs/`, so PRs survive restarts. It
+    returns `http://127.0.0.1:<port>/fake-pr/<n>`, which serves a page showing the title and body. PR lookup reads
+    the recorded PRs.
 
 **Other differences:** notifications are logged. The `config` event reports `fake: true`, and the UI shows a small
 "Fake mode" label in the drawer footer.
@@ -774,6 +854,16 @@ checked top to bottom.
 
 ### A13.2 Required automated tests (`npm test`, `node:test`)
 Tests use real SQLite storage in temporary directories, the faux model and the fake GitHub. Do not mock Durable.
+
+**Test seams (required).** The server must be constructible in-process, separately from `main`, with injectable:
+- the data directory;
+- fake mode;
+- a replacement fake-model scenario (for example a model that only answers in plain text, or that errors);
+- a notification sink, so tests can count notifications;
+- a clock used by maintenance.
+
+It must expose its Harness and listening port to tests, and close cleanly so a test can reopen the same data
+directory. Choose the shape of this interface yourself and describe it in `README.md`.
 Required cases:
 
 1. **Lifecycle:** create → `question` → answer → `approval` → approve → `implementing` → `reported`. The report has
@@ -803,8 +893,12 @@ Required cases:
 14. **Access control:** with `PICLOUD_ALLOWED_LOGINS` set, requests without a listed `Tailscale-User-Login` get 403.
 
 ### A13.3 Required end-to-end suite (`npm run e2e`, Playwright)
-- **Setup:** start a fake-mode server and use the Chromium device profile `iPhone 15`. If Chromium is not installed,
-  install it with `npx playwright install chromium`.
+- **Setup:** Playwright's `webServer` starts `npm run dev:fake`.
+  - Use the device profile `iPhone 15`, but **override `defaultBrowserType` to `chromium`** (the profile defaults to
+    WebKit).
+  - Install Chromium with `npx playwright install chromium`. If that download is blocked, use an existing Chromium
+    via `launchOptions.executablePath`, read from an environment variable such as `PICLOUD_CHROMIUM`, and record it
+    in `DECISIONS.md`.
 - **Required scenarios:**
   1. Open the app. With no sessions, the New session view is shown. Choose `demo/app` and send a task. The question
      card appears. Tap `Small (Recommended)`. The plan card appears. Tap Approve. The report card appears with Push
@@ -822,15 +916,16 @@ Required cases:
 
 ### A13.4 Definition of done (all must hold)
 1. `npm ci` succeeds from the committed lockfile.
-2. `npm run check` reports 0 TypeScript errors.
+2. `npm run build` succeeds, and `npm run check` reports 0 TypeScript errors across every tsconfig.
 3. `npm test` passes every case in §A13.2.
 4. `npm run e2e` passes every scenario in §A13.3.
-5. The size budget (§A2) holds:
-   `find src -name '*.ts' -exec cat {} + | wc -l` ≤ 1500, and
-   `find public \( -name '*.js' -o -name '*.css' -o -name '*.html' \) -not -path '*/icons/*' -exec cat {} + | wc -l` ≤ 1900.
+5. All source is TypeScript (`.ts`/`.tsx`). The only JavaScript in the repository is generated output in `build/`,
+   which is not committed.
 6. The required files (§A7) exist, `RUNBOOK.md` is unchanged, and `DECISIONS.md` lists every choice made where this
    runbook was silent.
-7. `npm start` without `PICLOUD_FAKE` and without Pi credentials exits with the "No default model" message (§A11.2).
+7. With `PICLOUD_FAKE` unset, no Pi credentials, and `PICLOUD_DATA` set to a writable temporary directory,
+   `npm start` exits with code 1 and the "No default model" message (§A11.2).
+8. The code meets Rule 3 (§A2). Tests can't check this; it is how the result is judged.
 
 ## A14. PWA specification
 
@@ -900,7 +995,7 @@ Each design choice names the Apple Human Interface Guidelines (HIG) principle it
 | `live.generation.message` | The streamed partial, rendered as the last assistant block and updated in place. No spinner over content. | non-blocking feedback |
 | running tool slots | The group row reads "Running `npm test`…"; live output is shown at level 3. | feedback |
 | `live.generation.retry` | Status line "Model error, retrying…" | keep people informed |
-| `failed` / `stopped` state | Inline banner with the reason and **Continue**. For a budget stop, the banner reads "Raise to ${2× budget} and continue". | recoverable errors with a next step |
+| `failed` / `stopped` state | Inline banner with the reason and **Continue**. For a budget stop (`error` begins `Budget of`), the banner reads "Raise to ${X} and continue", where X = max(2 × budget, ceil(spend) + 1). It calls Budget, then Continue. | recoverable errors with a next step |
 
 - **Status line,** above the composer:
   - "Working · step {done}/{total}" when there's a plan, or "Working · turn {run.turns}" when there isn't;
@@ -1006,8 +1101,9 @@ Each design choice names the Apple Human Interface Guidelines (HIG) principle it
 - **`index.html`:**
   - Viewport: `width=device-width, initial-scale=1, viewport-fit=cover`.
   - `apple-mobile-web-app-capable`, an `apple-touch-icon` (180 px) and the manifest link.
-  - The import map: `preact`, `preact/hooks`, `htm`, `marked`, `dompurify` and `chord-delta`, mapped to the
-    `/vendor/...` URLs (§A11.9).
+  - The import map: `preact`, `preact/hooks`, `preact/jsx-runtime`, `marked`, `dompurify` and
+    `@earendil-works/chord/delta` (→ `/vendor/chord/delta/index.js`), mapped to the `/vendor/...` URLs (§A11.9).
+  - The module script `/build/client/main.js`, or whatever entry the client compiles to.
 - **Manifest:** name and short name `picloud`, `display: standalone`, `start_url: /`, and icons at 192 and 512 px
   (`any maskable`).
 - **Service worker:**
@@ -1166,7 +1262,8 @@ sudo -iu picloud pi        # /login → choose provider; /model → choose defau
 | D14 | Plan progress via `update_plan` | Glanceable progress; helps the model stay on track. |
 | D15 | Rebase before report | Avoids conflicted PRs after long runs. |
 | D16 | Fake mode (faux model + local bare repos) | The whole product is testable and evaluable without credentials. |
-| D17 | No bundler; import maps; Node type stripping | Fewer moving parts. |
+| D17 | TypeScript everywhere; `tsc` as the only build tool; import maps; Node type stripping on the server | Seamless use of Pi Durable's types end to end, and API shapes shared between server and client; no bundler to maintain. |
+| D19 | No size target; judged on completeness, correctness and maintainability | Size can't be known in advance. Optimizing for it trades away behavior and clarity. |
 | D18 | Exact pins at 1.6.0; use the npm README | Durable is experimental; GitHub main differs (§A6). |
 
 ## C3. Verification record
@@ -1177,7 +1274,9 @@ and the faux model:
 - `submit_plan`-style approval transitions work, and `CodingTools`' `write` writes into the conversation `cwd`.
 - An `onYield` `{ continue }` resumes a run that stopped early. Counting nudge entries caps it at exactly 3.
 - Applying watch ops with `applyImmutable` reproduces the server's view exactly.
-- `observeDoc` on a session-scoped document delivers one `advance` per commit.
+- `observeDoc` on a Harness-wide (`scope: "session"`) document delivers one `advance` per commit.
+- `observeConversation` also advances on a commit that only changes `pi.usage`, and the view's `docs` contain
+  `pi.agent`, `pi.live`, `pi.inbox`, `pi.provider` and `pi.usage`.
 - `observeConversation` reports run start and end, with `runFailure.reason` `aborted` (abort while parked) and
   `model_error`.
 - `entries` with `maxEntryId` is inclusive. Entry and conversation IDs are numbers.
@@ -1187,4 +1286,8 @@ and the faux model:
   conversations correctly.
 - `ModelRuntime.create()` is accepted as Harness `models` and succeeds without credentials. `SettingsManager` gives
   the default model. The `pi-context` loaders typecheck.
-- Preact, htm, marked, DOMPurify and Chord `delta` load in Chromium through an import map with no bundler.
+- The browser toolchain works end to end: TSX components using `preact/jsx-runtime`, plus shared types imported with
+  `import type`, compiled by `tsc` 5.9.3 (`moduleResolution` bundler, `rewriteRelativeImportExtensions`). The result
+  loads in Chromium through an import map mapping `preact`, `preact/hooks`, `preact/jsx-runtime`, `marked`,
+  `dompurify` and `@earendil-works/chord/delta`. It renders, applies Chord ops and sanitizes markdown with no console
+  errors and no bundler.

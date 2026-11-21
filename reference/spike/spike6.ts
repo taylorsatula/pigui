@@ -1,0 +1,16 @@
+import { BACKGROUND_CONTEXT as ctx } from "@earendil-works/chord/context";
+import { createModels } from "@earendil-works/pi-ai/models";
+import { fauxAssistantMessage, fauxProvider } from "@earendil-works/pi-ai/providers/faux";
+import { createRegistry, Harness, MemoryStorage, UsageDoc } from "@earendil-works/pi-durable";
+const faux = fauxProvider(); faux.setResponses([fauxAssistantMessage("x")]);
+const models = createModels(); models.setProvider(faux.provider);
+const h = await Harness.open(new MemoryStorage(), { models, registry: createRegistry() }, ctx);
+const c = await h.createConversation({ ownership: { kind: "ownerless" }, agent: { model: { provider: "faux", modelId: "faux-1" } } }, ctx);
+await (await c.submit({ type: "input", content: "hi" }, ctx)).wait(ctx);
+let n = 0; let last: any;
+const o = await h.observeConversation(c.id, { advance: (call) => { if (call.kind === "value") { n++; last = call.value.docs["pi.usage"]; } }, end: () => {} }, ctx);
+console.log("docs keys in view:", Object.keys(o!.value.docs).join(","));
+await h.commit(async (tx) => { (await tx.doc(UsageDoc, c.id)).models["test/x"] = { cost: { total: 9 } } as any; }, ctx);
+await new Promise((r) => setTimeout(r, 20));
+console.log("advances after usage-only commit:", n, "| usage in view:", JSON.stringify(last?.models?.["test/x"]));
+o!.detach(); await h.close(ctx);
