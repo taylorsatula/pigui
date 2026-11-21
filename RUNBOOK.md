@@ -1,17 +1,30 @@
 # picloud: implementation runbook (v1)
 
 **Read this first.** This document is the complete specification for building picloud v1. It is self-contained:
-nothing outside this file is required. Implement **Part A** to completion, autonomously. Do not stop to ask
-questions. Where this runbook is silent, make the simplest choice consistent with §2 (Scope rules), and record it in
-`DECISIONS.md` at the repository root (one line per decision: what and why). **Part B** is for the human operator and
-is out of scope for the implementer, except for the deploy files Part A must produce (§A13).
+nothing outside this file is required.
+
+- **Implement Part A to completion, autonomously.** Do not stop to ask questions.
+- **Where this runbook is silent,** make the simplest choice consistent with §A2 (Scope rules), and record it in
+  `DECISIONS.md` at the repository root, one line per decision: what and why.
+- **Install what the build and tests need.** You have full command-line access to this machine. Install the tools
+  the build and tests require (Node.js ≥ 22.19, npm packages, Playwright's Chromium with its system libraries) by
+  whatever means the machine supports.
+- **Part A must not change the machine's running services.** It must not:
+  - install, run or change systemd units, Tailscale, users or `/var/lib/picloud`;
+  - run `deploy/install.sh`;
+  - bind port 8787.
+
+  This machine may already be running picloud. Part A works inside the repository directory and temporary
+  directories only, apart from installing build and test tools.
+- **Part B is deployment.** Part A produces an automated installer (§A16). Running it, and the few steps that need
+  a human (sign-ins, an admin console, the phone), happen only when someone deliberately deploys.
 
 | | |
 |---|---|
 | Version | 1.0, frozen 2026-11-21 |
 | Language | **TypeScript everywhere**: server, browser client, service worker, tests and end-to-end tests. Pi Durable and its packages are TypeScript, so sharing their types end to end keeps the integration seamless. |
 | Platform | `@earendil-works/*` **1.6.0** from npm; Node.js ≥ 22.19; Ubuntu 24.04 for deployment |
-| Network needed to build | npm registry, plus Playwright's Chromium download unless a Chromium is already installed (§A13.3). No model credentials and no GitHub access are needed: the definition of done runs entirely in fake mode. |
+| Network needed to build | npm registry, Playwright's browser download, and the OS package manager (for Chromium's system libraries). No model credentials and no GitHub access are needed: the definition of done runs entirely in fake mode. |
 
 ---
 
@@ -32,17 +45,15 @@ is out of scope for the implementer, except for the deploy files Part A must pro
 - A13 Fake mode, tests and definition of done
 - A14 PWA specification
 - A15 Notifications
+- A16 Deployment automation (`deploy/install.sh`)
 
-**Part B: Deploy and operate (human operator)**
-- B1 Droplet
-- B2 Pi sign-in
-- B3 GitHub
-- B4 Tailscale
-- B5 Service
-- B6 Phone
-- B7 Operations
-- B8 Upgrades
-- B9 Troubleshooting
+**Part B: Deploy and operate**
+- B1 Deploy with the installer
+- B2 Steps that need a human
+- B3 Phone
+- B4 Operations
+- B5 Upgrades
+- B6 Troubleshooting
 
 **Appendices:** C1 Security model · C2 Decision log · C3 Verification record
 
@@ -217,8 +228,7 @@ Pin exact versions (`.npmrc` with `save-exact=true`) and commit `package-lock.js
   | `dev:fake` | build, then run in fake mode |
   | `test` | unit and integration tests |
   | `e2e` | Playwright, which starts `dev:fake` itself |
-- **Node version:** Node ≥ 22.19 is required. If the environment's Node is older and a newer one can't be installed,
-  record that in `DECISIONS.md`.
+- **Node version:** Node ≥ 22.19 is required. If the machine's Node is older, install a newer one first.
 
 ## A6. Pi Durable 1.6.0 API facts
 
@@ -389,7 +399,7 @@ public/              index.html, manifest.webmanifest, style.css, icons/  (stati
 build/               tsc output for client and service worker (generated, not committed)
 test/                node:test suites (§A13.2)
 e2e/                 Playwright specs (§A13.3)
-deploy/              (required) picloud.service, picloud-backup.service, picloud-backup.timer (§B5, §B7)
+deploy/              (required) install.sh, picloud.service, picloud-backup.service, picloud-backup.timer (§A16)
 ```
 
 ## A8. Data model
@@ -849,8 +859,12 @@ Rules are checked top to bottom.
 **Other differences:** notifications are logged. The `config` event reports `fake: true`, and the UI shows a small
 "Fake mode" label in the drawer footer.
 
-**Command:** `npm run dev:fake` starts the server in fake mode on `127.0.0.1:8787`, using a fresh temporary
-`PICLOUD_DATA` unless one is given.
+**Command:** `npm run dev:fake` starts the server in fake mode on `127.0.0.1`. It uses `PICLOUD_PORT` if set,
+otherwise a free port, and prints its URL. It uses a fresh temporary `PICLOUD_DATA` unless one is given, and a fresh
+empty Pi agent directory (`PI_CODING_AGENT_DIR`, the variable Pi reads instead of `~/.pi/agent`).
+
+**Isolation:** fake mode, tests and e2e never touch port 8787, the default data directory or the user's real Pi
+configuration. They must run correctly on a machine where a real picloud is running.
 
 ### A13.2 Required automated tests (`npm test`, `node:test`)
 Tests use real SQLite storage in temporary directories, the faux model and the fake GitHub. Do not mock Durable.
@@ -893,12 +907,10 @@ Required cases:
 14. **Access control:** with `PICLOUD_ALLOWED_LOGINS` set, requests without a listed `Tailscale-User-Login` get 403.
 
 ### A13.3 Required end-to-end suite (`npm run e2e`, Playwright)
-- **Setup:** Playwright's `webServer` starts `npm run dev:fake`.
+- **Setup:** Playwright's `webServer` starts `npm run dev:fake` on a free port.
   - Use the device profile `iPhone 15`, but **override `defaultBrowserType` to `chromium`** (the profile defaults to
     WebKit).
-  - Install Chromium with `npx playwright install chromium`. If that download is blocked, use an existing Chromium
-    via `launchOptions.executablePath`, read from an environment variable such as `PICLOUD_CHROMIUM`, and record it
-    in `DECISIONS.md`.
+  - Install the browser with `npx playwright install --with-deps chromium`. This is part of the work, not optional.
 - **Required scenarios:**
   1. Open the app. With no sessions, the New session view is shown. Choose `demo/app` and send a task. The question
      card appears. Tap `Small (Recommended)`. The plan card appears. Tap Approve. The report card appears with Push
@@ -923,8 +935,10 @@ Required cases:
    which is not committed.
 6. The required files (§A7) exist, `RUNBOOK.md` is unchanged, and `DECISIONS.md` lists every choice made where this
    runbook was silent.
-7. With `PICLOUD_FAKE` unset, no Pi credentials, and `PICLOUD_DATA` set to a writable temporary directory,
-   `npm start` exits with code 1 and the "No default model" message (§A11.2).
+7. With `PICLOUD_FAKE` unset, `PI_CODING_AGENT_DIR` set to an empty temporary directory, and `PICLOUD_DATA` set to a
+   writable temporary directory, `npm start` exits with code 1 and the "No default model" message (§A11.2).
+9. `bash -n deploy/install.sh` passes, and `deploy/install.sh --dry-run` prints every step it would take without
+   changing the system (§A16). Do not run it without `--dry-run`.
 8. The code meets Rule 3 (§A2). Tests can't check this; it is how the result is judged.
 
 ## A14. PWA specification
@@ -1135,87 +1149,106 @@ Each design choice names the Apple Human Interface Guidelines (HIG) principle it
   `pushManager.subscribe({ userVisibleOnly: true, applicationServerKey })`, then `POST /api/push/subscribe`. On iOS
   this requires iOS 16.4+ and the app opened from the Home Screen.
 
+## A16. Deployment automation (`deploy/install.sh`)
+
+A single idempotent bash script that turns a fresh Ubuntu 24.04 machine into a running picloud, and that upgrades an
+existing install in place when re-run. It is written in Part A and run only in Part B.
+
+**Interface:**
+- **Run as root** from the repository checkout: `sudo deploy/install.sh [--dry-run]`.
+- **`--dry-run`:** print each step and the commands it would run, without changing anything.
+- **Optional environment input:**
+  - `TS_AUTHKEY`: a Tailscale auth key, for non-interactive `tailscale up`.
+  - `GH_TOKEN_FILE`: a file containing a GitHub token; it is used for `gh auth login --with-token`, then deleted.
+  - `PICLOUD_PUSH_SUBJECT`, `PICLOUD_ALLOWED_LOGINS`, `PICLOUD_SESSION_BUDGET_USD`: written into `/etc/picloud.env`.
+
+**Steps** (each skipped when already done):
+1. Install base packages: `git`, `curl`, `sqlite3`, `build-essential`.
+2. Install Node.js ≥ 22.19 if missing or older.
+3. Create the `picloud` system user (home `/home/picloud`, no sudo), `/var/lib/picloud` (mode 700) and
+   `/opt/picloud`.
+4. Install the `pi` CLI globally (`@earendil-works/pi-coding-agent@1.6.0`).
+5. Install `gh` from GitHub's apt repository. If `GH_TOKEN_FILE` is given, log in as `picloud` with it. Run
+   `gh auth setup-git` as `picloud`.
+6. Install Tailscale. If the machine isn't logged in, run `tailscale up`, with `--authkey` if `TS_AUTHKEY` is set.
+   Otherwise print the login URL Tailscale gives and continue.
+7. Copy the checkout to `/opt/picloud` (excluding `node_modules`, `build` and `.git`), owned by `picloud`. As
+   `picloud`, run `npm ci`, `npm run build`, then `npm prune --omit=dev`.
+8. Write `/etc/picloud.env`, keeping existing values unless new ones were given. Install `deploy/picloud.service` and
+   the backup service and timer. Run `systemctl daemon-reload`, enable the units, and restart picloud.
+9. Run `tailscale serve --bg 8787`. **Never** run `tailscale funnel`.
+10. Print status (`systemctl is-active picloud`, the `tailscale serve status` URL) and the list of remaining human
+    steps (§B2) that are not yet done. Check each one: Pi default model present? gh authenticated? Tailscale logged
+    in?
+
+**Requirements:**
+- Fail fast (`set -euo pipefail`) with a clear message naming the step that failed.
+- Re-running after a partial failure must complete the remaining steps.
+
+**Deploy files `deploy/` must contain:**
+- **`picloud.service`:** `User=picloud`, `WorkingDirectory=/opt/picloud`, `EnvironmentFile=/etc/picloud.env`,
+  `Environment=HOME=/home/picloud`, `ExecStart=/usr/bin/env node --disable-warning=ExperimentalWarning src/server/main.ts`
+  (or your entry point), `Restart=always`, `KillSignal=SIGTERM`, `After=network-online.target tailscaled.service`.
+- **`picloud-backup.service` + `picloud-backup.timer`:** daily
+  `sqlite3 /var/lib/picloud/durable.sqlite ".backup /var/lib/picloud/backups/picloud-<date>.sqlite"`, keeping the
+  newest 7.
+
 ---
 
-# Part B: Deploy and operate (human operator)
+# Part B: Deploy and operate
 
-## B1. Droplet
-- **Size:** 2 vCPU / 4 GB RAM minimum (more for heavy builds), 50 GB disk.
-- **Network:** no inbound ports are needed.
-- **OS:** Ubuntu 24.04: `apt update && apt upgrade -y && apt install -y git curl build-essential sqlite3`.
-- **Node:** install Node ≥ 22.19 (Node 24 LTS is fine).
-- **Service user and directories:**
-  ```bash
-  adduser --system --group --home /home/picloud --shell /bin/bash picloud
-  install -d -o picloud -g picloud -m 700 /var/lib/picloud
-  install -d -o picloud -g picloud -m 755 /opt/picloud
-  ```
-- **Toolchains:** install whatever your repositories need to build and test (Python, Go and so on).
+These steps are performed only when someone deliberately deploys. An agent may perform them when asked to deploy.
+The steps in §B2 need a person.
 
-## B2. Pi sign-in and default model
-```bash
-npm install -g @earendil-works/pi-coding-agent@1.6.0
-sudo -iu picloud pi        # /login → choose provider; /model → choose default; quit
-```
-
-## B3. GitHub
-1. Install `gh` from GitHub's apt repository.
-2. Create a **fine-grained token** limited to the repositories picloud may use: Contents read/write, Pull requests
-   read/write, Metadata read.
-3. Log in and wire gh into git:
+## B1. Deploy with the installer
+1. **Provision the droplet:** Ubuntu 24.04, 2 vCPU / 4 GB RAM minimum (more for heavy builds), 50 GB disk. No inbound
+   ports are needed.
+2. **Install toolchains** your repositories need to build and test (Python, Go and so on). The installer does not
+   guess these.
+3. **Run the installer** from a checkout of the picloud repository:
    ```bash
-   sudo -iu picloud gh auth login --with-token < token.txt && rm token.txt
-   sudo -iu picloud gh auth setup-git
+   git clone <your picloud repo> ~/picloud-src && cd ~/picloud-src
+   sudo TS_AUTHKEY=<optional> GH_TOKEN_FILE=<optional> PICLOUD_PUSH_SUBJECT=mailto:you@example.com deploy/install.sh
    ```
-4. Enable **branch protection** on each repo's default branch.
+   Re-run it after completing any §B2 step, and to upgrade (after `git pull`).
+4. **Confirm:** the installer's final output shows picloud active, the `https://<droplet>.<tailnet>.ts.net` URL, and
+   no remaining human steps.
 
-## B4. Tailscale
-- **On the droplet:** `curl -fsSL https://tailscale.com/install.sh | sh && tailscale up`.
-- **In the Tailscale admin console:** enable MagicDNS and HTTPS certificates.
-- **On the phone:** install the Tailscale app and join the same tailnet.
+## B2. Steps that need a human
+The installer prints whichever of these are still outstanding.
 
-## B5. Service
-1. Install the app:
-   ```bash
-   sudo -iu picloud git clone <your picloud repo> /opt/picloud
-   cd /opt/picloud && sudo -u picloud npm ci --omit=dev
-   ```
-2. Create `/etc/picloud.env` with `PICLOUD_DATA=/var/lib/picloud` and `PICLOUD_PUSH_SUBJECT=mailto:you@example.com`.
-   Optionally add `PICLOUD_ALLOWED_LOGINS` and `PICLOUD_SESSION_BUDGET_USD`.
-3. Install `deploy/picloud.service` into `/etc/systemd/system/`. It runs as user picloud, sets
-   `WorkingDirectory=/opt/picloud`, `EnvironmentFile=/etc/picloud.env` and `Environment=HOME=/home/picloud`, and uses
-   `ExecStart=/usr/bin/node --disable-warning=ExperimentalWarning src/main.ts`, `Restart=always` and
-   `KillSignal=SIGTERM`.
-4. Start it and expose it on the tailnet:
-   ```bash
-   systemctl daemon-reload && systemctl enable --now picloud && journalctl -u picloud -f
-   tailscale serve --bg 8787       # https://<droplet>.<tailnet>.ts.net — never use `tailscale funnel`
-   ```
+| Step | How |
+|---|---|
+| Tailscale login | open the login URL the installer printed, or provide `TS_AUTHKEY` (create one in the Tailscale admin console) |
+| Tailscale admin settings | in the admin console, enable **MagicDNS** and **HTTPS certificates** |
+| Pi sign-in and default model | `sudo -iu picloud pi`, then `/login` (choose provider), then `/model` (choose default), then quit; re-run the installer or `systemctl restart picloud` |
+| GitHub token | create a **fine-grained token** limited to the repositories picloud may use (Contents read/write, Pull requests read/write, Metadata read). Pass it with `GH_TOKEN_FILE`, or run `sudo -iu picloud gh auth login`. |
+| Branch protection | enable it on each such repository's default branch |
 
-## B6. Phone
-1. With Tailscale on, open the URL in Safari.
-2. Share → **Add to Home Screen**, then open picloud from the Home Screen.
+## B3. Phone
+1. Install the Tailscale app and join the same tailnet.
+2. Open the URL in Safari. Share → **Add to Home Screen**, then open picloud from the Home Screen.
 3. Open the drawer, tap **Enable notifications**, and allow them.
 
-## B7. Operations
+## B4. Operations
 - **Logs:** `journalctl -u picloud`.
-- **Backups:** install `deploy/picloud-backup.service` and `deploy/picloud-backup.timer`.
+- **Backups:** the installer sets up `picloud-backup.timer`.
   - They run daily: `sqlite3 /var/lib/picloud/durable.sqlite ".backup /var/lib/picloud/backups/picloud-$(date +%F).sqlite"`.
   - They keep the newest 7 backups.
   - Also back up `/home/picloud/.pi/agent/`.
 - **Disk:** workspaces of old delivered, archived sessions are pruned automatically (§A11.8). Check usage with
   `du -sh /var/lib/picloud/work`.
 
-## B8. Upgrades of `@earendil-works/*`
+## B5. Upgrades of `@earendil-works/*`
 1. Read every package's CHANGELOG between the old and new versions, looking for the shapes in §A6.
 2. Bump all five pins together on a dev machine, then run `npm run check`, `npm test` and `npm run e2e`.
 3. **Back up the database before deploying.** Stored data may migrate, and rollback is not guaranteed.
-4. Deploy with `git pull && npm ci --omit=dev && systemctl restart picloud`.
+4. Deploy with `git pull`, then re-run `sudo deploy/install.sh`.
 
-## B9. Troubleshooting
+## B6. Troubleshooting
 | Symptom | Fix |
 |---|---|
-| "No default model" at start | §B2 as user picloud |
+| "No default model" at start | §B2 (Pi sign-in) as user picloud |
 | Runs fail with auth errors | `sudo -iu picloud pi` → `/login`, then restart |
 | Repo list empty or clone fails | `sudo -iu picloud gh auth status`; check which repos the token covers |
 | Push 403 | token lacks Contents write, or a protection rule matches the branch |
@@ -1264,6 +1297,7 @@ sudo -iu picloud pi        # /login → choose provider; /model → choose defau
 | D16 | Fake mode (faux model + local bare repos) | The whole product is testable and evaluable without credentials. |
 | D17 | TypeScript everywhere; `tsc` as the only build tool; import maps; Node type stripping on the server | Seamless use of Pi Durable's types end to end, and API shapes shared between server and client; no bundler to maintain. |
 | D19 | No size target; judged on completeness, correctness and maintainability | Size can't be known in advance. Optimizing for it trades away behavior and clarity. |
+| D20 | Part A installs its own build and test tools and writes an idempotent installer; deployment runs only when deliberately invoked | The implementer has full CLI access, so setup should be automated. But Part A may run on a machine already serving picloud (including picloud rebuilding itself), so it must never touch live services, port 8787, the data directory or the real Pi config. |
 | D18 | Exact pins at 1.6.0; use the npm README | Durable is experimental; GitHub main differs (§A6). |
 
 ## C3. Verification record
