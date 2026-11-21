@@ -60,18 +60,19 @@ export const PushSubscriptionsToken = defineDoc<{ subscriptions: StoredPushSubsc
 
 /**
  * Change a session in a commit. Every SessionDoc change goes through here, so `updatedAt` and the drawer row can never
- * fall out of step with the document.
+ * fall out of step with the document. `touch: false` is for changes that are not activity, such as the person looking.
  */
 export async function editSession<T>(
 	tx: Tx,
 	id: ConversationId | number,
 	now: number,
 	change: (doc: Draft<SessionDoc>) => T | Promise<T>,
+	options: { touch?: boolean } = {},
 ): Promise<T> {
 	const conversationId = id as ConversationId;
 	const doc = await tx.doc(SessionDocToken, conversationId);
 	const result = await change(doc);
-	doc.updatedAt = now;
+	if (options.touch !== false) doc.updatedAt = now;
 	const index = await tx.doc(SessionIndexToken);
 	const row = sessionRow(doc as SessionDoc);
 	const key = String(conversationId);

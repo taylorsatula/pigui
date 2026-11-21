@@ -18,7 +18,7 @@ import { Delivery } from "./delivery.ts";
 import { SessionIndexToken } from "./docs.ts";
 import { LocalGitHub } from "./fake/github.ts";
 import { type ScriptedModelOptions, scriptedModels } from "./fake/model.ts";
-import { GIT_ENV } from "./git.ts";
+import { NO_PROMPT_ENV } from "./git.ts";
 import { GhHost, type RepoHost } from "./host.ts";
 import { createHttpServer } from "./http.ts";
 import { Uploads } from "./input.ts";
@@ -128,7 +128,7 @@ export async function startApp(options: AppOptions): Promise<App> {
 	registry.install(picloudAgent(services));
 	registry.install(defineExtension({ name: "picloud-sessions", tasks: [sessions.setupTask, notifications.task, maintenance.task] }));
 
-	const shellEnv = { ...GIT_ENV, PI_CODING_AGENT_DIR: options.agentDir };
+	const shellEnv = { ...NO_PROMPT_ENV, PI_CODING_AGENT_DIR: options.agentDir };
 	opened = await Harness.open(
 		await openNodeSqliteStorage(paths.database),
 		{

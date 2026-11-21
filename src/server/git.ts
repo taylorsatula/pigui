@@ -3,15 +3,17 @@ import { rename, rm } from "node:fs/promises";
 import type { DiffFile } from "../shared/api.ts";
 import { CommandError, run, type RunResult } from "./exec.ts";
 
-/** Never prompt: a prompt would hang a run with nobody at the keyboard. */
-export const GIT_ENV: NodeJS.ProcessEnv = {
+/** Never prompt: a prompt would hang a run with nobody at the keyboard. The agent's shell gets this environment too. */
+export const NO_PROMPT_ENV: NodeJS.ProcessEnv = {
 	...process.env,
 	GIT_TERMINAL_PROMPT: "0",
 	GCM_INTERACTIVE: "never",
 	GIT_ASKPASS: "",
 	SSH_ASKPASS: "",
-	LC_ALL: "C",
 };
+
+/** picloud's own git calls also fix the locale, so the output it parses is always the same. */
+export const GIT_ENV: NodeJS.ProcessEnv = { ...NO_PROMPT_ENV, LC_ALL: "C" };
 
 export function git(cwd: string, args: readonly string[], timeoutMs = 120_000): Promise<RunResult> {
 	return run("git", args, { cwd, env: GIT_ENV, timeoutMs });

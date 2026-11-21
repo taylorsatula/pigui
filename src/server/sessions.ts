@@ -451,9 +451,15 @@ export class Sessions {
 		await this.#deps.harness().commit(async (tx) => {
 			if ((await readSession(tx, id)) === undefined) throw notFound("The session");
 			const now = this.#deps.now();
-			await editSession(tx, id, now, (doc) => {
-				doc.seenAt = now;
-			});
+			await editSession(
+				tx,
+				id,
+				now,
+				(doc) => {
+					doc.seenAt = now;
+				},
+				{ touch: false },
+			);
 		}, context);
 	}
 }
