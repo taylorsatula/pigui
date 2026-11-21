@@ -1,5 +1,7 @@
 # picloud: design
 
+> **Superseded in part by `RUNBOOK.md`:** navigation is a drawer (☰) with the session list, not "no hamburger". The runbook is authoritative wherever the two differ.
+
 The product in one sentence: from your phone, describe a task against one of your repos, answer a few tapped
 questions, approve a plan, put the phone away, and come back to a report with a push / PR button.
 
