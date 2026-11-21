@@ -1,0 +1,105 @@
+// Delivery: the server, not the agent, pushes the session's branch and opens or reuses its pull request, and only when
+// the person taps. Reviewing the diff lives here too, since it shows exactly what a delivery would send.
+import type { Context } from "@earendil-works/chord/context";
+import type { Draft } from "@earendil-works/chord/delta";
+import { type ConversationId, type Harness, LiveDoc } from "@earendil-works/pi-durable";
+import type { DeliveryResult, SessionDiff } from "../shared/api.ts";
+import type { Report, SessionDoc } from "../shared/session.ts";
+import { editSession, SessionDocToken } from "./docs.ts";
+import { HttpError, notFound } from "./errors.ts";
+import { comparisonPoint, diffFiles, head, push, PushRejected, uncommitted } from "./git.ts";
+import type { RepoHost } from "./host.ts";
+
+export type DeliveryDeps = {
+	harness: () => Harness;
+	host: RepoHost;
+	workspace: (id: number) => string;
+	now: () => number;
+};
+
+function prBody(doc: Readonly<SessionDoc>, report: Report | undefined): string {
+	if (report === undefined) return `Work from the picloud session "${doc.title}".`;
+	const sections = [report.summary];
+	if (report.changes.length > 0) sections.push(`## Changes\n${report.changes.map((change) => `- ${change}`).join("\n")}`);
+	if (report.verification.trim() !== "") sections.push(`## Verification\n${report.verification}`);
+	if (report.notes.trim() !== "") sections.push(`## Notes\n${report.notes}`);
+	return sections.join("\n\n");
+}
+
+export class Delivery {
+	readonly #deps: DeliveryDeps;
+	/** One delivery per session at a time: two taps must not race two pushes. */
+	readonly #busy = new Set<number>();
+
+	constructor(deps: DeliveryDeps) {
+		this.#deps = deps;
+	}
+
+	async #session(id: number, context: Context): Promise<Readonly<SessionDoc>> {
+		const doc = await this.#deps.harness().snapshot(SessionDocToken, id as ConversationId, context);
+		if (doc?.id === undefined) throw notFound("The session");
+		if (doc.setup.status !== "ready" || doc.startCommit === undefined) throw new HttpError(409, "The session has no workspace yet.");
+		return doc;
+	}
+
+	async deliver(id: number, action: "push" | "pr", context: Context): Promise<DeliveryResult> {
+		if (this.#busy.has(id)) throw new HttpError(409, "A delivery for this session is already running.");
+		this.#busy.add(id);
+		try {
+			return await this.#deliver(id, action, context);
+		} finally {
+			this.#busy.delete(id);
+		}
+	}
+
+	async #deliver(id: number, action: "push" | "pr", context: Context): Promise<DeliveryResult> {
+		const doc = await this.#session(id, context);
+		const live = await this.#deps.harness().snapshot(LiveDoc, id as ConversationId, context);
+		if (live?.run !== undefined) {
+			throw new HttpError(409, "Pi is still working, so there is nothing final to deliver yet.", "Wait for the report, or tap Stop first.");
+		}
+		const workspace = this.#deps.workspace(id);
+		try {
+			await push(workspace, doc.branch);
+		} catch (error) {
+			const message = error instanceof Error ? error.message : String(error);
+			await this.#record(id, context, (draft) => {
+				draft.delivery.error = { message, at: this.#deps.now() };
+			});
+			if (error instanceof PushRejected) {
+				throw new HttpError(409, error.message, `Ask Pi to merge origin/${doc.branch} into the branch (for example "Merge the remote branch"), then push again.`);
+			}
+			throw new HttpError(502, `The push failed: ${message}`, "Check the server's GitHub access, then try again.");
+		}
+		const pushed = await head(workspace);
+		let pr: DeliveryResult["pr"];
+		if (action === "pr") {
+			const existing = await this.#deps.host.findPullRequest(doc.repo, doc.branch);
+			if (existing !== undefined) {
+				pr = { number: existing.number, url: existing.url, created: false };
+			} else {
+				const title = doc.report?.summary.split("\n")[0]?.slice(0, 120) || doc.title;
+				const created = await this.#deps.host.createPullRequest(doc.repo, { head: doc.branch, base: doc.base, title, body: prBody(doc, doc.report) });
+				pr = { ...created, created: true };
+			}
+		}
+		await this.#record(id, context, (draft) => {
+			draft.delivery.pushed = { commit: pushed, at: this.#deps.now() };
+			if (pr !== undefined) draft.delivery.pr = { number: pr.number, url: pr.url };
+			delete draft.delivery.error;
+		});
+		return pr === undefined ? { pushed } : { pushed, pr };
+	}
+
+	async #record(id: number, context: Context, change: (doc: Draft<SessionDoc>) => void): Promise<void> {
+		await this.#deps.harness().commit((tx) => editSession(tx, id, this.#deps.now(), change), context);
+	}
+
+	/** The session's committed changes, file by file, measured from where the session's own work began. */
+	async diff(id: number, context: Context): Promise<SessionDiff> {
+		const doc = await this.#session(id, context);
+		const workspace = this.#deps.workspace(id);
+		const from = await comparisonPoint(workspace, doc.startCommit ?? "HEAD", doc.base);
+		return { base: doc.base, files: await diffFiles(workspace, from), uncommitted: (await uncommitted(workspace)).length };
+	}
+}
