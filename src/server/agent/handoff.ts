@@ -361,6 +361,7 @@ async function conversationModel(services: AgentServices, api: HookApi, context:
 export function handoff(services: AgentServices) {
 	return hook(CompactionTask, {
 		beforeCompact: async (compaction, api, context) => {
+			await services.faults.beforeHandoff?.(context);
 			const doc = await api.snapshot(SessionDocToken, api.conversationId, context);
 			if (doc?.id === undefined) return undefined;
 			const model = await conversationModel(services, api, context);

@@ -39,6 +39,8 @@ export type AppOptions = {
 	fakeModel?: ScriptedModelOptions;
 	log?: Logger;
 	faults?: Faults;
+	/** The clock picloud stamps its records with; tests move it to make sessions old. */
+	now?: () => number;
 	/** Where the built client is; default `dist/public` beside the sources. */
 	staticDir?: string;
 };
@@ -52,13 +54,14 @@ export type App = {
 	delivery: Delivery;
 	host: RepoHost;
 	push: PushSender;
+	presence: Presence;
 	close(): Promise<void>;
 };
 
 export async function startApp(options: AppOptions): Promise<App> {
 	const { config } = options;
 	const log = options.log ?? createLogger();
-	const now = () => Date.now();
+	const now = options.now ?? (() => Date.now());
 	const context = BACKGROUND_CONTEXT;
 	const paths = {
 		database: join(config.dataDir, "picloud.sqlite"),
@@ -191,6 +194,7 @@ export async function startApp(options: AppOptions): Promise<App> {
 		delivery,
 		host,
 		push,
+		presence,
 		async close() {
 			supervisor.stop();
 			await new Promise<void>((resolve) => {

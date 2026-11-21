@@ -8,6 +8,8 @@ import type { Notifications } from "../notify.ts";
 export type Faults = {
 	/** After a card's commit, before its tool parks. */
 	afterCard?: (context: Context) => Promise<void>;
+	/** At the start of the compaction hook; throwing leaves the compaction to Durable's built-in summarizer. */
+	beforeHandoff?: (context: Context) => Promise<void>;
 	/** After the handoff's model-written notes are memoized, before the compaction summary is returned. */
 	afterHandoffNotes?: (context: Context) => Promise<void>;
 };

@@ -47,12 +47,18 @@ type Step =
 	| "follow-commit"
 	| "follow-report"
 	| "recall"
-	| "spin";
+	| "spin"
+	| "build-1"
+	| "build-2"
+	| "build-3";
 
 const STEPS = new Set<string>([
 	"explore", "ask", "checklist", "plan", "write-src", "progress-1", "write-test", "progress-2", "commit", "progress-3",
-	"report", "fix-commit", "follow-edit", "follow-commit", "follow-report", "recall", "spin",
+	"report", "fix-commit", "follow-edit", "follow-commit", "follow-report", "recall", "spin", "build-1", "build-2", "build-3",
 ]);
+
+/** In [long] scenarios, verbose build output fills the context so compaction happens mid-implementation. */
+const BULK = "seq 100000 102500";
 
 let callIds = 0;
 const call = (step: Step, name: string, args: Parameters<typeof fauxToolCall>[1]) => fauxToolCall(name, args, { id: `${step}:${++callIds}` });
@@ -116,9 +122,12 @@ function style(messages: readonly Message[]): string {
 	return answer !== undefined && textOf(answer).includes("Three !!!") ? "!!!" : "!";
 }
 
-function respond(context: TranscriptContext, options: SimpleStreamOptions | undefined): AssistantMessage {
+function respond(context: TranscriptContext, options: SimpleStreamOptions | undefined, onRequest?: ScriptedModelOptions["onRequest"]): AssistantMessage {
 	const messages = context.messages;
-	if (systemText(messages).includes(SUMMARIZER_PROMPT.slice(0, 60))) return summarize(messages);
+	const summary = systemText(messages).includes(SUMMARIZER_PROMPT.slice(0, 60));
+	onRequest?.(summary ? "summary" : "agent");
+	if (summary) return summarize(messages);
+	if (systemText(messages).includes("context summarization assistant")) return builtInSummary(messages, options);
 	const people = messages.filter((message) => message.role === "user").map(textOf);
 	const directives = people.join("\n");
 	const previous = lastStep(messages);
@@ -128,8 +137,9 @@ function respond(context: TranscriptContext, options: SimpleStreamOptions | unde
 
 	if (directives.includes("[model-error]") && previous?.step === "progress-1") {
 		const key = options?.sessionId ?? "none";
+		// Once per conversation: an error pi-ai does not classify as transient fails the run without a retry.
 		const count = faults.get(key) ?? 0;
-		if (count < 2) {
+		if (count < 1) {
 			faults.set(key, count + 1);
 			return fauxAssistantMessage([], { stopReason: "error", errorMessage: "Scripted model failure" });
 		}
@@ -142,13 +152,20 @@ function respond(context: TranscriptContext, options: SimpleStreamOptions | unde
 		return tools(
 			fauxThinking("Look at the project layout and its instructions before asking anything."),
 			fauxText("Let me look around the repository first."),
-			call("explore", "bash", { command: 'ls -R src test && cat AGENTS.md && echo "build id: $((4000+817))"' }),
+			call("explore", "bash", {
+				// The build id is printed last, so it stays in the output the bash tool keeps.
+				command: `ls -R src test && cat AGENTS.md${directives.includes("[long]") ? ` && ${BULK}` : ""} && echo "build id: $((4000+817))"`,
+			}),
 		);
 	}
 	if ((previous.step === "report" && !previous.isError) || previous.step === "follow-report") {
 		const request = newest === undefined ? "" : textOf(newest);
 		if (isChat(request)) return chatReply(request);
 		return tools(call("follow-edit", "write", { path: `docs/follow-up-${messages.length}.md`, content: `# Follow-up\n\n${stripContext(request)}\n` }));
+	}
+	if (previous.step === "spin" && newest !== undefined) {
+		// A steer reached the spinning run: it stops and says what it heard.
+		return fauxAssistantMessage(`Stopping, as you said: ${stripContext(textOf(newest))}`);
 	}
 	if (directives.includes("[recall]") && people.some((text) => text.includes("<summary>")) && !messages.some((message) => message.role === "toolResult" && message.toolCallId.startsWith("recall:"))) {
 		return tools(call("recall", RECALL, { query: "build id" }));
@@ -161,7 +178,15 @@ function spin(turn: number): AssistantMessage {
 }
 
 function next(previous: StepResult, messages: readonly Message[], directives: string, nudged: boolean): AssistantMessage {
+	const long = directives.includes("[long]");
+	const build = (step: "build-1" | "build-2" | "build-3") => tools(call(step, "bash", { command: `node --test test/*.test.ts --test-reporter=spec 2>&1 | tail -3; ${BULK}` }));
 	switch (previous.step) {
+		case "build-1":
+			return tools(call("progress-1", UPDATE_PROGRESS, { completed: [1], note: "Added shout()" }));
+		case "build-2":
+			return tools(call("progress-2", UPDATE_PROGRESS, { completed: [2] }));
+		case "build-3":
+			return tools(call("progress-3", UPDATE_PROGRESS, { completed: [3] }));
 		case "spin":
 			return spin(messages.length);
 		case "explore":
@@ -208,6 +233,7 @@ function next(previous: StepResult, messages: readonly Message[], directives: st
 			}
 			return plan(previous.text);
 		case "write-src":
+			if (long) return build("build-1");
 			return tools(call("progress-1", UPDATE_PROGRESS, { completed: [1], note: "Added shout()" }));
 		case "progress-1":
 			return tools(
@@ -217,11 +243,13 @@ function next(previous: StepResult, messages: readonly Message[], directives: st
 				}),
 			);
 		case "write-test":
+			if (long) return build("build-2");
 			return tools(call("progress-2", UPDATE_PROGRESS, { completed: [2] }));
 		case "progress-2":
 			if (directives.includes("[dirty-report]")) return tools(call("commit", "bash", { command: "node --test test/*.test.ts" }));
 			return tools(call("commit", "bash", { command: 'node --test test/*.test.ts && git add -A && git commit -q -m "Add shout()" && git log --oneline -1' }));
 		case "commit":
+			if (long) return build("build-3");
 			return tools(call("progress-3", UPDATE_PROGRESS, { completed: [3] }));
 		case "progress-3":
 			if (directives.includes("[never-report]") || (directives.includes("[no-report]") && !nudged)) {
@@ -276,6 +304,17 @@ function report(messages: readonly Message[]): AssistantMessage {
 	);
 }
 
+/** Durable's own summarizer, which runs only when picloud's handoff hook fails; [compaction-fails] fails it once. */
+function builtInSummary(messages: readonly Message[], options: SimpleStreamOptions | undefined): AssistantMessage {
+	const request = messages.filter((message) => message.role === "user").map(textOf).join("\n");
+	const key = `builtin:${options?.sessionId ?? "none"}`;
+	if (request.includes("[compaction-fails]") && (faults.get(key) ?? 0) < 1) {
+		faults.set(key, 1);
+		return fauxAssistantMessage([], { stopReason: "error", errorMessage: "Scripted compaction failure" });
+	}
+	return fauxAssistantMessage("Summary: the plan is being implemented.");
+}
+
 /** The scripted summarizer: an update built from the transcript it is given, or a failure when asked for one. */
 function summarize(messages: readonly Message[]): AssistantMessage {
 	const request = messages.filter((message) => message.role === "user").map(textOf).join("\n");
@@ -319,6 +358,8 @@ export type ScriptedModelOptions = {
 	contextWindow?: number;
 	/** Streaming pace, so a phone sees text arrive; unset streams at once. */
 	tokensPerSecond?: number;
+	/** Told of every request, so tests can count what the model was asked. */
+	onRequest?: (kind: "agent" | "summary") => void;
 };
 
 export function scriptedModels(options: ScriptedModelOptions = {}): { models: Models; model: ModelRef } {
@@ -340,7 +381,7 @@ export function scriptedModels(options: ScriptedModelOptions = {}): { models: Mo
 	});
 	// One scripted response per request: queue it as the request arrives, so the supply never runs out.
 	const stream = (model: Model<string>, context: TranscriptContext, streamOptions?: SimpleStreamOptions) => {
-		core.appendResponses([(transcript, given) => respond(transcript, given)]);
+		core.appendResponses([(transcript, given) => respond(transcript, given, options.onRequest)]);
 		return priced(core.stream(model, context, streamOptions), model);
 	};
 	const provider = createProvider({

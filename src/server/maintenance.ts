@@ -7,7 +7,7 @@ import { join } from "node:path";
 import type { Context } from "@earendil-works/chord/context";
 import { type ConversationId, defineTask, type Harness, ROOT_CONVERSATION_ID } from "@earendil-works/pi-durable";
 import { editSession, SessionDocToken, SessionIndexToken } from "./docs.ts";
-import { isRepository, uncommitted, unpushedCount } from "./git.ts";
+import { isAncestor, isRepository, refExists, uncommitted, unpushedCount } from "./git.ts";
 import { errorKind, type Logger } from "./log.ts";
 
 const DAY = 24 * 60 * 60 * 1000;
@@ -74,19 +74,25 @@ export class Maintenance {
 			if (!row.archived || this.#deps.now() - row.updatedAt < CLEANUP_AFTER_MS) continue;
 			const doc = await this.#deps.harness().snapshot(SessionDocToken, row.id as ConversationId, context);
 			if (doc === undefined || doc.cleanedAt !== undefined) continue;
-			if (await this.#clean(row.id, context)) result.cleaned.push(row.id);
+			if (await this.#clean(row.id, doc.branch, doc.base, context)) result.cleaned.push(row.id);
 			else result.kept.push(row.id);
 		}
 		this.#deps.log.info("maintenance.swept", { cleaned: result.cleaned.length, kept: result.kept.length });
 		return result;
 	}
 
-	/** Remove a workspace only when git shows nothing in it that GitHub does not have. */
-	async #clean(id: number, context: Context): Promise<boolean> {
+	/**
+	 * Remove a workspace only when git shows nothing in it that GitHub does not have: no uncommitted changes, HEAD on
+	 * the session's branch at origin (or already in its base, for a session that changed nothing), and no other local
+	 * branch with commits origin lacks.
+	 */
+	async #clean(id: number, branch: string, base: string, context: Context): Promise<boolean> {
 		const workspace = this.#deps.workspace(id);
 		if (await isRepository(workspace)) {
 			try {
 				if ((await uncommitted(workspace)).length > 0 || (await unpushedCount(workspace)) > 0) return false;
+				const delivered = await this.#contains(workspace, `refs/remotes/origin/${branch}`);
+				if (!delivered && !(await this.#contains(workspace, `refs/remotes/origin/${base}`))) return false;
 			} catch (error) {
 				this.#deps.log.warn("maintenance.check_failed", { session: id, error: errorKind(error) });
 				return false;
@@ -102,6 +108,10 @@ export class Maintenance {
 			});
 		}, context);
 		return true;
+	}
+
+	async #contains(workspace: string, ref: string): Promise<boolean> {
+		return (await refExists(workspace, ref)) && (await isAncestor(workspace, "HEAD", ref));
 	}
 
 	/** A consistent copy of the database through SQLite's online backup, beside the last few. */
