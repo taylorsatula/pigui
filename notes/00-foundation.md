@@ -164,6 +164,20 @@ One `defineExtension({ name: "picloud", ... })` selected on every session's conv
 5. **Deployment:** systemd unit, Tailscale or Caddy, backups of `/srv/picloud`.
 6. **Later:** container per session, PR creation, scheduled or recurring tasks, multiple repos per session.
 
+## Decisions (2026-11-21)
+- **Scope rule:** nothing gets built unless it serves "pick repo, plan with questions, approve, run unattended,
+  report, deliver". No browser, marketplace, multiplayer or self-editing.
+- **Model provider:** not Anthropic. Which provider is still open.
+- **Access:** Tailscale only, with `tailscale serve` for HTTPS. There is no public port and no app-level login
+  beyond the tailnet.
+- **Plan gate:** `begin_implementation` parks until the user approves the plan on the phone. The user can also
+  reject it with feedback, which returns the run to planning.
+- **Delivery:** `final_report` is followed by a choice on the phone:
+  - push the branch;
+  - push and open a PR;
+  - keep working, which submits the user's feedback as a follow-up that starts a new implementation run.
+  Nothing reaches GitHub until the user picks.
+
 ## Open questions for the user
 - Just you, or other users eventually? (This decides auth and isolation scope.)
 - Model and auth: Anthropic API key, or Claude subscription via Pi's OAuth?
