@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 import type { Context } from "@earendil-works/chord/context";
+import type { ConversationId } from "@earendil-works/pi-durable";
 import { encryptPayload } from "../src/server/webpush.ts";
 import { context, TestServer } from "./helpers.ts";
 
@@ -19,7 +20,7 @@ function hangUntilAborted(context: Context): Promise<void> {
 }
 
 async function notifications(server: TestServer, id: number) {
-	const page = await server.app.harness.commit((tx) => tx.scanTasks({ conversationId: id as never, kind: "picloud.notify" }, 100), context);
+	const page = await server.app.harness.commit((tx) => tx.scanTasks({ conversationId: id as ConversationId, kind: "picloud.notify" }, 100), context);
 	return [...page.items];
 }
 

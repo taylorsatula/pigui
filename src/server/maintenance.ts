@@ -13,7 +13,7 @@ import { errorKind, type Logger } from "./log.ts";
 const DAY = 24 * 60 * 60 * 1000;
 /** Archived sessions untouched this long lose their workspace, if nothing in it is unpushed. */
 export const CLEANUP_AFTER_MS = 7 * DAY;
-export const BACKUPS_KEPT = 14;
+const BACKUPS_KEPT = 14;
 const UPLOADS_KEPT_MS = DAY;
 
 export type MaintenanceDeps = {

@@ -3,7 +3,7 @@ import { join } from "node:path";
 import { ModelRuntime, SettingsManager } from "@earendil-works/pi-coding-agent";
 import type { ModelRef } from "@earendil-works/pi-durable";
 
-export const SIGN_IN_MESSAGE = `Pi has no default model with credentials, so picloud cannot run it.
+const SIGN_IN_MESSAGE = `Pi has no default model with credentials, so picloud cannot run it.
 
 As the picloud service user, sign in with Pi and choose a model:
   sudo -u picloud -i pi

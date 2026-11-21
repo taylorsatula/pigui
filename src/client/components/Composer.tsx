@@ -10,7 +10,7 @@ import { shrinkPhoto } from "../images.ts";
 import { showToast } from "../store.ts";
 import { Icon } from "./Icons.tsx";
 
-export type ComposerProps = {
+type ComposerProps = {
 	draftKey: string;
 	placeholder: string;
 	running: boolean;

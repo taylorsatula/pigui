@@ -15,7 +15,7 @@ import { entryText, RECALL } from "./recall.ts";
 import type { AgentServices } from "./services.ts";
 
 /** Proportions of the model's context window. */
-export const HANDOFF_SHARE = 0.1;
+const HANDOFF_SHARE = 0.1;
 
 /** Compaction thresholds for a model, as proportions of its context window. */
 export function compactionFor(contextWindow: number) {

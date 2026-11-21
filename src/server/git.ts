@@ -84,7 +84,7 @@ export async function isAncestor(cwd: string, ancestor: string, descendant: stri
 	}
 }
 
-export async function mergeBase(cwd: string, a: string, b: string): Promise<string | undefined> {
+async function mergeBase(cwd: string, a: string, b: string): Promise<string | undefined> {
 	try {
 		return await out(cwd, ["merge-base", a, b]);
 	} catch {

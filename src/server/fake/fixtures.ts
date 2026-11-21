@@ -1,7 +1,7 @@
 // The repositories fake mode serves. Small, but real: a TypeScript project whose tests run with `node --test`, a project
 // AGENTS.md and a Pi skill (both loaded by Pi's own loaders), a binary file, and a second branch to continue.
 
-export type FixtureBranch = {
+type FixtureBranch = {
 	name: string;
 	/** Files written (or, when null, deleted) on top of the branch it starts from, in one commit. */
 	files: Record<string, string | Uint8Array | null>;
@@ -25,7 +25,7 @@ const PIXEL = Uint8Array.from(
 	),
 );
 
-export const FIXTURE_OWNER = "demo";
+const FIXTURE_OWNER = "demo";
 
 export const FIXTURE_REPOS: FixtureRepo[] = [
 	{

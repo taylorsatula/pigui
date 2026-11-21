@@ -27,8 +27,8 @@ import { ASK_MULTIPLE, ASK_SINGLE } from "../agent/questions.ts";
 import { RECALL } from "../agent/recall.ts";
 import { FILE_REPORT } from "../agent/report.ts";
 
-export const FAKE_PROVIDER = "picloud-fake";
-export const FAKE_MODEL = "scripted";
+const FAKE_PROVIDER = "picloud-fake";
+const FAKE_MODEL = "scripted";
 
 type Step =
 	| "explore"

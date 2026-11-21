@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
-import { LiveDoc } from "@earendil-works/pi-durable";
+import { type ConversationId, LiveDoc } from "@earendil-works/pi-durable";
 import { context, TestServer } from "./helpers.ts";
 
 describe("restarts", () => {
@@ -17,7 +17,7 @@ describe("restarts", () => {
 			await server.restart();
 			const after = await server.session(id);
 			assert.deepEqual(after?.card, waiting.card, "the card is still waiting after the restart");
-			const live = await server.app.harness.snapshot(LiveDoc, id as never, context);
+			const live = await server.app.harness.snapshot(LiveDoc, id as ConversationId, context);
 			assert.equal(live?.tools?.[0]?.status, "sleeping");
 			await server.answer(id, waiting.card!.id, { kind: "text", text: "Your recommendations are fine." });
 			await server.until(id, (doc) => doc.card?.kind === "plan", "plan after the restart");

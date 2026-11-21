@@ -55,7 +55,7 @@ function signingKey(keys: VapidKeys) {
 }
 
 /** The `Authorization` header value for one push service origin (RFC 8292). */
-export function vapidAuthorization(keys: VapidKeys, endpoint: string, subject: string, nowSeconds: number): string {
+function vapidAuthorization(keys: VapidKeys, endpoint: string, subject: string, nowSeconds: number): string {
 	const header = b64url(Buffer.from(JSON.stringify({ typ: "JWT", alg: "ES256" })));
 	const claims = b64url(Buffer.from(JSON.stringify({ aud: new URL(endpoint).origin, exp: nowSeconds + 12 * 3600, sub: subject })));
 	const signature = sign("sha256", Buffer.from(`${header}.${claims}`), { key: signingKey(keys), dsaEncoding: "ieee-p1363" });

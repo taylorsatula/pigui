@@ -14,7 +14,7 @@ DOMPurify.addHook("afterSanitizeAttributes", (node) => {
 	}
 });
 
-export function renderMarkdown(text: string): string {
+function renderMarkdown(text: string): string {
 	return DOMPurify.sanitize(marked.parse(text, { async: false }), {
 		FORBID_TAGS: ["style", "form", "input", "button", "textarea", "select", "img"],
 		FORBID_ATTR: ["style"],

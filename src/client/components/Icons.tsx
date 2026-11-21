@@ -10,13 +10,12 @@ const paths = {
 	chevron: "M9 6l6 6-6 6",
 	check: "M5 12.5l4.5 4.5L19 7.5",
 	close: "M6 6l12 12M18 6L6 18",
-	alert: "M12 8v5M12 16.5v.01M10.3 4.2L2.6 18a2 2 0 0 0 1.7 3h15.4a2 2 0 0 0 1.7-3L13.7 4.2a2 2 0 0 0-3.4 0z",
 	branch: "M7 4v12M7 16a2 2 0 1 0 0 4 2 2 0 0 0 0-4zM17 8a2 2 0 1 0 0-4 2 2 0 0 0 0 4zM17 8c0 5-10 3-10 8",
 	archive: "M4 7h16v13H4zM3 3h18v4H3zM10 11h4",
 	bell: "M6 16V11a6 6 0 0 1 12 0v5l2 2H4zM10 20a2 2 0 0 0 4 0",
 } as const;
 
-export type IconName = keyof typeof paths;
+type IconName = keyof typeof paths;
 
 export function Icon(props: { name: IconName; size?: number; label?: string }): JSX.Element {
 	const size = props.size ?? 22;

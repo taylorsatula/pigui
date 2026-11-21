@@ -15,7 +15,7 @@ import {
 } from "../shared/session.ts";
 import type { Gap } from "./live.ts";
 
-export const CARD_TOOLS = new Set(["ask_single_choice", "ask_multiple_choice", "submit_plan", "file_report"]);
+const CARD_TOOLS = new Set(["ask_single_choice", "ask_multiple_choice", "submit_plan", "file_report"]);
 
 export type CallView = {
 	id: string;

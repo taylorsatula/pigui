@@ -3,6 +3,7 @@ import { after, before, describe, test } from "node:test";
 import type { DeliveryResult, SessionDiff } from "../src/shared/api.ts";
 import { MESSAGE_ENTRY } from "../src/shared/session.ts";
 import { git } from "../src/server/git.ts";
+import type { ConversationId } from "@earendil-works/pi-durable";
 import { context, TestServer } from "./helpers.ts";
 
 describe("the zero-shot lifecycle", () => {
@@ -84,7 +85,7 @@ describe("the zero-shot lifecycle", () => {
 	test("carries repo memory into the next session's prompt", async () => {
 		const id = await server.createSession("Just checking: does greet() handle names?");
 		await server.settled(id, "chat reply");
-		const conversation = await server.app.harness.conversation(id as never, context);
+		const conversation = await server.app.harness.conversation(id as ConversationId, context);
 		const view = await conversation!.context(context);
 		const system = JSON.stringify(view.messages.filter((message) => message.role === "system"));
 		assert.match(system, /repo_memory/);

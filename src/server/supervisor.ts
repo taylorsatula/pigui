@@ -22,7 +22,7 @@ import type { Notifications } from "./notify.ts";
 /** Automatic continuations of an approved plan that stopped without a report, before the person is asked. */
 export const MAX_CONTINUATIONS = 3;
 /** Automatic resumptions after a failed compaction, before the person is asked. */
-export const MAX_RESUMES = 3;
+const MAX_RESUMES = 3;
 
 export type SupervisorDeps = {
 	harness: () => Harness;
@@ -44,7 +44,7 @@ const FAILURE_TEXT: Record<string, string> = {
 	run_failed: "An earlier run failed.",
 };
 
-export function nudgeText(attempt: number, limit: number): string {
+function nudgeText(attempt: number, limit: number): string {
 	return `[Automatic continuation ${attempt} of ${limit}] Your turn ended, but the approved plan is not finished: no report has been filed. The person is away. Continue with the next step. If you are blocked or cannot finish, say so in ${FILE_REPORT} rather than stopping.`;
 }
 

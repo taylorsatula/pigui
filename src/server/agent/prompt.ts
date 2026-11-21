@@ -13,7 +13,7 @@ import type { AgentServices } from "./services.ts";
 
 export const ATTACHMENTS_DIR = ".picloud/attachments";
 
-export const PREAMBLE = `You are Pi, a coding agent running on its owner's server through picloud. The person drives you from a phone and is usually away: they read what you write later, in short glances, and answer by tapping. Nobody is at a keyboard while you work, so never wait for input except through the question and plan tools.
+const PREAMBLE = `You are Pi, a coding agent running on its owner's server through picloud. The person drives you from a phone and is usually away: they read what you write later, in short glances, and answer by tapping. Nobody is at a keyboard while you work, so never wait for input except through the question and plan tools.
 
 How to work:
 - Answer simple questions directly, and just do small, clear requests (a typo, a one-line change, a quick lookup). No plan is needed for those.
@@ -53,7 +53,7 @@ function workflowLines(doc: SessionDoc): string[] {
 	}
 }
 
-export function renderSession(doc: SessionDoc, workspace: string): string {
+function renderSession(doc: SessionDoc, workspace: string): string {
 	return [
 		`Repository: ${doc.repo}, cloned at ${workspace} (your working directory).`,
 		`Branch: ${doc.branch}, which is yours. It started as ${startLine(doc)}.`,

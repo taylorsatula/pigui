@@ -28,7 +28,7 @@ export interface RepoHost {
 }
 
 /** A GitHub call that failed, with what to check. */
-export class HostError extends Error {}
+class HostError extends Error {}
 
 const MAX_FILES = 20_000;
 

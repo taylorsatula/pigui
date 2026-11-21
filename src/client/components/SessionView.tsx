@@ -15,7 +15,7 @@ import { DrawerButton } from "./Drawer.tsx";
 import { Icon } from "./Icons.tsx";
 import { Transcript } from "./Transcript.tsx";
 
-export function placeholderFor(doc: SessionDoc, running: boolean): string {
+function placeholderFor(doc: SessionDoc, running: boolean): string {
 	if (doc.setup.status === "preparing") return "Setting up the workspace…";
 	if (doc.card?.kind === "questions") return "Answer in your own words…";
 	if (doc.card?.kind === "plan") return "Ask for changes to the plan…";
