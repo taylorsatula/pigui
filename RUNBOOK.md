@@ -1,890 +1,923 @@
-# picloud implementation runbook
+# picloud: implementation runbook (v1)
+
+**Read this first.** This document is the complete specification for building picloud v1. It is self-contained:
+nothing outside this file is required. Implement **Part A** to completion, autonomously. Do not stop to ask
+questions. Where this runbook is silent, make the simplest choice consistent with §2 (Scope rules), and record it in
+`DECISIONS.md` at the repository root (one line per decision: what and why). **Part B** is for the human operator and
+is out of scope for the implementer, except for the deploy files Part A must produce (§A13).
 
 | | |
 |---|---|
-| Document | Formal implementation runbook for picloud v1 |
-| Status | Approved design, ready for implementation |
-| Date | 2026-11-21 |
-| Target platform versions | `@earendil-works/*` **1.6.0** (npm), Node.js ≥ 22.19 (verified on 22.23.5), Ubuntu 24.04 |
-| Verified by | Spike in `reference/spike/`, run against the published 1.6.0 packages (see §20) |
-
-This runbook is self-contained. An implementer with no access to the conversation that produced it can build, test,
-deploy and operate picloud from this document plus the files under `reference/`. The supporting research in
-`notes/` explains *why*; this document says *what* and *how*.
+| Version | 1.0, frozen 2026-11-21 |
+| Platform | `@earendil-works/*` **1.6.0** from npm; Node.js ≥ 22.19; Ubuntu 24.04 for deployment |
+| Network needed to build | npm registry. Nothing else: the definition of done runs with no model credentials and no GitHub access. |
 
 ---
 
-## Table of contents
-1. Product definition
-2. Scope rules and non-goals
-3. Glossary
-4. Architecture
-5. Pinned dependencies and external programs
-6. Pi Durable 1.6.0: the API surface picloud uses
-7. Repository layout and line budget
-8. Data model
-9. Session lifecycle
-10. The agent extension (system prompt, tools, hook)
-11. Server specification
-12. HTTP API reference
-13. PWA specification (UX, HIG rationale, rendering rules)
-14. Notifications
-15. Implementation phases with acceptance criteria
-16. Testing strategy
-17. Deployment runbook (droplet)
-18. Operations runbook
-19. Security model and known limitations
-20. Verification record
-21. Decision log
-22. References
+## Contents
+**Part A: Build (implementer)**
+- A1 Product definition
+- A2 Scope rules
+- A3 Glossary
+- A4 Architecture
+- A5 Dependencies (exact pins)
+- A6 Pi Durable 1.6.0 API facts
+- A7 Repository layout and size budget
+- A8 Data model
+- A9 Session lifecycle
+- A10 The agent extension
+- A11 Server behavior
+- A12 HTTP API
+- A13 Fake mode, tests and definition of done
+- A14 PWA specification
+- A15 Notifications
+
+**Part B: Deploy and operate (human operator)**
+- B1 Droplet
+- B2 Pi sign-in
+- B3 GitHub
+- B4 Tailscale
+- B5 Service
+- B6 Phone
+- B7 Operations
+- B8 Upgrades
+- B9 Troubleshooting
+
+**Appendices:** C1 Security model · C2 Decision log · C3 Verification record
 
 ---
 
-## 1. Product definition
+# Part A: Build
 
-picloud is a thin, self-hosted remote harness for the **Pi** coding agent. You run it on your own server, called the
-droplet. You use it from your phone as an installed web app (PWA).
+## A1. Product definition
 
-**The core use case is zero-shot work.** From the phone you pick one of your GitHub repositories and describe a
-task. Pi then explores the code and asks a few multiple-choice questions that you answer by tapping. It proposes a
-plan, which you approve. You put the phone away, and Pi implements, tests and commits on its own branch. When it's
-done you get a notification and a final report, from which you choose to **push the branch**, **open a pull
-request**, or **keep working** by typing feedback.
+picloud is a thin, self-hosted remote harness for the **Pi** coding agent. It runs on the owner's server (the
+"droplet"). The owner uses it from a phone as an installed web app (PWA) over a private Tailscale network.
 
-**Interactive use is not barred.** Asking a question gets an answer. A small direct request ("fix the typo in the
-README") is simply done. The plan-first workflow is a strong default taught by the system prompt, not a lock.
+**Primary use: zero-shot work from a phone.**
+1. Pick one of your GitHub repositories, and optionally a branch. Describe a task.
+2. Pi explores the code and asks a few **multiple-choice questions**, which you answer by tapping.
+3. Pi proposes a **plan**, and you approve it (or ask for revisions).
+4. You put the phone away. Pi implements, verifies, commits, and ticks off plan steps as it goes.
+5. You get a notification and a **final report**. From the report you choose **Push branch**, **Open PR**, or keep
+   working by typing feedback.
 
-**Success criteria for v1:**
-1. A task started from the phone runs to a final report with no interaction beyond the up-front questions and the
-   plan approval, in the common case.
-2. Every wait for the person costs no running process and survives a server restart or reboot. Waits include
-   questions, plan approval, and the phone being in a pocket.
-3. The PWA is a simple chat interface: an input pill, an attachment button and a send button. Tool calls and
-   thinking are collapsed by default. Sessions are a tap away in a drawer.
-4. Nothing reaches GitHub until the person taps Push or Open PR.
+**Interactive use must not be barred.** A question gets an answer. A small direct request is simply done. The
+plan-first workflow is a default taught by the system prompt, not a lock enforced in code.
 
-## 2. Scope rules and non-goals
+**Product properties that must hold:**
+1. **Waiting costs nothing and survives restarts.** Every wait for the person (questions, plan approval) is a
+   Durable tool park on a signal. It holds no process and survives server restarts and reboots.
+2. **Unattended runs continue to a report.** A run that tries to stop before reporting is nudged to continue, up to
+   3 times. Each run is also bounded by a turn limit and an optional spend budget.
+3. **Nothing reaches GitHub without a tap.** Pushes and PRs happen only when the person taps a button. The agent
+   commits locally and never pushes.
+4. **The app is a simple chat interface.** It has an input pill, an attachment button and a send button. Tool calls
+   and thinking are collapsed by default. Sessions are listed in a drawer.
 
-**Rule 1: use what already exists.** If an established dependency already does something, picloud does not
-rebuild it:
+## A2. Scope rules
 
-| Concern | Owned by | picloud's share |
+**Rule 1: delegate to established tools.** Do not build what these already provide.
+
+| Concern | Provided by | picloud's share |
 |---|---|---|
-| Authentication, TLS, device trust, remote reachability | **Tailscale** (`tailscale serve`) | none (optional login allowlist, §11.9) |
-| Model providers, sign-in, OAuth refresh, default model | **Pi** (`pi` CLI → `/login`, `/model`; `~/.pi/agent/`) | load `ModelRuntime` and `SettingsManager` |
-| Agent loop, coding tools, retries, compaction, crash recovery, persistence | **Pi Durable** | configuration only |
-| Project instructions (`AGENTS.md`/`CLAUDE.md`), skills | **Pi** (`loadProjectContextFiles`, `loadSkills`) | two prompt sections |
-| Live state sync to the browser | **Durable watches** plus **Chord `delta`** in the browser | an SSE relay |
-| Repo listing, clone, push, pull requests, git credentials | **`gh`** and **`git`** | shell-outs |
-| Push notifications | **Web Push** standard plus the **`web-push`** package | send on a few events |
-| Markdown rendering and sanitizing | **marked** plus **DOMPurify** | none |
-| Process supervision, restart on crash | **systemd** | one unit file |
+| Authentication, TLS, remote reachability | Tailscale (`tailscale serve`) | optional login allowlist |
+| Model providers, sign-in, OAuth refresh, default model | Pi (`pi` CLI writes `~/.pi/agent/`) | load `ModelRuntime` + `SettingsManager` |
+| Agent loop, coding tools, retries, compaction, crash recovery, persistence | Pi Durable | configuration |
+| Project instructions (`AGENTS.md`/`CLAUDE.md`) and skills | Pi (`loadProjectContextFiles`, `loadSkills`) | prompt sections |
+| Live state sync to the browser | Durable watches + Chord `delta` in the browser | an SSE relay |
+| Repos, branches, clone, push, PRs, git credentials | `gh` + `git` | shell-outs behind one module |
+| Push notifications | Web Push + the `web-push` package | send on a few events |
+| Markdown | `marked` + `DOMPurify` | none |
+| Supervision | systemd | unit files |
 
-**Rule 2: say no.** Each feature must serve this loop: *pick repo → plan with questions → approve → run unattended →
-report → deliver*. Explicit non-goals for v1:
+**Rule 2: non-goals.** Do not build any of these:
 - multi-user or tenancy;
-- a settings UI;
-- model pickers;
-- containers per session;
+- a settings screen;
+- a model picker;
+- per-session containers;
 - a built-in browser;
-- an extension marketplace;
+- extension or plugin systems;
 - multiplayer or presence;
 - self-editing;
-- design tools;
-- document formats (PPTX and so on);
+- design or document tools;
 - scheduled tasks;
 - voice;
-- an IDE-style file browser.
+- a file browser;
+- CI watching;
+- sessions spanning multiple repos;
+- bundlers or transpilers.
 
-**Rule 3: line budget.** About 1,200 lines of server TypeScript and about 1,400 lines of PWA code (including CSS,
-excluding vendored libraries). Tests are not counted. Going over the budget means stopping to ask what is being
-built that was said no to.
+**Rule 3: size budget (hard).** Server code ≤ **1,500** lines (`src/**/*.ts`). Client code ≤ **1,900** lines
+(`public/**/*.{js,css,html}`, excluding vendored libraries and icons). Tests and deploy files are not counted.
 
-## 3. Glossary
+## A3. Glossary
 
 | Term | Meaning |
 |---|---|
-| **Pi** | The coding agent toolkit from `earendil-works/pi`. The `pi` CLI is its terminal coding agent. |
-| **Pi Durable** | `@earendil-works/pi-durable`, an embeddable library that runs agents durably. Every model turn and tool call is committed to storage before it is shown, and restarts resume work. It is a library, not a server. |
-| **Harness** | Durable's main object: one open storage plus the machinery that runs agents on it. picloud opens exactly one. |
-| **Conversation** | A durable transcript plus agent configuration. One picloud **session** is one conversation. |
-| **Entry** | An immutable transcript record. Kinds picloud renders: `pi.user`, `pi.assistant`, `pi.tool-result`. Kinds it ignores or marks subtly: `pi.system`, `pi.reset`, compaction summaries. |
-| **Document (doc)** | Typed JSON state stored next to transcripts and changed atomically in commits. Built-in docs: `pi.live` (running generation and tool slots), `pi.agent`, `pi.inbox`, `pi.usage`. picloud defines `picloud.sessions` and `picloud.push`. |
-| **Tool park** | A tool's `execute()` returns `{ sleep: { signals } }` instead of a result. The call then holds **no process**, survives restarts, and reruns once a matching signal arrives. |
-| **Signal** | A typed value delivered to a parked task with `harness.signal(taskId, token, key, value)`. picloud uses signal `picloud.reply`, key `"reply"`. |
-| **Watch** | `conversation.watch()`: the conversation's view (an entry window plus docs) at attach time, then each commit as **Chord ops**. |
-| **Chord ops** | JSON patch-like operations (`[["r", value]]` is a whole replacement). The browser applies them with `applyImmutable` from `@earendil-works/chord/delta`. |
-| **Steer / follow-up** | Input sent to a busy conversation. A *steer* joins the running work after the current tool round. A *follow-up* waits for the run to finish. |
-| **Run / turn** | A turn is one model response plus its tool calls. A run is the turns from an input to its final answer. |
-| **Droplet** | The Linux server picloud runs on. Any VPS works. |
-| **Tailnet** | The private Tailscale network your phone and droplet join. |
+| Pi | The coding-agent toolkit by earendil-works. The `pi` CLI is its terminal agent. |
+| Pi Durable | `@earendil-works/pi-durable`, a library that runs agents durably. Every turn and tool call is committed before it is shown, and restarts resume work. |
+| Harness | Durable's main object: one storage plus the machinery running agents on it. picloud opens exactly **one**. |
+| Session | picloud's unit of work. Exactly one Durable **conversation** plus one git workspace. |
+| Entry | Immutable transcript record (`pi.user`, `pi.assistant`, `pi.tool-result`, `pi.system`, `pi.reset`, `pi.compaction`). |
+| Document (doc) | Typed JSON state changed atomically in commits. Built-in: `pi.live`, `pi.usage`, `pi.agent`, `pi.inbox`, `pi.provider`. |
+| Park | A tool's `execute()` returns `{ sleep: { signals } }` instead of a result. The call holds no process, survives restarts, and reruns when the signal arrives. |
+| Signal | A typed value delivered to a parked task: `harness.signal(taskId, token, key, value, ctx)`. |
+| Watch | `conversation.watch()`: the conversation view, then each change as Chord ops. |
+| Chord ops | JSON patch-like operations. Apply them with `applyImmutable(view, ops)` from `@earendil-works/chord/delta`, which also runs in browsers. |
+| Steer | Input given to a busy conversation. It joins the running work after the current tool round. |
+| Comparison ref | The remote ref a session's work is measured against (§A8.1). |
 
-## 4. Architecture
+## A4. Architecture
 
 ```
- iPhone / Android (PWA, installed to the home screen, on the tailnet via the Tailscale app)
-        │  HTTPS  https://<droplet>.<tailnet>.ts.net
-        ▼
- tailscale serve  (TLS termination, tailnet-only, adds Tailscale-User-Login header)
-        │  HTTP  127.0.0.1:8787
-        ▼
- picloud server  (one Node.js process, user "picloud", systemd)
-   ├─ http.ts       JSON API + 2 SSE streams + static PWA + /vendor mapping
-   ├─ sessions.ts   create / message / answer / stop / deliver / diff / archive; git + gh shell-outs
-   ├─ monitor.ts    observes active conversations: run ended → idle / failed
-   ├─ push.ts       VAPID keys, subscriptions (Durable doc), web-push sends
-   ├─ extension.ts  Pi extension: system prompt sections + ask_user + submit_plan + final_report + onYield nudge
-   └─ harness.ts    ONE Harness over ONE SQLite file
-          ├─ models   = Pi's ModelRuntime (reads ~/.pi/agent/auth.json, models.json, OAuth refresh)
-          ├─ registry = CodingTools (read/write/edit/bash) + PiContext + Picloud
-          ├─ env      = NodeExecutionEnv({ cwd: <session workspace> }), cached per workspace
-          └─ storage  = /var/lib/picloud/durable.sqlite
- Workspaces: /var/lib/picloud/work/<workspaceId>/   (git clone of the repo, own branch)
+ Phone PWA  ──HTTPS──▶  tailscale serve  ──HTTP 127.0.0.1:8787──▶  picloud (one Node process, user "picloud")
+                                                                    ├ HTTP JSON API, 2 SSE streams, static PWA, /vendor
+                                                                    ├ sessions: create/message/answer/stop/deliver/diff
+                                                                    ├ github module: real (gh+git) | fake (local bare repos)
+                                                                    ├ monitor: run end / failure / budget per active session
+                                                                    ├ push: VAPID + subscriptions + sends
+                                                                    ├ maintenance: daily workspace prune
+                                                                    └ ONE Harness over ONE SQLite file
+                                                                        models   = Pi ModelRuntime (or faux in fake mode)
+                                                                        registry = CodingTools + pi-context + picloud
+                                                                        env      = NodeExecutionEnv per workspace
+ Workspaces: <PICLOUD_DATA>/work/<uuid>/  (one clone per session)
 ```
 
-**Key properties:**
-- **One process, one Harness, one SQLite file.** Durable does not support two writable processes on one storage. A
-  second writer would rerun the first one's tasks. Never run two picloud instances against the same data directory.
-- **Session list is a Durable document.** It is updated in the same commits as the agent's work, so the list and the
-  transcripts cannot disagree, and there is no second database.
-- **The agent never pushes.** The server performs push and PR creation on the person's tap, using `gh`/`git`
-  credentials (§19 covers the limits of this).
-- **Every wait for the person is a tool park on a signal.** Asking, plan approval and crash recovery cost nothing
-  while waiting and survive restarts. This was verified in the spike (§20).
+**Invariants:**
+- **One process, one Harness, one SQLite file.** Durable does not support two writable processes on one storage.
+- **State lives in Durable.** All picloud state is in Durable documents, so there is no second database. Session
+  list changes are committed in the same commits as the agent's tool work.
+- **Two GitHub writers, by design.** The server alone pushes and creates PRs. The agent may `git fetch` (it needs to
+  for rebasing) but never pushes.
 
-## 5. Pinned dependencies and external programs
+## A5. Dependencies (exact pins)
 
-Pin **exact** versions. Pi Durable is experimental and its API changes between releases (§6.1). Upgrades are a
-deliberate procedure (§18.4).
+Pin exact versions (`.npmrc` with `save-exact=true`) and commit `package-lock.json`.
 
-### 5.1 npm runtime dependencies
-| Package | Version | Used for |
+| Package | Version | Kind |
 |---|---|---|
-| `@earendil-works/pi-durable` | 1.6.0 | Harness, docs, signals, tools, hooks, NodeExecutionEnv, SQLite storage |
-| `@earendil-works/pi-ai` | 1.6.0 | message and content types (transitively required) |
-| `@earendil-works/pi-coding-agent` | 1.6.0 | `ModelRuntime`, `SettingsManager`, `getAgentDir`, `loadProjectContextFiles`, `loadSkills`, `formatSkillsForPrompt` |
-| `@earendil-works/chord` | 1.6.0 | `BACKGROUND_CONTEXT` (server) and `delta.applyImmutable` (browser) |
-| `@earendil-works/pi-schema` | 1.6.0 | tool parameter and signal schemas (`obj`, `str`, `arr`, `opt`, `bool`) |
-| `web-push` | 4.0.0 | Web Push (VAPID) sending. It ships no types; see §7. |
-| `preact` | 11.2.0 | PWA rendering (served from `node_modules` via import map) |
-| `htm` | 3.1.1 | JSX-free templates for Preact |
-| `marked` | 18.2.1 | Markdown rendering |
-| `dompurify` | 3.4.18 | HTML sanitizing |
+| `@earendil-works/pi-durable` | 1.6.0 | runtime |
+| `@earendil-works/pi-ai` | 1.6.0 | runtime |
+| `@earendil-works/pi-coding-agent` | 1.6.0 | runtime |
+| `@earendil-works/chord` | 1.6.0 | runtime |
+| `@earendil-works/pi-schema` | 1.6.0 | runtime |
+| `web-push` | 4.0.0 | runtime. It ships no TypeScript types, so declare the few functions you use in a local `.d.ts`. |
+| `preact` | 11.2.0 | runtime (browser) |
+| `htm` | 3.1.1 | runtime (browser) |
+| `marked` | 18.2.1 | runtime (browser) |
+| `dompurify` | 3.4.18 | runtime (browser) |
+| `typescript` | 5.9.3 | dev (typecheck only) |
+| `@types/node` | 22.20.5 | dev |
+| `playwright` | 1.65.1 | dev (end-to-end tests) |
 
-### 5.2 npm dev dependencies
-| Package | Version |
+**Language and tooling:**
+- **Server TypeScript:** run directly by Node's built-in type stripping. No build step and no transpiler. Use only
+  erasable syntax (no `enum`, `namespace` or parameter properties), and import local files with the `.ts` extension.
+- **tsconfig:** `strict: true`, `noEmit: true`, `module` and `moduleResolution` set to `nodenext`, `target` es2023,
+  `allowImportingTsExtensions: true`, `skipLibCheck: true`, `types: ["node"]`.
+- **Client:** plain ES modules loaded through an **import map**. No bundler.
+- **Required npm scripts:** `start`, `dev:fake`, `test`, `e2e`, `check` (§A13).
+- **Node version:** if the environment's Node is older than 22.19, install a newer one (for example with nvm) before
+  starting.
+
+## A6. Pi Durable 1.6.0 API facts
+
+**Warning: use the npm docs, not GitHub.** The GitHub main branch of `earendil-works/pi` contains **unreleased
+breaking changes**, so its README and examples do not match 1.6.0. Read
+`node_modules/@earendil-works/pi-durable/README.md` and the `.d.ts` files in `node_modules`. Never use GitHub main.
+The 1.6.0 shapes:
+
+| Concept | 1.6.0 shape (correct) | Main branch (wrong for 1.6.0) |
+|---|---|---|
+| Tool park | `return { sleep: { signals: [Token.key("k")], until?, checkpoint? } }` | `{ kind: "sleep", ... }` |
+| Signal state | `{ value }`, `{ expired: true }` or `undefined`, tested with `"value" in state` | `state.kind === "value"` |
+| `onYield` continue | `{ continue: "text" }` | `{ kind: "continue", continue }` |
+| Admit inside a commit | `conversation.submit(tx, draft)` | `conversation.admit(tx, draft)` |
+
+### A6.1 Import paths (all verified)
+
+| From | Names |
 |---|---|
-| `typescript` | 5.9.3 (typecheck only, `noEmit`) |
-| `@types/node` | 22.20.5 |
+| `@earendil-works/chord/context` | `BACKGROUND_CONTEXT` (the `Context` every async call takes) |
+| `@earendil-works/chord/delta` | `applyImmutable` |
+| `@earendil-works/pi-schema` | `obj`, `str`, `arr`, `opt`, `bool`, `int`, `oneOf` |
+| `@earendil-works/pi-durable` | `Harness`, `createRegistry`, `defineExtension`, `defineTool`, `defineDoc`, `defineSignal`, `hook`, `section`, `GenerationTask`, `LiveDoc`, `UsageDoc` |
+| `@earendil-works/pi-durable/env` | `ExecutionEnv` (type) |
+| `@earendil-works/pi-durable/env/node` | `NodeExecutionEnv` |
+| `@earendil-works/pi-durable/storage/sqlite/node` | `openNodeSqliteStorage(path)` |
+| `@earendil-works/pi-durable/tools` | `CodingTools` (the extension providing `read`, `write`, `edit`, `bash`; it has **no** system prompt) |
+| `@earendil-works/pi-coding-agent` | `ModelRuntime`, `SettingsManager`, `getAgentDir`, `loadProjectContextFiles`, `loadSkills`, `formatSkillsForPrompt` |
+| `@earendil-works/pi-ai/models` | `createModels` (fake mode and tests) |
+| `@earendil-works/pi-ai/providers/faux` | `fauxProvider`, `fauxAssistantMessage`, `fauxToolCall`, `fauxText`, `fauxThinking` |
 
-No bundler, no transpiler and no framework are used. Node runs `.ts` files directly through built-in type
-stripping, so use only erasable TypeScript syntax: no `enum`, no `namespace`, no parameter properties. Import local
-files with the `.ts` extension.
+### A6.2 Facts and signatures (1.6.0)
 
-### 5.3 External programs on the droplet
-| Program | Purpose | Notes |
-|---|---|---|
-| Node.js ≥ 22.19 | runtime | 22.23.5 verified; Node 24 LTS also acceptable |
-| `pi` CLI (`npm i -g @earendil-works/pi-coding-agent@1.6.0`) | one-time `/login` and `/model` as user `picloud` | picloud reads the files it writes |
-| `gh` (GitHub CLI) | repo list, clone, PR creation; git credential helper | `gh auth login` as user `picloud` |
-| `git` ≥ 2.40 | all repo operations | |
-| Tailscale | network, TLS, identity | `tailscale serve` |
-| systemd | supervision | |
-| Language toolchains your repos need (for example Python or Go) | so Pi can run tests | install per repo needs |
+**Models**
+- `await ModelRuntime.create()` builds Pi's configured `Models` from `~/.pi/agent/auth.json` and `models.json`,
+  with OAuth refresh. It is accepted directly as Harness `models`, and it succeeds even with no credentials.
+- Call `await models.settleCredentialWrites()` before exit.
+- `models.getModel(provider, id)` returns a model whose `input` lists its modalities (`"text"`, `"image"`).
+- `SettingsManager.create(cwd, getAgentDir())` gives the defaults through `getDefaultProvider()`,
+  `getDefaultModel()` and `getDefaultThinkingLevel()`. Thinking level values are `"off" | "minimal" | "low" |
+  "medium" | "high" | "xhigh" | "max"` and are compatible with Durable's.
 
-## 6. Pi Durable 1.6.0: the API surface picloud uses
+**Opening the Harness**
+- `await Harness.open(storage, { models, registry, env, onReport? }, ctx)`.
+- `env` is `({ cwd }) => ExecutionEnv`. It is called at every tool call and every prompt build, so cache
+  environments per cwd.
+- `harness.resume()` continues work left unfinished by a crash or stop. `harness.close(ctx)` closes the Harness.
 
-### 6.1 Critical warning: npm 1.6.0 vs the GitHub main branch
-The `earendil-works/pi` main branch already contains **unreleased breaking changes**. Its README and examples use
-different shapes than the published 1.6.0. **Always read the README inside
-`node_modules/@earendil-works/pi-durable/README.md`, never GitHub main.** The differences that matter:
-
-| Concept | npm **1.6.0** (use this) | GitHub main (do NOT use) |
-|---|---|---|
-| Tool park | `return { sleep: { signals: [Tok.key("k")], until?, checkpoint? } }` | `{ kind: "sleep", signals, ... }` |
-| Read a signal | `state` is `{ value }`, `{ expired: true }` or `undefined`; test with `"value" in state` | `state.kind === "value"` |
-| `onYield` continue | `return { continue: "text" }` | `{ kind: "continue", continue: "text" }` |
-| Admit in your own commit | `conversation.submit(tx, draft)` | `conversation.admit(tx, draft)` |
-
-### 6.2 Imports (all verified to resolve and typecheck)
-```ts
-import { BACKGROUND_CONTEXT as ctx } from "@earendil-works/chord/context";
-import { applyImmutable } from "@earendil-works/chord/delta";            // also works in the browser
-import { arr, bool, obj, opt, str } from "@earendil-works/pi-schema";
-import { type Conversation, createRegistry, defineDoc, defineExtension, defineSignal, defineTool,
-         GenerationTask, Harness, hook, LiveDoc, section } from "@earendil-works/pi-durable";
-import type { ExecutionEnv } from "@earendil-works/pi-durable/env";
-import { NodeExecutionEnv } from "@earendil-works/pi-durable/env/node";
-import { openNodeSqliteStorage } from "@earendil-works/pi-durable/storage/sqlite/node";
-import { CodingTools } from "@earendil-works/pi-durable/tools";          // read, write, edit, bash
-import { formatSkillsForPrompt, getAgentDir, loadProjectContextFiles, loadSkills,
-         ModelRuntime, SettingsManager } from "@earendil-works/pi-coding-agent";
-// Tests only:
-import { createModels } from "@earendil-works/pi-ai/models";
-import { fauxAssistantMessage, fauxProvider, fauxToolCall } from "@earendil-works/pi-ai/providers/faux";
-```
-
-### 6.3 Calls and their exact signatures (1.6.0)
-- **Models:** `const models = await ModelRuntime.create()` builds Pi's own configured `Models`. It reads
-  `~/.pi/agent/auth.json` and `models.json`, refreshes OAuth, and implements Durable's `Models`. On shutdown call
-  `await models.settleCredentialWrites()`.
-- **Default model:** `const s = SettingsManager.create(cwd, getAgentDir())`, then `s.getDefaultProvider()`,
-  `s.getDefaultModel()` and `s.getDefaultThinkingLevel()`.
-- **Open:** `Harness.open(storage, { models, registry, env }, ctx)`. Here `env` is
-  `({ cwd }) => ExecutionEnv` and is called at every tool call and prompt build.
-- **Conversations:**
-  - Create: `harness.createConversation({ ownership: { kind: "ownerless" }, agent: { model: { provider, modelId }, cwd, maxTurns, thinkingLevel? } }, ctx)`.
-  - Look up: `harness.conversation(id, ctx)` returns `Conversation | undefined`.
-- **Conversation methods:**
+**Conversations**
+- `harness.createConversation({ ownership: { kind: "ownerless" }, agent: { model: { provider, modelId }, cwd, maxTurns, thinkingLevel? } }, ctx)`.
+- `harness.conversation(id, ctx)` looks one up.
+- **IDs are numbers at runtime** (branded types): conversation, entry and task IDs alike. Convert with `String()`
+  for URLs and map keys, and with `Number()` on the way back.
+- Methods:
   - `submit({ type: "input", content, requestId?, whenBusy?: "steer" | "followUp" | "reject" }, ctx)` returns a
-    `Submission` with `.wait(ctx)`.
-  - `submit({ type: "continue" }, ctx)` resumes after a failed run.
-  - `abort(ctx)`, `entries(query, limit, cursor, ctx)`, `watch(ctx, window?)`, `configure(change, ctx)`.
-- **Content with images:** `content` is either a string or
-  `[{ type: "text", text }, { type: "image", data: <base64>, mimeType }]`.
-- **Signals:**
-  - Define: `defineSignal({ name, version, schema })`.
-  - Deliver: `harness.signal(taskId, Token, key, value, ctx)`. It returns `"delivered"` and is idempotent on retry.
-  - Read inside a tool or hook: `api.readSignal(Token, key, ctx)`.
-- **Documents:**
-  - Define: `defineDoc<T>({ kind, version, scope: "session", initial, checkpointWhen: () => false })`.
-    `checkpointWhen` is required.
-  - Write in a commit: `(await tx.doc(Token)).field = ...`. `tx.doc` creates the document on first use.
-  - Read: `harness.snapshot(Token, ctx)`, or inside tools and hooks `api.snapshot(Token, ctx)`.
-  - Observe: `harness.observeDoc(Token, { advance(call, ctx) {}, end(end) {} }, ctx)`.
-- **Live state:** `harness.snapshot(LiveDoc, conversationId, ctx)` returns `LiveState`:
-  - `run?`: `{ taskId, inputs, turns, first? }`, present while busy;
-  - `generation?`: `{ attempt, message? (streamed partial), retry?: { at, error } }`;
-  - `tools?`: `ToolSlot[]`, each `{ callId, name, status: "pending" | "running" | "sleeping" | "waiting" | "done", output?, details?, taskId?, entry? }`;
-  - `runFailure?`, which says why the last run ended without an answer.
-- **Tool API** (`execute(args, api, ctx)`):
-  - Identity: `api.taskId`, `api.callId`, `api.conversationId`.
-  - Documents and state: `api.commit(tx => ..., ctx)`, `api.readSignal(...)`, `api.snapshot(...)`.
-  - Memos: `api.memo(name, candidate, ctx)` is first-writer-wins and returns the stored value;
-    `api.memo(name, ctx)` reads one.
-  - Environment: `api.env` (`ExecutionEnv`) and `api.now()`.
-- **Exec through env:** `await env.exec(["git", "status", "--porcelain"], { onOutput: (text, _c, { stream }) => ... }, ctx)`
-  returns `{ ok: true, value: { exitCode } } | { ok: false, error }`.
-- **Hooks:** `hook(GenerationTask, { onYield(answer, api, ctx) })`, where `api` has `snapshot`, `entries`, `memo`
-  and `conversationId`. Return `{ continue: "text" }` to keep the run going, or `undefined`.
-- **Prompt sections:** `section(name, (input) => string | undefined, { tag?: boolean })`. `input.env?.cwd` is the
-  session workspace. Sections render as `<name>…</name>` unless `tag: false`.
-- **Extension:** `defineExtension({ name, tools?, sections?, hooks? })`. By default every installed extension is
-  selected by every conversation, in install order.
+    `Submission` with `.wait(ctx)`. `requestId` makes it idempotent.
+  - `submit({ type: "continue" }, ctx)` restarts a failed or aborted run on the existing context.
+  - `abort(ctx)`, `watch(ctx)`, `entries(query, limit, cursor, ctx)`.
+- **Content:** a string, or `[{ type: "text", text }, { type: "image", data: <base64>, mimeType }]`.
 
-## 7. Repository layout and line budget
+**Transcript paging**
+- `entries({ maxEntryId?, minEntryId?, order: "ascending" | "descending" }, limit, undefined, ctx)` returns
+  `{ items: EntryRecord[] }`. `maxEntryId` is **inclusive**.
 
+**Entry and message shapes**
+- `EntryRecord` is `{ id, conversationId, kind, model?: Message[], data?, head? }`.
+- `pi.user`: `model` is `[UserMessage { role: "user", content: string | (TextContent | ImageContent)[] }]`.
+- `pi.assistant`: `model` is `[AssistantMessage { content: (TextContent | ThinkingContent | ToolCall)[], usage, stopReason }]`.
+  - `TextContent` is `{ type: "text", text }`.
+  - `ThinkingContent` is `{ type: "thinking", thinking }`.
+  - `ToolCall` is `{ type: "toolCall", id, name, arguments }`.
+- `pi.tool-result`: `model` is `[ToolResultMessage { toolCallId, toolName, content: (Text | Image)[], isError }]`.
+- `pi.compaction`: `model` is `[UserMessage]` holding the summary.
+- `pi.system` and `pi.reset` carry no displayable content.
+
+**The watch view**
+- `ConversationView` is `{ conversation, entries: EntryRecord[] (a window, newest last, about 50), before?, docs: Record<string, JsonObject> }`.
+- `docs` includes `"pi.live"` and `"pi.usage"`.
+
+**Live state (`pi.live`, `LiveState`)**
+- `run?`: `{ taskId, inputs, turns, first? }`, present exactly while a run is active.
+- `generation?`: `{ attempt, message? (streamed partial AssistantMessage), retry?: { at, error } }`.
+- `tools?`: `[{ callId, name, status: "pending" | "running" | "sleeping" | "waiting" | "done", output?, taskId? }]`.
+- `runFailure?`: `{ reason, detail?, ... }`. Verified reasons include `"aborted"` and `"model_error"`. Others:
+  `no_model`, `interrupted`, `faulted`, `orphaned`, `restart_limit`, `turn_limit`, `nothing_to_answer`.
+
+**Usage (`pi.usage`, `UsageState`)**
+- `{ models: Record<"provider/model", Usage>, tools: Record<string, Usage> }`, with `Usage.cost.total` in USD. Costs
+  are catalog estimates, unless the provider reports billed cost.
+
+**Signals**
+- Define with `defineSignal({ name, version, schema })`.
+- Deliver with `harness.signal(taskId, Token, key, value, ctx)`, which returns `"delivered"`.
+- Read inside a tool or hook with `api.readSignal(Token, key, ctx)`.
+
+**Documents**
+- Define with `defineDoc<T>({ kind, version, scope: "session", initial, checkpointWhen: () => false })`.
+  `checkpointWhen` is **required**.
+- Write inside a commit with `(await tx.doc(Token)).field = …`. `tx.doc` creates the document on first use.
+- Read with `harness.snapshot(Token, ctx)`, or `api.snapshot(Token, ctx)` inside tools and hooks.
+- Built-in conversation docs are read with `harness.snapshot(LiveDoc, conversationId, ctx)`.
+- **Documents must be JSON:** never store `undefined`; omit the key.
+
+**Observers**
+- `harness.observeDoc(Token, { advance(call, ctx), end(end) }, ctx)` and
+  `harness.observeConversation(id, { advance, end }, ctx)` return `{ value, detach() }`.
+- `advance` receives `{ kind: "value", value, ops }` synchronously inside each commit. It must not await, throw or
+  call the Harness, so defer work with `queueMicrotask`.
+
+**Tool API (`execute(args, api, ctx)`)**
+- Identity: `api.taskId`, `api.callId`, `api.conversationId`.
+- State: `api.commit(fn, ctx)`, `api.snapshot`, `api.readSignal`.
+- Memos: `api.memo(name, candidate, ctx)` is first-writer-wins and returns the stored value. `api.memo(name, ctx)`
+  reads one.
+- Environment: `api.env`, an `ExecutionEnv` for the session cwd. `api.now()`.
+- `replay: "safe"` on a tool means it reruns after a crash. Unsafe tools are reported "interrupted" instead.
+
+**Exec**
+- `env.exec(argv[], { onOutput: (text, ctx, { stream }) => … }, ctx)` returns
+  `{ ok: true, value: { exitCode } } | { ok: false, error }`.
+
+**Hooks**
+- `hook(GenerationTask, { onYield(answer, api, ctx) })`, where `api` has `snapshot`, `entries`, `memo`,
+  `conversationId` and `now`.
+- Return `{ continue: "text" }` to continue the run with that text as a user message, or `undefined`.
+
+**Prompt sections**
+- `section(name, (input) => string | undefined, { tag?: boolean })`. `input.env?.cwd` is the workspace, and
+  `input.conversationId` identifies the session.
+- Sections render as `<name>…</name>` unless `tag: false`.
+
+**Extensions**
+- `defineExtension({ name, tools?, sections?, hooks? })`. Every installed extension applies to every conversation, in
+  install order.
+
+**Faux model (fake mode and tests)**
+- `fauxProvider()` returns a handle with `.provider`, `.setResponses(steps)`, `.appendResponses(steps)` and
+  `.getPendingResponseCount()`. Register it with `createModels().setProvider(handle.provider)`, then use the model
+  `{ provider: "faux", modelId: "faux-1" }`.
+- A step is either an `AssistantMessage` (`fauxAssistantMessage(...)`) or a factory `(context) => AssistantMessage`,
+  where `context.messages` is that conversation's transcript.
+- Each step is consumed by one model call. **Keep the queue topped up** (for example, re-append inside the factory).
+- Deciding each response from `context.messages` makes a scenario deterministic across concurrent conversations.
+  This was verified.
+- Tool calls: `fauxAssistantMessage(fauxToolCall(name, args), { stopReason: "toolUse" })`.
+- Model errors: `fauxAssistantMessage("", { stopReason: "error", errorMessage })`.
+- **The faux provider always reports zero cost.** To produce spend in tests, commit to the conversation's `UsageDoc`
+  directly, for example `(await tx.doc(UsageDoc, conversationId)).models["test/x"] = { cost: { total: 9 } }`.
+  Verified.
+
+## A7. Repository layout and size budget
+
+Suggested layout. You may organize it differently, but the paths marked **(required)** must exist.
 ```
-picloud/
-  RUNBOOK.md                 this document
-  package.json               "type": "module", exact pins, scripts (below)
-  tsconfig.json              strict, noEmit, allowImportingTsExtensions, module/moduleResolution nodenext
-  src/
-    main.ts          ~120    startup, shutdown
-    config.ts         ~40    env vars → Config
-    harness.ts       ~120    open Harness, registry, docs, signal token, env cache
-    extension.ts     ~280    PiContext + Picloud extensions (prompt, 3 tools, onYield)
-    sessions.ts      ~300    session operations, git/gh shell-outs, message routing
-    monitor.ts        ~70    run-end detection → idle/failed + notifications
-    push.ts           ~70    VAPID keys, subscriptions, send
-    http.ts          ~250    router, JSON/SSE helpers, static + vendor files, login allowlist
-    web-push.d.ts     ~10    minimal type declaration for web-push 4.0.0
-  public/
-    index.html        ~40    import map, manifest, root element
-    manifest.webmanifest
-    sw.js             ~70    app-shell cache, push display, notification click
-    app.js           ~260    state, routing, SSE clients, drawer, screens
-    transcript.js    ~300    entry + live rendering, tool groups, thinking
-    cards.js         ~220    QuestionCard, PlanCard, ReportCard
-    composer.js      ~170    pill, attachments (resize), send/stop
-    style.css        ~350    tokens, light/dark, layout
-    icons/           icon.svg, icon-180.png, icon-192.png, icon-512.png
-  test/
-    lifecycle.test.ts        faux-model lifecycle incl. restart (port of reference/spike/spike.ts)
-    routing.test.ts          composer text routed to pending cards / steer / follow-up
-    git.test.ts              clone from a local bare repo, branch, commit check, push
-  deploy/
-    picloud.service          systemd unit (§17.7)
-  reference/spike/           validated spike (keep; do not ship)
-  notes/                     research and design background
-```
-
-**package.json scripts:**
-```json
-{
-  "start": "node src/main.ts",
-  "test": "node --test test/*.test.ts",
-  "check": "tsc -p ."
-}
-```
-
-**`src/web-push.d.ts`** (web-push 4.0.0 has no bundled types):
-```ts
-declare module "web-push" {
-  export interface PushSubscription { endpoint: string; keys: { p256dh: string; auth: string } }
-  export function generateVAPIDKeys(): { publicKey: string; privateKey: string };
-  export function setVapidDetails(subject: string, publicKey: string, privateKey: string): void;
-  export function sendNotification(sub: PushSubscription, payload: string, options?: { TTL?: number }): Promise<{ statusCode: number }>;
-  const _default: { generateVAPIDKeys: typeof generateVAPIDKeys; setVapidDetails: typeof setVapidDetails; sendNotification: typeof sendNotification };
-  export default _default;
-}
-```
-
-## 8. Data model
-
-All state lives in **one SQLite file** managed by Durable. picloud defines two session-scoped documents and one
-signal.
-
-### 8.1 `picloud.sessions` (session-scoped singleton)
-```ts
-type SessionState =
-  | "preparing"     // server is cloning/branching; no agent yet
-  | "planning"      // agent exploring / planning
-  | "question"      // ask_user parked, waiting for the person
-  | "approval"      // submit_plan parked, waiting for the person
-  | "implementing"  // plan approved; onYield nudge active
-  | "working"       // interactive follow-up run (no nudge)
-  | "idle"          // run ended with an ordinary answer; the person's turn
-  | "reported"      // final_report filed; awaiting delivery choice
-  | "delivered"     // pushed and/or PR opened
-  | "stopped"       // person pressed Stop
-  | "failed";       // setup or run failed (see error)
-
-type Report = { summary: string; changes: string[]; verification: string; notes: string[]; commits: string[] };
-
-type SessionItem = {
-  id: string;            // conversation id
-  requestId: string;     // client idempotency key of the creating request
-  repo: string;          // "owner/name"
-  baseBranch: string;    // e.g. "main"
-  baseSha: string;       // commit the branch started from
-  branch: string;        // "picloud/<slug>-<4 hex>"
-  workspace: string;     // absolute path
-  title: string;         // first line of task, ≤ 60 chars; replaced by submit_plan's title
-  state: SessionState;
-  createdAt: number; updatedAt: number;  // ms epoch
-  archived?: true;
-  error?: string;        // for failed
-  report?: Report;
-  pushedAt?: number;
-  prUrl?: string;
-};
-const Sessions = defineDoc<{ items: Record<string, SessionItem> }>({
-  kind: "picloud.sessions", version: 1, scope: "session",
-  initial: () => ({ items: {} }), checkpointWhen: () => false,
-});
-```
-**JSON rule:** never store `undefined`. Omit the key instead, because documents must be JSON. Every state change also
-sets `updatedAt`.
-
-**Grouping in the UI:**
-- **Needs you:** `question`, `approval`, `reported`, `idle`, `failed`.
-- **Working:** `preparing`, `planning`, `implementing`, `working`.
-- **Done:** `delivered`, `stopped`.
-
-Within each group, sort by `updatedAt` descending. Archived items are hidden unless "Show archived" is on.
-
-### 8.2 `picloud.push` (session-scoped singleton)
-```ts
-const Push = defineDoc<{ vapid?: { publicKey: string; privateKey: string }; subscriptions: PushSubscriptionJSON[] }>({
-  kind: "picloud.push", version: 1, scope: "session",
-  initial: () => ({ subscriptions: [] }), checkpointWhen: () => false,
-});
+package.json, package-lock.json, .npmrc, tsconfig.json         (required)
+README.md            (required) how to run dev:fake, tests, e2e; points to RUNBOOK.md Part B for deployment
+DECISIONS.md         (required) choices made where this runbook was silent
+RUNBOOK.md           (required) this file, unchanged
+src/                 server: main, config, harness, extension, sessions, github (real+fake), monitor, push,
+                     maintenance, http
+public/              index.html, manifest.webmanifest, sw.js, app/transcript/cards/composer modules, style.css, icons/
+test/                node:test suites (§A13.2)
+e2e/                 Playwright suite (§A13.3)
+deploy/              (required) picloud.service, picloud-backup.service, picloud-backup.timer (§B5, §B7)
 ```
 
-### 8.3 Signal
-```ts
-const Reply = defineSignal({ name: "picloud.reply", version: 1, schema: obj({ approved: opt(bool()), text: str() }) });
-// Always key "reply". Each tool call is its own task, so (taskId, "reply") is unique per card.
-```
+## A8. Data model
 
-### 8.4 Files on disk
-```
-/var/lib/picloud/                 PICLOUD_DATA (owned by picloud, mode 700)
-  durable.sqlite (+ -wal, -shm)   all state
-  work/<workspaceId>/             one git clone per session
-    .picloud/uploads/             non-image attachments (excluded from git via .git/info/exclude)
-/home/picloud/.pi/agent/          Pi's auth.json, settings.json, models.json, skills (written by `pi`)
-/home/picloud/.config/gh/         gh credentials
-```
+All state lives in one SQLite file managed by Durable. picloud adds three session-scoped documents and one signal.
 
-## 9. Session lifecycle
+### A8.1 Document `picloud.sessions` (version 1)
+`{ items: Record<sessionId, SessionItem> }`, where `sessionId` is `String(conversationId)`.
 
-```
-                      POST /api/sessions
-                              │
-                         [preparing] ──(clone/branch fails)──▶ [failed]
-                              │ submit task
-                              ▼
-          ┌──────────────▶ [planning] ◀──────────── revise (feedback) ──────┐
-          │                  │   │                                          │
-          │      ask_user ◀──┘   └──▶ submit_plan                           │
-          │         │                    │                                  │
-          │    [question]            [approval] ── approve ──▶ [implementing]
-          │         │ answer                                       │     │
-          └─────────┘ (back to previous state)        ask_user ◀───┘     │ final_report
-                                                       (blocker)         ▼
-                                                                    [reported]
-   run ends with plain answer (planning/working) ──▶ [idle]          │      │
-   message while idle/reported/delivered/stopped/failed ──▶ [working] │      └─ push / PR ─▶ [delivered]
-   Stop ──▶ [stopped]      run error (monitor) ──▶ [failed]          └─ type feedback ─▶ [working]
-```
+| Field | Type | Meaning |
+|---|---|---|
+| `id` | string | conversation id |
+| `requestId` | string | idempotency key of the creating request |
+| `repo` | string | `owner/name` |
+| `mode` | `"new"` \| `"continue"` | new branch, or continue an existing branch |
+| `baseBranch` | string | PR base: the chosen base (new) or the repo default branch (continue) |
+| `branch` | string | working branch: `picloud/<slug>-<4 hex>` (new) or the chosen branch (continue) |
+| `compareRef` | string | `origin/<baseBranch>` (new) or `origin/<branch>` (continue) |
+| `startSha` | string | HEAD when the session started |
+| `workspace` | string | absolute path; removed by maintenance when pruned |
+| `title` | string | first line of the task, ≤ 60 chars; replaced by the plan title |
+| `state` | SessionState | §A9 |
+| `createdAt`, `updatedAt` | number | ms epoch; every change sets `updatedAt` |
+| `budgetUsd?` | number | spend cap for this session (from config; raisable) |
+| `plan?` | `{ title, summary, steps: string[], assumptions: string[], completed: number[] }` | from `submit_plan` / `update_plan`; `completed` holds 1-based step numbers |
+| `report?` | `{ summary, changes: string[], verification, notes: string[], commits: string[] }` | from `final_report` |
+| `error?` | string | for `failed` / `stopped` |
+| `archived?` | true | hidden from the main list |
+| `pruned?` | true | workspace deleted by maintenance |
+| `pushedAt?` | number | last successful push |
+| `prUrl?` | string | PR for `branch`, created or detected |
 
-**Transition owners:**
-- **Server:**
-  - `preparing`;
-  - `failed` on setup errors;
-  - `working` when a message is sent while the session is idle or finished;
-  - `stopped`;
-  - `delivered`.
-- **Tools:**
-  - `ask_user`: `question`, then restores the previous state;
-  - `submit_plan`: `approval`, then `implementing` or `planning`;
-  - `final_report`: `reported`.
-- **Monitor (§11.6):** `idle` and `failed` when a run ends.
-- **Nudge:** only while `implementing`.
+### A8.2 Document `picloud.repos` (version 1)
+`{ items: Record<"owner/name", { setupNotes: string, updatedAt: number }> }`. This is memory of how to build and test
+each repo on this machine.
 
-**Plan approval semantics:** a plan revision ("revise") returns the person's feedback to the agent as the
-`submit_plan` result. The agent revises and calls `submit_plan` again.
+### A8.3 Document `picloud.push` (version 1)
+`{ vapid?: { publicKey, privateKey }, subscriptions: PushSubscriptionJSON[] }`
 
-## 10. The agent extension
+### A8.4 Signal `picloud.reply` (version 1)
+Schema `obj({ approved: opt(bool()), text: str() })`. The key is always `"reply"`. Each tool call is its own task,
+so `(taskId, "reply")` is unique per card.
 
-Two extensions, installed in this order after `CodingTools`: **`pi-context`** and **`picloud`**. Keep the prompt
-text compact. It is sent with every request.
+### A8.5 Files
+- **Data directory:** `<PICLOUD_DATA>/durable.sqlite` (plus WAL files), mode 700.
+- **Workspaces:** `<PICLOUD_DATA>/work/<uuid>/`, each a git clone.
+- **Uploads:** `<workspace>/.picloud/uploads/`. `.picloud/` is listed in the workspace's `.git/info/exclude`, so it is
+  never committed.
 
-### 10.1 `pi-context` extension (reuses Pi's own loaders)
-```ts
-export const PiContext = defineExtension({
-  name: "pi-context",
-  sections: [
-    section("preamble", () =>
-      "You are Pi, a coding agent. You inspect files, run commands, and modify code to complete the person's task.",
-      { tag: false }),
-    section("project_context", (input) => {
-      const cwd = input.env?.cwd; if (cwd === undefined) return undefined;
-      const files = loadProjectContextFiles({ cwd, agentDir: getAgentDir() });
-      return files.length === 0 ? undefined : files.map((f) => `## ${f.path}\n\n${f.content}`).join("\n\n");
-    }),
-    section("skills", (input) => {
-      const cwd = input.env?.cwd; if (cwd === undefined) return undefined;
-      const { skills } = loadSkills({ cwd, agentDir: getAgentDir(), skillPaths: [], includeDefaults: true });
-      return skills.length === 0 ? undefined : formatSkillsForPrompt(skills, "read");
-    }),
-    section("cwd", (input) => input.env?.cwd),
-  ],
-});
-```
+## A9. Session lifecycle
 
-### 10.2 `picloud` extension: the system prompt section (use verbatim)
-Section name `picloud`, rendered with tags. `{repo}`, `{branch}` and `{baseBranch}` come from the session item,
-which the section reads with `input.read.snapshot(Sessions, ctx)` keyed by `input.conversationId`.
+| State | Meaning | Entered by | UI group |
+|---|---|---|---|
+| `preparing` | cloning and branching | server on create | Working |
+| `planning` | exploring or planning | server after submit; `ask_user` answered; plan revised | Working |
+| `question` | `ask_user` parked | `ask_user` | Needs you |
+| `approval` | `submit_plan` parked | `submit_plan` | Needs you |
+| `implementing` | plan approved; nudge active | `submit_plan` approved; continue after an implementing failure | Working |
+| `working` | interactive follow-up run (no nudge) | server when a message starts a run on an idle or finished session | Working |
+| `idle` | run ended with an ordinary answer; the person's turn | monitor | Needs you |
+| `reported` | report filed; awaiting delivery choice | `final_report` | Needs you |
+| `delivered` | pushed (and maybe PR) | server deliver | Done |
+| `stopped` | Stop pressed, or budget reached | server, monitor | Done (budget: Needs you) |
+| `failed` | setup or run failed | server, monitor | Needs you |
 
+**Transition rules:**
+- **`ask_user`** remembers the state it interrupted and restores it when answered. It can be called during planning
+  or implementing.
+- **Plan revision** sends the person's feedback as the `submit_plan` result and sets `planning`. The agent revises
+  and calls `submit_plan` again.
+- **Messages on an idle or finished session** (`idle`, `reported`, `delivered`, `stopped`, `failed`) start a run and
+  set `working`, which is the "keep working" path. A later `final_report` returns the session to `reported`.
+- **Delivery** is allowed only from `reported` or `delivered`, and only while no run is active.
+- **On server start,** any `preparing` session becomes `failed` ("Server restarted during setup").
+
+## A10. The agent extension
+
+Install in this order: `CodingTools`, then the **`pi-context`** extension, then the **`picloud`** extension. Prompt
+text is sent with every request, so keep it as written.
+
+### A10.1 `pi-context` (Pi's own context loaders)
+Sections:
+1. `preamble` (untagged): "You are Pi, a coding agent. You inspect files, run commands, and modify code to complete
+   the person's task."
+2. `project_context`: the workspace's project instruction files, from
+   `loadProjectContextFiles({ cwd, agentDir: getAgentDir() })`. Render each file as its path followed by its content.
+   Omit the section when there are none.
+3. `skills`: `formatSkillsForPrompt(loadSkills({ cwd, agentDir: getAgentDir(), skillPaths: [], includeDefaults: true }).skills, "read")`.
+   Omit it when empty.
+4. `cwd`: the workspace path.
+
+### A10.2 `picloud` system prompt section (verbatim; substitute the `{…}` placeholders from the session item)
 ```
 You are running on a remote server. The person is on their phone and is usually not watching.
-Repository: {repo}. You are on branch {branch}, created from {baseBranch}.
+Repository: {repo}. You are on branch {branch}. {modeLine}
 
 How to work:
 - A question, or a small direct request: just answer or do it.
 - Anything larger: explore the code first. If a decision is genuinely the person's to make (scope, behavior,
-  trade-offs) and you cannot infer it, ask with ask_user, putting all questions in one call with your
-  recommended option first. Then call submit_plan and wait for approval.
-- After the plan is approved, work to completion without stopping to ask permission. Make reasonable decisions
-  and record them in the report. Use ask_user only for a true blocker you cannot work around.
+  trade-offs) and you cannot infer it, ask with ask_user, putting all questions in one call with your recommended
+  option first. Then call submit_plan and wait for approval.
+- After the plan is approved, work to completion without stopping to ask permission. Make reasonable decisions and
+  record them in the report. Use ask_user only for a true blocker you cannot work around. Call update_plan as you
+  complete plan steps.
 - Verify your work (run the tests, build, or check behavior) before reporting.
-- Commit your work on the current branch with clear messages. Never push, never switch branches, never rewrite
-  commits from before you started.
-- Finish with final_report. The person reads the report first; make it accurate, including what you could
-  not do or verify.
+- Commit your work on the current branch with clear messages. Never push and never switch branches.
+- Before final_report: run `git fetch origin`; if {compareRef} has moved, rebase your commits onto it, resolve any
+  conflicts, and verify again.
+- Finish with final_report. The person reads the report first; make it accurate, including anything you could not
+  do or verify. If you learned how to install, build, or test this repository on this machine, put it in setupNotes.
 ```
+`{modeLine}` takes one of two forms:
+- New branch: "It was created from {baseBranch} for this task."
+- Continued branch: "You are continuing existing work on this branch; read its recent commits to understand it."
 
-### 10.3 Tool: `ask_user` (the multiple-choice tool)
-- **Purpose:** ask the person 1 to 4 multiple-choice questions on one card and wait, possibly for hours.
-- **Parameters** (pi-schema):
-  ```ts
-  const Option = obj({ label: str({ minLength: 1, maxLength: 60 }), description: opt(str({ maxLength: 160 })) });
-  const Question = obj({
-    header: str({ minLength: 1, maxLength: 12 }),          // short tag, e.g. "Scope"
-    question: str({ minLength: 1, maxLength: 300 }),       // ends with "?"
-    options: arr(Option, { minItems: 2, maxItems: 4 }),    // recommended first, label ends "(Recommended)"
-    multiSelect: opt(bool()),
-  });
-  parameters: obj({ questions: arr(Question, { minItems: 1, maxItems: 4 }) })
-  ```
+**Section `repo_notes`:** present only if `picloud.repos` has notes for the repo. Text:
+`Notes from earlier sessions on this repository (may be outdated):` followed by the notes.
+
+### A10.3 Tools
+
+All four tools are part of the `picloud` extension. "Notify" means a fire-and-forget push notification (§A15).
+Notification and other external side effects must happen **once per tool call, even if the call reruns**. Guard
+them with `api.memo`.
+
+**`ask_user`: the multiple-choice tool.** `replay: "safe"`.
 - **Description (verbatim):** "Ask the person up to 4 multiple-choice questions on one card. They tap an option or
-  type their own answer. Waits until they answer; returns one line per question as `header: answer`. Use only when
-  the decision is theirs and changes the work. Never ask the same thing twice."
-- **`replay: "safe"`**
-- **Behavior:**
-  ```ts
-  async execute(args, api, c) {
-    const s = await api.readSignal(Reply, "reply", c);
-    if (s !== undefined && "value" in s) {
-      const prev = await api.memo<SessionState>("picloud.prev", c);
-      await setState(api, prev ?? "planning", c);
-      return { output: [{ type: "text", text: s.value.text }] };
-    }
-    // Fresh call (or rerun before the park was stored):
-    const current = (await api.snapshot(Sessions, c))?.items[api.conversationId]?.state ?? "planning";
-    await api.memo("picloud.prev", current === "question" ? "planning" : current, c);
-    const token = crypto.randomUUID();
-    if ((await api.memo("picloud.notified", token, c)) === token) notify(api.conversationId, "Pi has a question", firstQuestion(args));
-    await setState(api, "question", c);
-    return { sleep: { signals: [Reply.key("reply")] } };
+  type their own answer. Waits until they answer, possibly for hours; returns one line per question as
+  `header: answer`. Use only when the decision is theirs and changes the work. Never ask the same thing twice."
+- **Parameters:**
+  ```
+  questions: 1–4 of {
+    header:      string 1–12 chars (a short tag, e.g. "Scope")
+    question:    string 1–300 chars
+    options:     2–4 of { label: string 1–60 chars, description?: string ≤ 160 chars }
+                 (recommended option first; its label ends with "(Recommended)")
+    multiSelect?: boolean
   }
   ```
-  `setState` is `api.commit(async tx => { const d = await tx.doc(Sessions); const it = d.items[id]; it.state = s; it.updatedAt = api.now(); }, c)`.
-  `notify` is fire-and-forget (§14). The memo guarantees one notification even if the call reruns.
-- **Answer text format** (composed by the server, §12.7): one line per question, `"{header}: {answer}"`. Multi-select
-  answers are joined with `"; "`. A free-text answer is `Other: "{text}"`. A free-text reply typed in the composer
-  instead of the card is `The person replied in their own words: "{text}"`.
+- **Behavior:**
+  - **Fresh call:** remember the current state, set state `question`, and notify "Pi has a question" with the first
+    question as the body. Then park on `picloud.reply`.
+  - **Woken:** restore the remembered state and return the signal's `text` as the result.
 
-### 10.4 Tool: `submit_plan`
-- **Parameters:**
-  ```ts
-  obj({ title: str({ minLength: 1, maxLength: 60 }), summary: str({ maxLength: 600 }),
-        steps: arr(str({ maxLength: 300 }), { minItems: 1, maxItems: 15 }),
-        assumptions: opt(arr(str({ maxLength: 300 }), { maxItems: 10 })) })
-  ```
+**`submit_plan`.** `replay: "safe"`.
 - **Description:** "Submit your implementation plan for the person to approve. Waits for approval. If they ask for
-  changes, revise and call submit_plan again. `title` names the session."
-- **`replay: "safe"`**
+  changes, revise and call submit_plan again. The title names the session."
+- **Parameters:** `title` (1–60 chars), `summary` (≤ 600), `steps` (1–15 strings, each ≤ 300), `assumptions?` (≤ 10
+  strings, each ≤ 300).
 - **Behavior:**
-  - **Fresh call:** set the session `title` to `args.title`, set state `approval`, notify "Plan ready" (one
-    notification, guarded by a memo), then park as in `ask_user`.
-  - **On a signal with `approved: true`:** set state `implementing` and return "Approved. Implement the plan now,
-    without stopping to ask permission. Finish with final_report."
-  - **On a signal with `approved` false or absent:** set state `planning` and return "The person asked for changes:
-    {text}. Revise the plan and call submit_plan again."
+  - **Fresh call:** store the `plan` (with `completed: []`), set the session `title`, set state `approval`, and
+    notify "Plan ready" with the plan title as the body. Park.
+  - **Woken with `approved: true`:** set state `implementing` and return "Approved. Implement the plan now, without
+    stopping to ask permission. Call update_plan as steps complete. Finish with final_report."
+  - **Otherwise:** set state `planning` and return "The person asked for changes: {text}. Revise the plan and call
+    submit_plan again."
 
-### 10.5 Tool: `final_report`
+**`update_plan`.**
+- **Description:** "Mark plan steps as completed."
+- **Parameters:** `completed`: 1–15 integers ≥ 1 (step numbers).
+- **Behavior:** merge the numbers into `plan.completed`, ignoring numbers that are out of range. Return
+  "Progress saved ({done}/{total})." If there is no plan, return an error result: "There is no approved plan."
+
+**`final_report`.**
+- **Description:** "File the final report when the task is complete or cannot be completed. Commit your work first.
+  The person reads this first."
 - **Parameters:**
-  ```ts
-  obj({ summary: str({ minLength: 1, maxLength: 2000 }),
-        changes: arr(str({ maxLength: 300 }), { maxItems: 30 }),
-        verification: str({ maxLength: 1000 }),       // what was run/checked, and results
-        notes: opt(arr(str({ maxLength: 300 }), { maxItems: 15 })) }) // decisions made, things not done, follow-ups
-  ```
-- **Description:** "File the final report when the task is complete (or cannot be completed). Commit your work
-  first. The person reads this first."
-- **Default replay** (unsafe is fine: it is quick and idempotent in effect).
+  - `summary` (1–2000 chars)
+  - `changes` (≤ 30 strings, each ≤ 300)
+  - `verification` (≤ 1000)
+  - `notes?` (≤ 15 strings, each ≤ 300): decisions made, things not done, follow-ups
+  - `setupNotes?` (≤ 1500): how to install, build and test this repo on this machine, for future sessions
 - **Behavior:**
-  1. Run `git status --porcelain` via `api.env.exec`. If the output is not empty, return an error result: "There are
-     uncommitted changes. Commit them (or revert what should not be kept), then call final_report again."
-  2. Run `git log --format=%h %s {baseSha}..HEAD` and collect the lines as `commits`.
-  3. In one commit, set `report = { ...args, notes: args.notes ?? [], commits }`, state `reported`, and `updatedAt`.
-  4. Notify "Report ready" with the summary's first line.
-  5. Return "Report filed. End your turn with one short sentence; do not repeat the report."
+  1. If `git status --porcelain` in the workspace is not empty, return an error result: "There are uncommitted
+     changes. Commit them (or revert what should not be kept), then call final_report again."
+  2. Run `git fetch --quiet origin`. A failure is not fatal.
+  3. Collect `commits` as the lines of `git log --format='%h %s' {compareRef}..HEAD`.
+  4. In one commit: store `report`, set state `reported`, and if `setupNotes` was given, replace that repo's notes in
+     `picloud.repos`.
+  5. Notify "Report ready" with the summary's first line as the body.
+  6. Return "Report filed. End your turn with one short sentence; do not repeat the report."
 
-### 10.6 Hook: the `onYield` nudge (keeps unattended runs going)
-```ts
-const NUDGE = "You have not called final_report yet. Continue the approved plan to completion, then call final_report.";
-hook(GenerationTask, {
-  onYield: async (_answer, api, c) => {
-    const item = (await api.snapshot(Sessions, c))?.items[api.conversationId];
-    if (item?.state !== "implementing") return undefined;
-    const page = await api.entries({ order: "descending" }, 100, undefined, c);
-    let nudges = 0;
-    for (const e of page.items) {
-      const m: any = e.model?.[0];
-      if (e.kind === "pi.tool-result" && m?.toolName === "submit_plan") break;   // approval boundary
-      if (e.kind === "pi.user") { if (m?.content === NUDGE) nudges++; else break; } // real person message
-    }
-    return nudges >= 3 ? undefined : { continue: NUDGE };
-  },
-}),
-```
-**Also set `maxTurns: 200`** on every session conversation as a backstop.
+### A10.4 The `onYield` nudge
+Applies only when the session state is `implementing`.
+1. Count the nudges already given in this stretch. Scan entries from newest to oldest. Stop at the `pi.tool-result`
+   whose `toolName` is `submit_plan`, or at a `pi.user` entry that is not a nudge. Count the nudge entries passed on
+   the way.
+2. If fewer than 3, continue the run with this exact text:
+   `You have not called final_report yet. Continue the approved plan to completion, then call final_report.`
+3. Otherwise, let the run end.
 
-## 11. Server specification
+Every session conversation also gets `maxTurns` from config (default 200).
 
-### 11.1 Configuration (environment variables)
-| Var | Default | Meaning |
+## A11. Server behavior
+
+### A11.1 Configuration (environment variables)
+| Variable | Default | Meaning |
 |---|---|---|
-| `PICLOUD_DATA` | `/var/lib/picloud` | data dir (§8.4) |
-| `PICLOUD_HOST` | `127.0.0.1` | bind address. Keep it loopback: Tailscale serve is the only ingress. |
+| `PICLOUD_DATA` | `/var/lib/picloud` | data directory |
+| `PICLOUD_HOST` | `127.0.0.1` | bind address (loopback only; Tailscale is the ingress) |
 | `PICLOUD_PORT` | `8787` | |
-| `PICLOUD_PUSH_SUBJECT` | required for push | VAPID subject, `mailto:you@example.com` or `https://<droplet>.<tailnet>.ts.net` |
-| `PICLOUD_ALLOWED_LOGINS` | empty (allow all on tailnet) | comma-separated Tailscale logins allowed (§11.9) |
-| `PICLOUD_MAX_TURNS` | `200` | per-run backstop |
+| `PICLOUD_PUSH_SUBJECT` | unset | VAPID subject (`mailto:` or `https:` URL). Unset: notifications are logged, not sent. |
+| `PICLOUD_ALLOWED_LOGINS` | unset | comma-separated Tailscale logins. Unset: any tailnet user. |
+| `PICLOUD_MAX_TURNS` | `200` | per-run turn limit |
+| `PICLOUD_SESSION_BUDGET_USD` | unset | default per-session spend cap. Unset: no cap. |
+| `PICLOUD_FAKE` | unset | `1` = fake mode (§A13.1) |
 
-### 11.2 Startup sequence (`main.ts`)
-1. Read config. Create `PICLOUD_DATA` and `work/` (mode 700).
-2. `models = await ModelRuntime.create()`. `settings = SettingsManager.create(PICLOUD_DATA, getAgentDir())`. If
-   `getDefaultProvider()` or `getDefaultModel()` is missing, **exit 1** with: "No default model. As user picloud
-   run `pi`, then /login and /model."
-3. `registry = createRegistry()`, then install `CodingTools`, then `PiContext`, then `Picloud`, in that order.
-4. `storage = await openNodeSqliteStorage(join(DATA, "durable.sqlite"))`.
-5. `harness = await Harness.open(storage, { models, registry, env: envFor, onReport: (r) => console.error("[durable]", r) }, ctx)`.
-6. Ensure both docs exist: `harness.commit(async tx => { await tx.doc(Sessions); await tx.doc(Push); }, ctx)`.
-7. Generate VAPID keys into `Push.vapid` if absent, then call `webpush.setVapidDetails(...)`.
-8. Mark every item still in `preparing` as `failed`, with error "Server restarted during setup. Start a new
-   session."
-9. Start the monitor (§11.6) for every non-archived item whose state is in {planning, implementing, working}.
-10. `harness.resume()`. This continues anything a crash or stop interrupted.
-11. Start the HTTP server on `PICLOUD_HOST:PICLOUD_PORT`.
-12. On `SIGTERM`/`SIGINT`, in order: stop accepting requests, end SSE streams, `await harness.close(ctx)`,
-    `await models.settleCredentialWrites()`, then `process.exit(0)`.
+### A11.2 Startup and shutdown
+**Startup:**
+1. Create the data and work directories.
+2. Load models: Pi's `ModelRuntime`, or faux in fake mode.
+3. Resolve the default model from Pi settings. Missing in real mode means exit with code 1 and this message: "No
+   default model. As user picloud run `pi`, then /login and /model."
+4. Build the registry (§A10).
+5. Open SQLite storage and the Harness.
+6. Ensure the three documents exist, and create VAPID keys if absent.
+7. Mark `preparing` sessions as `failed`.
+8. Start monitors for active sessions (`planning`, `question`, `approval`, `implementing`, `working`).
+9. Call `harness.resume()`.
+10. Start maintenance (§A11.8).
+11. Listen.
 
-`envFor({ cwd })` returns a cached `new NodeExecutionEnv({ cwd })` per cwd from a `Map<string, NodeExecutionEnv>`.
-If `cwd` is undefined it throws, which becomes the call's error result.
+**On SIGTERM/SIGINT:** stop accepting requests, end streams, close the Harness, settle credential writes, then exit
+with code 0.
 
-### 11.3 Git and gh shell-outs
-All server-side git work uses `execFile` (no shell) with `{ cwd: workspace, env: { ...process.env, GIT_TERMINAL_PROMPT: "0" } }`
-and a timeout of 120 s for network operations or 30 s otherwise. The agent's own git use goes through its bash tool.
+### A11.3 GitHub module
+All GitHub-specific operations go behind one interface with two implementations: real (`gh` + `git`) and fake
+(§A13.1).
 
-| Operation | Command(s) |
+**Operations:**
+- list repos;
+- list a repo's branches and default branch;
+- clone;
+- identity (name and email for commits);
+- push;
+- find an existing PR for a branch;
+- create a PR.
+
+**Real implementation notes:**
+- **Repo list:** `gh api --paginate "user/repos?per_page=100&sort=pushed&affiliation=owner,collaborator,organization_member"`.
+  Cache it for 60 s.
+- **Branches:** `gh api --paginate repos/{repo}/branches`. The default branch comes from
+  `gh repo view {repo} --json defaultBranchRef`.
+- **Clone:** `gh repo clone {repo} {dir} -- --filter=blob:none`.
+- **Identity:** from `gh api user`: name (or login), and email `{id}+{login}@users.noreply.github.com`. Set it in the
+  workspace's local git config.
+- **PR lookup:** `gh pr list --head {branch} --state open --json url`.
+- **PR create:** `gh pr create --base {baseBranch} --head {branch} --title {title} --body-file {file}`. The PR body is
+  the report rendered as markdown.
+- **Push:** `git push -u origin {branch}`. A non-fast-forward rejection must surface as the error "The remote branch
+  has new commits. Ask Pi to rebase onto it, then push again."
+- **How to run them:** use `execFile` (no shell), `GIT_TERMINAL_PROMPT=0`, a 120 s timeout for network operations and
+  30 s otherwise. Surface the stderr tail (≤ 500 chars) on failure.
+
+### A11.4 Session operations
+
+**Create** `(repo, branch?, text, attachments, requestId)`:
+- **Idempotent** by `requestId`.
+- **Create the conversation** with the default model, `cwd` = a new workspace path, and `maxTurns`. Store the item
+  as `preparing` and **respond immediately**.
+- **Then, asynchronously:**
+  1. Clone the repo.
+  2. **New mode:** check out the chosen base (or the default branch) and create the working branch.
+  3. **Continue mode:** check out the chosen branch tracking origin, and detect an existing PR.
+  4. Set the git identity, add the exclude entry, and record `startSha` and `compareRef`.
+  5. Submit the task with `requestId` (attachments per §A11.5), set `planning`, and start the monitor.
+- **Any failure** sets `failed` with `error`.
+
+**Message** `(text, attachments, requestId)`: route in this order.
+1. **A card is pending.** That means a `pi.live` tool slot with `status === "sleeping"` named `ask_user` or
+   `submit_plan`. Signal that card:
+   - `ask_user` gets `text = The person replied in their own words: "{text}"`.
+   - `submit_plan` gets `{ approved: false, text }`.
+   - Attachments are saved as files, and their paths are appended to the text.
+2. **A run is active:** submit with `whenBusy: "steer"`.
+3. **Otherwise:** submit. If the state is idle or finished (§A9), set `working` and start the monitor.
+
+**Answer** `(callId, payload)`:
+- **Find the card:** look up the slot by `callId`. It must be `sleeping`, otherwise return 409. The client never
+  sends task IDs.
+- **`ask_user` text:** one line per question, `{header}: {answer}`. Multi-select answers are joined with `"; "`, and
+  a free-text answer becomes `Other: "{text}"`.
+- **`submit_plan`:** `{ approved, text: feedback ?? "" }`.
+
+**Stop:** set `stopped`, then abort the conversation.
+
+**Continue:** used after `failed` or `stopped`. Submit `{ type: "continue" }`, then set `implementing` if a plan was
+approved and no report exists, otherwise `working`.
+
+**Budget** `(budgetUsd)`: set the session's cap. It must be greater than the current spend.
+
+**Deliver** `(kind: "push" | "pr")`:
+- **Preconditions:** the state is `reported` or `delivered`, no run is active, and the report has at least one commit.
+- **Push.** For `pr`: if a PR already exists, return its URL; otherwise create one.
+- **Store** `pushedAt` and `prUrl`, and set `delivered`.
+
+**Diff:** `git diff --stat {mergeBase}` followed by `git diff {mergeBase}` (working tree included), where
+`mergeBase = git merge-base {compareRef} HEAD`. Cap the output at 2 MB.
+
+**Archive** `(archived)`: set or clear `archived`.
+
+### A11.5 Attachments
+- **Wire format:** attachments arrive as `{ name, type, data (base64) }`. The JSON body limit is 50 MB.
+- **Images,** when the session model's input includes `image`, become image content parts.
+- **Other files, and images for text-only models,** are saved to `.picloud/uploads/{timestamp}-{safe name}`, and
+  `[Attached file: <relative path>]` is appended to the text.
+
+### A11.6 Monitor
+Use one `observeConversation` per active session. Defer handling out of `advance`.
+
+**Run ended** (`pi.live.run` present → absent):
+
+| `runFailure.reason` | Action |
 |---|---|
-| List repos | `gh api --paginate "user/repos?per_page=100&sort=pushed&affiliation=owner,collaborator,organization_member" --jq '.[] \| {full_name, private, pushed_at, description}'` (cache 60 s) |
-| Clone | `gh repo clone {repo} {workspace} -- --filter=blob:none` |
-| Base branch / sha | `git symbolic-ref --short refs/remotes/origin/HEAD` (strip `origin/`), then `git rev-parse HEAD` |
-| Identity | `gh api user --jq '.login + " " + (.id\|tostring) + " " + (.name // .login)'`, cached for the process lifetime. Then `git config user.name "{name}"` and `git config user.email "{id}+{login}@users.noreply.github.com"` |
-| Branch | `git switch -c picloud/{slug}-{4 hex}`, where `slug` is the first 5 words of the title, lowercase, `[a-z0-9-]`, ≤ 40 chars |
-| Exclude uploads | append `.picloud/` to `.git/info/exclude` |
-| Push | `git push -u origin {branch}` |
-| PR | after a push: `gh pr create --base {baseBranch} --head {branch} --title "{title}" --body-file {tmp.md}`. The URL is the last line of stdout. |
-| Diff | `git diff {baseSha}` (working tree included), capped at 2 MB. Prefix it with `git diff --stat {baseSha}`. |
+| `aborted` | do nothing; Stop or budget already set the state |
+| any other reason | `failed`, `error = reason + detail`, notify "Run failed" |
+| no failure, state `planning` or `working` | `idle`, notify "Pi replied" (body: first 100 chars of the last assistant text) |
+| no failure, state `implementing` | `idle`, notify "Pi stopped without a report" |
 
-`gh auth setup-git` (run once at deploy time, §17.5) makes `git push` use gh's credentials.
+**Budget:** while a run is active and `budgetUsd` is set, total the cost from `pi.usage` (sum of every
+`cost.total`). When it reaches `budgetUsd`: set `stopped` with `error = "Budget of ${budgetUsd} reached"`, abort, and
+notify "Budget reached".
 
-### 11.4 Session operations (`sessions.ts`)
-- **create(repo, text, attachments, requestId):**
-  1. If an item already has this `requestId`, return its id.
-  2. Generate `workspaceId = randomUUID()`.
-  3. `conv = await harness.createConversation({ ownership: { kind: "ownerless" }, agent: { model, cwd: workspace, maxTurns, ...(thinking ? { thinkingLevel: thinking } : {}) } }, ctx)`.
-  4. Commit the item with state `preparing` and a title from the task's first line.
-  5. **Respond to the client now.**
-  6. Asynchronously: clone, then base, identity, branch and exclude. Then
-     `conv.submit({ type: "input", content: buildContent(text, attachments), requestId }, ctx)`, set state
-     `planning`, and start the monitor.
-  7. On any error, set state `failed` with `error` set to the stderr tail (≤ 500 chars).
-- **message(id, text, attachments, requestId):** routing, in this order.
-  1. **A card is pending:** a `LiveDoc` tool slot with `status === "sleeping"` and `name` either `ask_user` or
-     `submit_plan`. Save any attachments as files (§11.5) and append their paths to the text. Then signal it:
-     - `ask_user`: `{ text: 'The person replied in their own words: "…"' }`;
-     - `submit_plan`: `{ approved: false, text }`.
-  2. **Busy** (`live.run` present): `submit({ type: "input", content, requestId, whenBusy: "steer" })`.
-  3. **Idle:** `submit({ type: "input", content, requestId })`. If the state is in {idle, reported, delivered,
-     stopped, failed}, set state `working` and start the monitor. A planning session simply continues planning.
-- **answer(id, callId, payload):**
-  1. Find the slot by `callId`. It must be `sleeping`. Otherwise return 409 "This card was already answered."
-  2. Compose the text (§10.3) or the approval value.
-  3. Call `harness.signal(slot.taskId, Reply, "reply", value, ctx)`.
-  The client never supplies a `taskId`.
-- **stop(id):** `conv.abort(ctx)`, then set state `stopped`.
-- **continue(id):** `conv.submit({ type: "continue" }, ctx)`, used after a failed run. Then set state `working`, or
-  `implementing` if the failed run was implementing.
-- **deliver(id, kind):**
-  - Allowed from `reported`, or from `delivered` for `pr` after a push.
-  - Push (also done before a `pr`), then create the PR for `pr`.
-  - Set `pushedAt` / `prUrl` and state `delivered`.
-  - Errors return 502 with the stderr tail.
-- **diff(id)** (§11.3).
-- **archive(id, archived)** sets or unsets `archived`. Archiving does not delete the workspace (§18.3).
+**Detach** the observer when the session leaves the active states.
 
-### 11.5 Attachments
-- **Wire format:** the client sends attachments as base64 JSON `{ name, type, data }`. Images are already resized
-  client-side (§13.6). The request body limit is 50 MB.
-- **Images,** when the session model accepts image input (check
-  `models.getModel(provider, id)?.input.includes("image")`), become `{ type: "image", data, mimeType }` content parts.
-- **Everything else,** and images for text-only models, is written to `{workspace}/.picloud/uploads/{timestamp}-{safeName}`.
-  The text gets `\n\n[Attached file: .picloud/uploads/…]` appended.
-- **New sessions** handle attachments after the clone, in the same way.
-
-### 11.6 Monitor (`monitor.ts`): run-end detection
-- **When:** for each session that enters planning, implementing or working.
-- **How:** `harness.observeConversation(id, observer, ctx)`. The observer's `advance` must be synchronous and quick:
-  record `value.docs["pi.live"]`, then `queueMicrotask` the handling below.
-- **On a transition from `run` present to absent:**
-  - `runFailure` present with reason `aborted`: do nothing (Stop already set `stopped`).
-  - Any other `runFailure`: state `failed`, `error = runFailure.reason + detail`, and notify "Run failed".
-  - No failure, and the state is `planning` or `working`: state `idle`, and notify "Pi replied".
-  - No failure, and the state is `implementing` (the nudge budget is spent): state `idle`, and notify "Pi stopped
-    without a report".
-  - `reported` and other states: unchanged.
-- **Detach** the observer when the state leaves the active set.
-
-### 11.7 SSE streams
-- **Headers:** `content-type: text/event-stream`, `cache-control: no-store`, `x-accel-buffering: no`.
+### A11.7 SSE streams
+- **Headers:** `text/event-stream` and `cache-control: no-store`.
 - **Keep-alive:** a `: ping` comment every 15 s.
-- **Per-session stream:** on connect, `watch = await conv.watch(ctx)`. Send
-  `event: base\ndata: {"view": <watch.value>}`. Then `watch.start(call => { if (call.kind === "value") send("ops", { ops: call.ops }) })`.
-  On client disconnect, `watch.stop()`. Every reconnect starts with a fresh `base`; the client replaces its view.
-- **Sessions stream:** `harness.observeDoc(Sessions, observer, ctx)`. Send `base` with the doc value, then `ops` per
-  change, plus `event: config` with `{ vapidPublicKey }`.
-- **Presence:** the server counts open per-session streams. If a stream for the session is open, the person is
-  looking, and notifications for that session are skipped (§14).
+- **Session stream:** on connect, send `base` `{ view }` (the watch value), then `ops` `{ ops }` for each change.
+  Every reconnect starts with a fresh `base`.
+- **Global stream:** `base`/`ops` of `picloud.sessions` via `observeDoc`, plus one `config` event
+  `{ vapidPublicKey, fake }`.
+- **Presence:** the server tracks which sessions have an open session stream. Notifications for those sessions are
+  skipped (§A15).
 
-### 11.8 Static and vendor files
-- `GET /` serves `public/index.html`. Other `public/*` paths are served with correct MIME types.
-- `sw.js` is served with `cache-control: no-cache`.
-- `/vendor/*` maps to these files under `node_modules` (verified to load in Chromium via import map, §20):
+### A11.8 Maintenance (daily, in-process, and once at startup)
+For each session that is archived, delivered and not yet pruned, with `updatedAt` older than 14 days: if
+`git status --porcelain` is empty and `git log --branches --not --remotes` is empty, delete the workspace and set
+`pruned`. Never delete anything else. Never delete a workspace with unpushed commits.
 
-| URL | File |
+### A11.9 Static files and vendor mapping
+- **Static:** serve `public/`. `sw.js` gets `cache-control: no-cache`.
+- **Vendor:** serve `/vendor/...` from `node_modules`, with no copies:
+
+  | URL | File |
+  |---|---|
+  | `/vendor/preact.mjs` | `preact/dist/preact.mjs` |
+  | `/vendor/hooks.mjs` | `preact/hooks/dist/hooks.mjs` |
+  | `/vendor/htm.mjs` | `htm/dist/htm.mjs` |
+  | `/vendor/marked.mjs` | `marked/lib/marked.esm.js` |
+  | `/vendor/purify.mjs` | `dompurify/dist/purify.es.mjs` |
+  | `/vendor/chord/*` | `@earendil-works/chord/dist/*` (its `delta/index.js` imports only relative files) |
+
+- **Paths:** reject any path containing `..`.
+
+### A11.10 Access control, errors, logging
+- **Access control:** with `PICLOUD_ALLOWED_LOGINS` set, reject (403) any request whose `Tailscale-User-Login`
+  header is absent or not listed. No cookies, tokens or app logins exist.
+- **Errors:** JSON `{ error }` with status 400 (validation), 403, 404, 409 (state conflict) or 502 (git or GitHub
+  failure).
+- **Logging:** one line per request (method, path, status, ms) and one per state change. Never log message contents
+  or credentials.
+
+## A12. HTTP API
+
+`:id` is the session id.
+
+| Method & path | Body | Response |
+|---|---|---|
+| `GET /api/repos` | | `[{ fullName, private, pushedAt, description }]` |
+| `GET /api/repos/:owner/:name/branches` | | `{ defaultBranch, branches: string[] }` |
+| `GET /api/events` | | SSE (§A11.7) |
+| `POST /api/sessions` | `{ repo, branch?: { mode: "new", base?: string } \| { mode: "continue", name: string }, text, attachments?, requestId }` | `201 { id }` |
+| `GET /api/sessions/:id/events` | | SSE (§A11.7) |
+| `GET /api/sessions/:id/entries?before=<entryId>&limit=50` | | `{ items }`, oldest first, strictly older than `before` |
+| `POST /api/sessions/:id/messages` | `{ text, attachments?, requestId }` | `202 {}` |
+| `POST /api/sessions/:id/answer` | `{ callId, answers?: [{ header, selected: string[], other?: string }], approved?: boolean, feedback?: string }` | `202 {}` |
+| `POST /api/sessions/:id/stop` | | `202 {}` |
+| `POST /api/sessions/:id/continue` | | `202 {}` |
+| `POST /api/sessions/:id/budget` | `{ budgetUsd }` | `200 {}` |
+| `POST /api/sessions/:id/deliver` | `{ kind: "push" \| "pr" }` | `200 { pushedAt, prUrl? }` |
+| `GET /api/sessions/:id/diff` | | `text/plain` |
+| `POST /api/sessions/:id/archive` | `{ archived: boolean }` | `200 {}` |
+| `POST /api/push/subscribe` | `PushSubscriptionJSON` | `201 {}` (deduplicated by endpoint) |
+
+## A13. Fake mode, tests and definition of done
+
+### A13.1 Fake mode (`PICLOUD_FAKE=1`; `npm run dev:fake`)
+Fake mode runs the complete product with no model credentials and no GitHub access. It exists for development, tests
+and evaluation.
+
+**Fake model:** the pi-ai faux provider with a deterministic scenario. Each response is decided from that
+conversation's own messages (§A6.2), as a state machine:
+
+"The task" means the conversation's first user message. Any later user message is "a person's message". Rules are
+checked top to bottom.
+
+| Last message in the conversation | Fake model responds with |
 |---|---|
-| `/vendor/preact.mjs` | `preact/dist/preact.mjs` |
-| `/vendor/hooks.mjs` | `preact/hooks/dist/hooks.mjs` |
-| `/vendor/htm.mjs` | `htm/dist/htm.mjs` |
-| `/vendor/marked.mjs` | `marked/lib/marked.esm.js` |
-| `/vendor/purify.mjs` | `dompurify/dist/purify.es.mjs` |
-| `/vendor/chord/*` | `@earendil-works/chord/dist/*` (`delta/index.js` imports only relative files and `../json.js`) |
+| The task, containing the word `chat` | a plain text answer: `Fake answer.` (no tools) |
+| The task, any other | `ask_user` with 1 question: header `Scope`, question `Which variant?`, options `Small (Recommended)` / `Large` |
+| `ask_user` result | thinking `Planning.`, then `submit_plan`: title `Add demo file`, 2 steps |
+| `submit_plan` result starting `The person asked for changes` | `submit_plan` again with title `Add demo file (revised)` |
+| `submit_plan` result starting `Approved` | `write` `PICLOUD_DEMO.md` with content `demo\n` |
+| `write` result | `bash` `git add -A && git commit -qm "Add demo file"` |
+| `bash` result | `update_plan` `{ completed: [1, 2] }` |
+| `update_plan` result | `final_report` with summary `Added PICLOUD_DEMO.md.`, 1 change, verification `File exists.`, setupNotes `No build needed.` |
+| `final_report` result, or a nudge | text `Done.` |
+| a person's message (any state) | text `Noted.` |
+| anything else | text `Done.` |
 
-Reject paths containing `..`.
+**Fake GitHub:**
+- **Seeding:** at startup, create local bare repositories under `<PICLOUD_DATA>/fake-origin/`, if absent:
+  - `demo/app`: default branch `main` with a `README.md`, plus a second branch `feature/x` with one extra commit.
+  - `demo/lib`: `main` only.
+- **Operations:**
+  - The repo list and branches come from those bare repos.
+  - Clone with `git clone <bare path>`; push to the bare repo.
+  - Identity is `picloud-dev <dev@picloud.invalid>`.
+  - PR create records a PR and returns `http://127.0.0.1:<port>/fake-pr/<n>`, which serves a page showing the title
+    and body. PR lookup finds recorded PRs.
 
-### 11.9 Access control
-- **Base model:** Tailscale is the authentication layer. Bind to loopback only, and only `tailscale serve` can reach
-  the server.
-- **Allowlist (optional):** if `PICLOUD_ALLOWED_LOGINS` is set, reject with 403 any request whose
-  `Tailscale-User-Login` header is missing or not in the list. Tailscale serve sets this header for tailnet users.
-- **No cookies, tokens or sessions exist.**
+**Other differences:** notifications are logged. The `config` event reports `fake: true`, and the UI shows a small
+"Fake mode" label in the drawer footer.
 
-### 11.10 Errors and logging
-- **Errors:** JSON responses `{ error: string }` with status 400 (validation), 403, 404, 409 (state conflict) and
-  502 (git/gh failure).
-- **Logs:** `console.log`/`console.error` to journald. Log one line per request (method, path, status, ms) and every
-  state transition. Never log message contents or credentials.
+**Command:** `npm run dev:fake` starts the server in fake mode on `127.0.0.1:8787`, using a fresh temporary
+`PICLOUD_DATA` unless one is given.
 
-## 12. HTTP API reference
+### A13.2 Required automated tests (`npm test`, `node:test`)
+Tests use real SQLite storage in temporary directories, the faux model and the fake GitHub. Do not mock Durable.
+Required cases:
 
-All bodies are JSON. `:id` is the session id (the conversation id).
+1. **Lifecycle:** create → `question` → answer → `approval` → approve → `implementing` → `reported`. The report has
+   the commit, the plan has `completed: [1, 2]`, and `picloud.repos` has the setup notes.
+2. **Restart while parked:** with `ask_user` parked, close the Harness and reopen it on the same file. The slot is
+   still sleeping with the same task id. Answering completes the session.
+3. **Notification once:** each park produces exactly one notification even if the tool reruns.
+4. **Revise:** feedback returns the session to `planning`, and the agent submits a revised plan.
+5. **Nudge:** a model that keeps answering with plain text while implementing gets exactly 3 nudges, and then the
+   session becomes `idle`. No nudge is ever given outside `implementing`.
+6. **`final_report` with a dirty workspace** returns an error result, and the state stays `implementing`.
+7. **Routing:**
+   - composer text while a question is pending answers it ("own words" text);
+   - while a plan is pending, it revises;
+   - while running, it steers;
+   - while reported, it sets `working`.
+8. **Continue mode:** working on `feature/x` commits on top of it. Push updates `feature/x` in the bare repo, and
+   report commits list only the new commits.
+9. **Deliver:** push creates the branch in the bare repo. `pr` creates one fake PR, and a second `pr` returns the same
+   URL. Deliver is refused while a run is active.
+10. **Diff:** the diff output contains the session's change and nothing from the base branch.
+11. **Budget:** set `budgetUsd` to 1. While a run is active (parked on `ask_user`), commit usage costing 2 to that
+    conversation's `UsageDoc` (§A6.2). The run is aborted, and the state is `stopped` with the budget error. Raising
+    the budget to 5 and continuing works.
+12. **Failure:** a model error ends in `failed` with the reason. Continue resumes.
+13. **Maintenance:** prunes only archived, delivered, clean, fully pushed workspaces older than 14 days.
+14. **Access control:** with `PICLOUD_ALLOWED_LOGINS` set, requests without a listed `Tailscale-User-Login` get 403.
 
-| # | Method & path | Body | Response | Notes |
-|---|---|---|---|---|
-| 12.1 | `GET /api/repos` | | `[{ full_name, private, pushed_at, description }]` | gh, cached 60 s |
-| 12.2 | `GET /api/events` | | SSE: `base`/`ops` of `picloud.sessions`; `config` | §11.7 |
-| 12.3 | `POST /api/sessions` | `{ repo, text, attachments?, requestId }` | `201 { id }` | §11.4 create; idempotent by `requestId` |
-| 12.4 | `GET /api/sessions/:id/events` | | SSE: `base`/`ops` of the ConversationView | §11.7 |
-| 12.5 | `GET /api/sessions/:id/entries?before=<entryId>&limit=50` | | `{ items: EntryRecord[] }` oldest→newest | `conv.entries({ maxEntryId: before, order: "descending" }, limit+1)`; drop the `before` entry; reverse |
-| 12.6 | `POST /api/sessions/:id/messages` | `{ text, attachments?, requestId }` | `202 {}` | §11.4 routing |
-| 12.7 | `POST /api/sessions/:id/answer` | `{ callId, answers?: [{ header, selected: string[], other?: string }], approved?: boolean, feedback?: string }` | `202 {}` | `answers` for ask_user; `approved`/`feedback` for submit_plan |
-| 12.8 | `POST /api/sessions/:id/stop` | | `202 {}` | |
-| 12.9 | `POST /api/sessions/:id/continue` | | `202 {}` | after a failure |
-| 12.10 | `POST /api/sessions/:id/deliver` | `{ kind: "push" \| "pr" }` | `200 { pushedAt, prUrl? }` | may take up to 2 min |
-| 12.11 | `GET /api/sessions/:id/diff` | | `text/plain` | §11.3 |
-| 12.12 | `POST /api/sessions/:id/archive` | `{ archived: boolean }` | `200 {}` | also used for Undo |
-| 12.13 | `POST /api/push/subscribe` | `PushSubscriptionJSON` | `201 {}` | dedupe by `endpoint` |
+### A13.3 Required end-to-end suite (`npm run e2e`, Playwright)
+- **Setup:** start a fake-mode server and use the Chromium device profile `iPhone 15`. If Chromium is not installed,
+  install it with `npx playwright install chromium`.
+- **Required scenarios:**
+  1. Open the app. With no sessions, the New session view is shown. Choose `demo/app` and send a task. The question
+     card appears. Tap `Small (Recommended)`. The plan card appears. Tap Approve. The report card appears with Push
+     branch and Open PR. Tap Open PR. A PR link is shown.
+  2. Tool calls and thinking render **collapsed**. Expanding a tool group shows one line per call. Expanding a call
+     shows its output.
+  3. The drawer opens from ☰, lists sessions in the right groups, and switches sessions. The ☰ badge appears when
+     another session needs attention.
+  4. Typing in the composer while the question card is pending answers the card.
+  5. Swipe-archive (or the Archive action) then Undo restores the session.
+  6. The diff sheet groups changes by file with +/− counts.
+  7. **Dark mode** (emulated `prefers-color-scheme: dark`) renders with no console errors.
+  8. At a **375 px** width there is no horizontal page scroll.
+  9. After a server restart mid-session, the page reconnects and shows current state.
 
-## 13. PWA specification
+### A13.4 Definition of done (all must hold)
+1. `npm ci` succeeds from the committed lockfile.
+2. `npm run check` reports 0 TypeScript errors.
+3. `npm test` passes every case in §A13.2.
+4. `npm run e2e` passes every scenario in §A13.3.
+5. The size budget (§A2) holds:
+   `find src -name '*.ts' -exec cat {} + | wc -l` ≤ 1500, and
+   `find public \( -name '*.js' -o -name '*.css' -o -name '*.html' \) -not -path '*/icons/*' -exec cat {} + | wc -l` ≤ 1900.
+6. The required files (§A7) exist, `RUNBOOK.md` is unchanged, and `DECISIONS.md` lists every choice made where this
+   runbook was silent.
+7. `npm start` without `PICLOUD_FAKE` and without Pi credentials exits with the "No default model" message (§A11.2).
 
-### 13.1 Principles
-- **Simple chat interface:** an input pill, an attachment button and a send button. Content first, chrome recedes.
-- **Built in Preact and htm, served without a build step.**
-- **Follows Apple's Human Interface Guidelines (HIG).** Each design choice below names the HIG principle it serves,
-  and the same choices map onto Material conventions on Android.
+## A14. PWA specification
 
-### 13.2 Navigation: drawer + one content area
-- **Structure:**
-  - Content area: one of two views, **New session** or **Session**.
-  - Navigation drawer: the session list, opened by **☰** at the top left.
-- **Launch behavior:** open the last viewed session, or New session if there is none. Use hash routes `#/new` and
-  `#/s/<id>`, with the last route saved in `localStorage` (wrapped in try/catch).
+Each design choice names the Apple Human Interface Guidelines (HIG) principle it serves.
+
+### A14.1 Navigation
+- **Structure:** one content area, showing either **New session** or **Session**, plus a **navigation drawer** with
+  the session list. Use hash routes `#/new` and `#/s/<id>`.
+- **Launch:** reopen the last route, saved in `localStorage` (wrapped in try/catch), or New session if there is none.
   - HIG principle: *preserve and restore context*.
-- **Drawer behavior:** it slides over the content from the left with a dimmed scrim. Tapping the scrim, swiping the
-  drawer left, or tapping a row closes it. Width is min(85vw, 360px).
+- **Drawer:** a **☰** button at the top left opens it. It slides in from the left over a dim scrim, width
+  min(85vw, 360px). Tapping the scrim, swiping left or choosing a row closes it.
   - HIG principles: *direct manipulation*, *predictable dismissal*.
-- **Why a drawer:** the destinations are a changing list of peer conversations. The drawer is the established
-  convention for that in chat apps (Claude, ChatGPT), so switching sessions is a pull-and-tap.
+- **Why a drawer:** the destinations are a changing list of peer conversations. A drawer is the established
+  convention for that in chat apps, so switching sessions is pull-and-tap.
   - HIG principle: *consistency with conventions people know*.
-  - HIG generally prefers tab bars for fixed top-level sections, which picloud doesn't have. Hidden navigation's
-    weakness is discoverability, which the badge below addresses.
-- **Badge:** ☰ shows a dot when any *other* session is in a Needs you state.
-  - HIG principles: *communicate status without interrupting*, and the fix for hidden navigation.
-- **Wide screens** (≥ 900 px, iPad or desktop): the drawer becomes a persistent sidebar. This is CSS only.
-  - HIG principle: *adapt layout to size class*.
+- **Badge:** ☰ shows a dot when **another** session needs attention. This offsets hidden navigation's weak
+  discoverability.
+  - HIG principle: *communicate status without interrupting*.
+- **Wide screens:** at ≥ 900 px the drawer is a persistent sidebar.
+  - HIG principle: *adapt layout to the available space*.
+- **Drawer contents:**
+  1. **New session** row at the top, in the accent colour.
+     - HIG principle: *primary action first*.
+  2. Groups **Needs you**, **Working** and **Done** (§A9), newest first. Each row shows the title on one line and a
+     secondary line `repo · state label · progress (e.g. 3/6) · relative time`. The current session is highlighted.
+     - HIG principles: *clarity*, *hierarchy*, *status at a glance*.
+     - State labels: Setting up, Planning, Question, Plan ready, Working, Your turn, Report ready, Delivered,
+       Stopped, Budget reached, Failed.
+  3. **Swipe a row left** to reveal **Archive**. Archiving shows an **Undo** toast for 5 s instead of a
+     confirmation.
+     - HIG principle: *forgiveness over confirmation*.
+  4. Footer: **Enable notifications** (while not granted), **Show archived** toggle, and the "Fake mode" label in
+     fake mode.
+     - HIG principle: *rare actions out of the main path*.
+- **No settings screen.**
+  - HIG principle: *deference*: there is nothing to configure.
 
-**Drawer contents, top to bottom:**
-1. **New session** row (primary, accent colour).
-   - HIG principle: *primary action first and prominent*.
-2. Groups **Needs you**, **Working** and **Done** (§8.1), as plain section headers. Each row shows a 1-line title
-   plus a secondary line `repo · state label · relative time`. The current session is highlighted. State labels:
-   Question, Plan ready, Report ready, Your turn, Failed, Setting up, Planning, Working, Delivered, Stopped.
-   - HIG principles: *clarity*, *visual hierarchy*, *status at a glance*.
-3. **Swipe a row left** to reveal **Archive**. Archiving shows an **Undo** toast for 5 s instead of a confirm dialog.
-   - HIG principles: *forgiveness over confirmation*, *direct manipulation*.
-4. Footer: **Enable notifications** while permission isn't granted (§14), and a **Show archived** toggle.
-   - HIG principle: *rare actions out of the main path*.
-
-There is no settings screen, because there is nothing to configure: models are set in Pi and access in Tailscale.
-- HIG principle: *deference*.
-
-### 13.3 New session view
-```
-┌──────────────────────────────┐
-│ ☰                             │
-│                               │
-│      What should Pi work on?  │  empty-state prompt (secondary text colour)
-│                               │
-│ ┌──────────────────────────┐  │
-│ │ ⌂ acme/web ▾             │  │  repo chip
-│ │ (+)  Describe a task…  (↑)│  │  composer (§13.5)
-│ └──────────────────────────┘  │
-└──────────────────────────────┘
-```
-- **Empty-state prompt** teaches what to do.
+### A14.2 New session view
+- **Empty-state prompt:** "What should Pi work on?", centred, in secondary text.
   - HIG principle: *helpful empty states*.
-- **Repo chip** defaults to the last used repo. Tap it to open a bottom **sheet** with a search field and repos
-  sorted by `pushed_at`, with recent picks first.
+- **Above the composer:** a **repo chip**, defaulting to the last used repo, and a **branch chip**, defaulting to "New
+  branch from {default}".
+  - **Repo chip** opens a bottom **sheet** with search, repos sorted by recency, and recent picks first.
+  - **Branch chip** opens a sheet with two sections:
+    - **New branch from…** (base choices: default first);
+    - **Continue a branch…** (existing branches).
   - HIG principles: *sensible defaults*, *minimize typing*, *sheets for focused sub-tasks*.
-- **Send** creates the session and navigates to it immediately, showing "Setting up…". Disable send until a repo is
-  chosen and text is non-empty.
+- **Send:** creates the session and navigates to it immediately ("Setting up…"). It is disabled until a repo is
+  chosen and text is entered.
   - HIG principles: *immediate feedback*, *prevent errors*.
 
-### 13.4 Session view
-```
-┌──────────────────────────────┐
-│ ☰  Fix login redirect     ⋯   │  title (truncates), overflow menu
-│                               │
-│ ┌ You ───────────────────────┐│  user bubble (right-aligned, tinted)
-│ │ The login page loops on…   ││
-│ └────────────────────────────┘│
-│ ▸ Thinking                    │  collapsed
-│ ▸ Read 6 files, ran 2 commands│  collapsed tool group
-│ Pi's prose answer in markdown │  assistant text (full width, no bubble)
-│ ┌ Pi asks ───────────────────┐│  question card (§13.7)
-│ │ ...                        ││
-│ └────────────────────────────┘│
-│ ── Working · turn 12 ──────── │  status line
-│ (+)  Message…            (■)  │  composer
-└──────────────────────────────┘
-```
-**Overflow ⋯ menu:** View changes (diff sheet), Stop (only while running), Archive.
-- HIG principle: *hierarchy by frequency of use*.
+### A14.3 Session view
+- **Header:** ☰, the title (truncated), the spend (e.g. "$0.42", secondary text, from `pi.usage`), and a **⋯** menu
+  with View changes, Stop (only while running) and Archive.
+  - HIG principle: *hierarchy by frequency of use*.
+- **Transcript rendering** (from `view.entries` and `view.docs["pi.live"]`):
 
-**Transcript rendering rules.** The view comes from the SSE `base` plus `ops`: `view.entries` and
-`view.docs["pi.live"]`.
-
-| Source | Rendering | HIG rationale |
+| Source | Rendering | HIG principle |
 |---|---|---|
-| `pi.user` entry | Right-aligned tinted bubble. Text uses `white-space: pre-wrap`; image parts become thumbnails (tap to enlarge). Hide the NUDGE text: if content equals the nudge string, render nothing. | familiar chat layout; *clarity* |
-| `pi.assistant` text parts | Full-width markdown: `marked` → `DOMPurify.sanitize` → `innerHTML`. Code blocks are monospace with horizontal scroll. Links get `target=_blank rel=noopener`. | *legibility*, *deference* |
-| `pi.assistant` thinking parts | A collapsed row "▸ Thinking". Expanded, it shows the text in secondary colour. | *progressive disclosure* |
-| `pi.assistant` toolCall parts plus their `pi.tool-result` | Consecutive calls (until the next text part) fold into **one collapsed row** with a plain-language summary, e.g. "Read 6 files, edited 2, ran 3 commands". A red ✕ marks any `isError` result even while collapsed. Level 2 (expanded group) shows one line per call: "Read `src/app.ts`", "Ran `npm test`", "Edited `x.ts`", "Wrote `y.ts`". Level 3 (tap a call) shows input and output in monospace, output truncated at 200 lines with "Show all". | *progressive disclosure* (3 levels), *speak the user's language*, *never hide problems* |
-| `ask_user` / `submit_plan` / `final_report` calls | Rendered as **cards** (§13.7), never as tool rows. | *one clear call to action* |
-| `pi.system`, `pi.reset` | Hidden. A compaction summary entry shows as a thin divider, "Earlier context summarized". | *deference* |
-| `live.generation.message` | Streamed partial, rendered as the last assistant block, updating in place. No spinner over content. | *non-blocking feedback* |
-| `live.tools` running slots | The group row shows "Running `npm test`…" with live output in level 3. | *feedback* |
-| `live.generation.retry` | Status line "Model error, retrying in Ns". | *keep people informed* |
-| `live.runFailure` | Inline banner with the reason and a **Continue** button (`POST continue`). | *recoverable errors with a clear next step* |
+| `pi.user` | Right-aligned tinted bubble. Text is pre-wrapped; images are thumbnails (tap to enlarge). Nudge entries are not shown. | familiar chat layout |
+| assistant text | Full-width markdown (marked, then DOMPurify). Code is monospace with horizontal scroll. Links open in a new tab with `rel=noopener`. | legibility, deference |
+| assistant thinking | Collapsed row "▸ Thinking"; expands to secondary-colour text. | progressive disclosure |
+| tool calls + results | Consecutive calls fold into one collapsed row summarized in plain words ("Read 6 files, edited 2, ran 3 commands"). A red mark shows on the row if any result `isError`. Expanded, it shows one line per call ("Read `src/a.ts`", "Ran `npm test`"). Tapping a call shows its input and output in monospace (first 200 lines, then "Show all"). | progressive disclosure (3 levels), plain language, never hide problems |
+| `ask_user`, `submit_plan`, `update_plan`, `final_report` | Cards (§A14.5), never tool rows. `update_plan` renders nothing and only updates the plan card. | one clear call to action |
+| `pi.compaction` | A thin divider: "Earlier context summarized". `pi.system` and `pi.reset` are hidden. | deference |
+| `live.generation.message` | The streamed partial, rendered as the last assistant block and updated in place. No spinner over content. | non-blocking feedback |
+| running tool slots | The group row reads "Running `npm test`…"; live output is shown at level 3. | feedback |
+| `live.generation.retry` | Status line "Model error, retrying…" | keep people informed |
+| `failed` / `stopped` state | Inline banner with the reason and **Continue**. For a budget stop, the banner reads "Raise to ${2× budget} and continue". | recoverable errors with a next step |
 
-**Status line** (above the composer): "Working · turn {run.turns}" while `live.run` is present, "Waiting for you"
-while a card is pending, otherwise hidden.
-- HIG principle: *system status always visible, unobtrusively*.
+- **Status line,** above the composer:
+  - "Working · step {done}/{total}" when there's a plan, or "Working · turn {run.turns}" when there isn't;
+  - "Waiting for you" when a card is pending;
+  - hidden otherwise.
+  - HIG principle: *system status visible, unobtrusively*.
+- **Scrolling:** follow new content only when within 80 px of the bottom; otherwise show a "↓ New activity" pill.
+  Reaching the top loads older entries.
+  - HIG principle: *don't move content away from the reader*.
 
-**Scroll behavior:**
-- Auto-scroll to the bottom on new content only when already within 80 px of the bottom.
-- Otherwise show a "↓ New activity" pill.
-- Scrolling to the top loads older entries (§12.5).
-- HIG principle: *don't yank content away from the reader*.
-
-### 13.5 Composer (one component, used on both views)
-- **Layout:**
-  - **(+) attach** on the left.
-  - An auto-growing **input pill** (1 to 6 lines, then scrolls) in the middle.
-  - **(↑) send** on the right.
-  - All tap targets are at least 44×44 pt.
-  - HIG principles: *44 pt minimum touch targets*, *familiar layout*.
-- **Context-aware send/stop:** while a run is active and the pill is empty, ↑ becomes **■ Stop**. Typing turns it back
-  to ↑, which sends a steer.
-  - HIG principles: *one adaptive control instead of extra buttons*, *convention parity with Claude and ChatGPT apps*.
+### A14.4 Composer (shared by both views)
+- **Layout:** **(+)** attach on the left, an auto-growing **input pill** (1–6 lines, then scroll) in the middle, and
+  **(↑)** send on the right. Every control is at least 44×44 pt.
+  - HIG principles: *44 pt touch targets*, *familiar layout*.
+- **Send becomes Stop:** while a run is active and the pill is empty, ↑ becomes **■ Stop**. Typing turns it back
+  into ↑, which steers the run.
+  - HIG principles: *one adaptive control*, *parity with common chat apps*.
 - **Placeholder by state:**
 
   | State | Placeholder |
@@ -894,453 +927,264 @@ while a card is pending, otherwise hidden.
   | Reported | "Ask for changes to keep working…" |
   | Otherwise | "Message…" |
 
-  The text is routed by the server (§11.4).
-  - HIG principle: *tell people what an input will do*.
-- **Keyboard:** Return inserts a newline on touch devices. Enter sends only when a hardware keyboard is detected
-  (`matchMedia("(hover: hover) and (pointer: fine)")`). Shift+Enter is always a newline.
-  - HIG principle: *respect platform input conventions*.
-- **Safe areas:** the composer stays above the on-screen keyboard (`visualViewport` resize →
-  `bottom: <keyboard height>`) and respects `env(safe-area-inset-bottom)`.
+  - HIG principle: *say what an input will do*.
+- **Keys:** Enter sends only with a hardware keyboard (`(hover: hover) and (pointer: fine)`); otherwise it inserts a
+  newline.
+  - HIG principle: *platform input conventions*.
+- **Positioning:** the composer stays above the on-screen keyboard (`visualViewport`) and respects
+  `env(safe-area-inset-bottom)`.
   - HIG principles: *keyboard avoidance*, *safe areas*.
-- **Drafts:** an unsent draft is kept per session in `localStorage` (try/catch) and restored.
-  - HIG principle: *never lose user input*.
+- **Drafts:** per-session drafts persist in `localStorage` (try/catch).
+  - HIG principle: *never lose input*.
+- **Attachments:**
+  - (+) opens the system file picker: `multiple`, accepting images plus common text, pdf and zip types.
+    - HIG principle: *use system pickers*.
+  - Images are resized in the browser to a longest side of 2048 px and encoded as JPEG at quality 0.85. This also
+    normalizes HEIC.
+  - Other files may be up to 20 MB each.
+  - Pending attachments show as removable chips or thumbnails in the pill.
+    - HIG principles: *reversible actions*, *show what will be sent*.
 
-### 13.6 Attachments
-- **Picker:** (+) opens `<input type="file" multiple accept="image/*,.pdf,.txt,.md,.json,.csv,.log,.zip">`. The OS
-  supplies camera, photo library and files.
-  - HIG principle: *use system-provided pickers*.
-- **Images** are resized client-side with `createImageBitmap` and a canvas to a longest side ≤ 2048 px, encoded as
-  JPEG at quality 0.85. This also normalizes HEIC.
-- **Size limit:** other files are limited to 20 MB each, with an inline error if exceeded.
-- **Pending list:** pending attachments show as chips or thumbnails inside the pill, each with ✕ to remove.
-  - HIG principles: *reversible actions*, *show what will be sent*.
-
-### 13.7 Cards
-- **Question card (`ask_user`):**
-  - Each question shows a small caps header, the question text, then options as **full-width rows** (≥ 44 pt). Each
-    row shows the label in bold and the description in secondary text, with the recommended option first as the
-    agent ordered it. The last row is **Other…**, which expands an inline text field.
-  - Multi-select questions use checkmarks.
-  - One question with single-select submits on tap. Otherwise a **Submit** button (primary) is enabled once every
-    question has an answer.
-  - After answering, the card collapses to a summary of the answers, read-only.
-  - HIG principles: *minimize typing*, *recognition over recall*, *fewest taps*, *clear completion state*.
-- **Plan card (`submit_plan`):**
-  - Content: title, summary, numbered steps, and assumptions in secondary text.
-  - Buttons: **Approve** (primary, filled) and **Revise** (secondary). Revise focuses the composer, which shows the
-    plan placeholder. Sending submits the revision.
-  - After approval the card shows "Approved" and collapses its steps (tap to expand).
-  - HIG principles: *one primary action*, *reuse familiar controls*, *avoid modal forms*.
-- **Report card (`final_report`, data from `SessionItem.report`):**
-  - Content: summary (markdown), **Changes** list, **Verification**, **Notes**, **Commits** (monospace, collapsed if
-    more than 5). A **View changes** link opens the diff sheet.
-  - Buttons: **Push branch** (primary) and **Open PR** (secondary). While delivering, the buttons show progress and
-    are disabled. Afterwards the card shows "Pushed {branch}" and/or "PR opened ↗", with the PR link opening
-    GitHub. If there are no commits, show "No changes to deliver" instead of buttons.
-  - "Keep working" needs no button: the composer below already does it.
+### A14.5 Cards
+- **Question (`ask_user`):**
+  - **Layout:** each question shows its header in small caps, the question, then full-width option rows (≥ 44 pt),
+    each with the label in bold and the description in secondary text. Keep the agent's order. The last row is
+    **Other…**, which expands an inline text field. Multi-select rows use checkmarks.
+  - **Submit:** a single single-select question submits on tap. Otherwise a primary **Submit** button enables once
+    every question is answered.
+  - **After answering:** the card collapses to a read-only summary of the answers.
+  - HIG principles: *minimize typing*, *recognition over recall*, *fewest taps*, *clear completion*.
+- **Plan (`submit_plan`):**
+  - **Content:** title, summary, numbered steps with checkmarks for completed ones (live from `plan.completed`), and
+    assumptions in secondary text.
+  - **Buttons:** **Approve** (primary) and **Revise** (secondary). Revise focuses the composer with the plan
+    placeholder.
+  - **After approval:** a progress line "3 of 6 done", with the steps collapsible.
+  - HIG principles: *one primary action*, *reuse familiar controls*, *status at a glance*.
+- **Report (`final_report`, from the session item):**
+  - **Content:** summary (markdown), Changes, Verification, Notes, Commits (monospace; collapsed when there are more
+    than 5), the session cost, and a **View changes** link.
+  - **Buttons:** **Push branch** (primary) and **Open PR** (secondary). If a PR already exists, they become **Push
+    updates** and **View PR ↗**.
+  - **While delivering:** buttons show progress and are disabled. Errors appear inline. After delivery the card shows
+    "Pushed {branch}" and the PR link.
+  - **No commits:** "No changes to deliver" and no buttons.
+  - **Keep working:** this is the composer, so there is no extra button.
   - HIG principles: *don't duplicate controls*, *clear outcome feedback*.
-- **Diff sheet:** a full-height sheet with plain monospace text. Lines starting with `+` are green, `-` red, and
-  `@@`/`diff` lines bold. Horizontal scroll, pinch-zoom allowed, dismissed by swipe-down or a Done button.
-  - HIG principle: *sheets for focused, dismissible tasks*.
+- **Diff sheet:**
+  - A full-height sheet, **grouped by file**: each file is a collapsible section with its path and `+added −removed`
+    counts.
+  - Sections start collapsed when there are more than 3 files.
+  - Inside each section: monospace text, `+` lines green, `-` lines red, hunk headers bold, horizontal scroll.
+  - Binary files show "Binary file changed".
+  - Dismiss with a swipe down or **Done**.
+  - HIG principles: *sheets for focused tasks*, *progressive disclosure*.
 
-### 13.8 Cross-cutting visual and accessibility rules
-| Rule | Implementation | HIG principle |
+### A14.6 Visual and accessibility rules
+| Rule | Requirement | HIG principle |
 |---|---|---|
-| System typography | `font: -apple-system-body` with `system-ui` fallback; sizes in `rem`, so the user's text-size setting applies | *legibility*, *Dynamic Type* |
-| Dark mode | colour tokens on `:root`, overridden under `@media (prefers-color-scheme: dark)`; `<meta name="color-scheme" content="light dark">` | *adapt to appearance* |
-| Contrast | body text ≥ 4.5:1, large text ≥ 3:1, in both modes | *accessibility* |
-| Motion | drawer and expand transitions ≤ 200 ms; none under `prefers-reduced-motion` | *motion is optional* |
-| Screen readers | real `<button>` elements; `aria-label` on icon buttons ("Open sessions", "Attach", "Send", "Stop"); `aria-expanded` on disclosures; cards are `role="group"` with a label | *accessibility is not optional* |
-| Layout | single column, max content width 760 px, 16 px side gutters, `env(safe-area-inset-*)` padding, no horizontal page scroll | *safe areas*, *readable line length* |
-| Connectivity | thin non-blocking "Reconnecting…" bar; reading and typing stay enabled; sends carry `requestId` and retry with backoff | *graceful degradation* |
-| Loading | skeleton rows in the drawer on first load; never a full-screen spinner | *perceived performance* |
+| Typography | the system font (`-apple-system-body`, `system-ui` fallback) and `rem` sizes, so the user's text-size setting applies | legibility, Dynamic Type |
+| Dark mode | colour tokens on `:root`, redefined under `prefers-color-scheme: dark`; `<meta name="color-scheme" content="light dark">` | adapt to appearance |
+| Contrast | ≥ 4.5:1 for body text and ≥ 3:1 for large text, in both modes | accessibility |
+| Motion | transitions ≤ 200 ms; none under `prefers-reduced-motion` | motion is optional |
+| Screen readers | real `<button>` elements; labels on icon buttons ("Open sessions", "Attach", "Send", "Stop"); `aria-expanded` on disclosures; cards labelled groups | accessibility |
+| Layout | single column, max width 760 px, 16 px gutters, safe-area padding, no horizontal page scroll | safe areas, readable line length |
+| Connectivity | a thin non-blocking "Reconnecting…" bar; reading and typing stay enabled; sends retry with the same `requestId` | graceful degradation |
+| Loading | skeleton rows on first load; never a full-screen spinner | perceived performance |
 
-### 13.9 Client state and sync
-- **Session view:** one `EventSource` per open session (`/api/sessions/:id/events`). On `base`, set
-  `view = data.view` and reset any older entries loaded from paging. On `ops`, set `view = applyImmutable(view, data.ops)`.
-- **Drawer:** one `EventSource` for `/api/events`, which carries sessions and config.
-- **Page visibility:**
-  - On `visibilitychange` → hidden, close both EventSources. This tells the server you're not looking, so
-    notifications resume.
-  - On → visible, reopen them.
-  - This also fixes iOS's silently half-open connections after backgrounding.
-- **Requests:** POSTs use `fetch` with a client-generated `requestId` (`crypto.randomUUID()`) where the API takes
-  one. Retry network failures 3 times with backoff, keeping the same id.
+### A14.7 Client sync
+- **Session view:** one EventSource per open session. On `base`, replace the view. On `ops`, set
+  `view = applyImmutable(view, ops)`.
+- **Global stream:** one EventSource for the session list and config.
+- **Visibility:** when the page becomes hidden, close both EventSources (this tells the server notifications are
+  wanted). Reopen them when it becomes visible again. This also handles iOS's half-open connections after
+  backgrounding.
+- **Requests:** every create, message or answer carries a client-generated `requestId` (where the API has one).
+  Retry network failures with backoff and the same id.
 
-### 13.10 PWA plumbing
+### A14.8 PWA plumbing
 - **`index.html`:**
-  - `<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">`
-  - `<meta name="apple-mobile-web-app-capable" content="yes">`
-  - `<link rel="manifest">` and `<link rel="apple-touch-icon" href="/icons/icon-180.png">`
-  - The import map:
-    ```html
-    <script type="importmap">{"imports":{"preact":"/vendor/preact.mjs","preact/hooks":"/vendor/hooks.mjs","htm":"/vendor/htm.mjs","marked":"/vendor/marked.mjs","dompurify":"/vendor/purify.mjs","chord-delta":"/vendor/chord/delta/index.js"}}</script>
-    ```
-- **`manifest.webmanifest`:** `name` "picloud", `short_name` "picloud", `start_url` "/", `display` "standalone",
-  `background_color` and `theme_color` matching the light background, icons 192 and 512 (`purpose` "any maskable").
-- **`sw.js`:**
-  - Precache the app shell (`/`, `/app.js`, `/transcript.js`, `/cards.js`, `/composer.js`, `/style.css`, vendor
-    files, icons) under a version constant. Bump the constant on every deploy.
-  - Strategy: network-first for navigations, falling back to the cached `/`. Cache-first for shell files. Never
+  - Viewport: `width=device-width, initial-scale=1, viewport-fit=cover`.
+  - `apple-mobile-web-app-capable`, an `apple-touch-icon` (180 px) and the manifest link.
+  - The import map: `preact`, `preact/hooks`, `htm`, `marked`, `dompurify` and `chord-delta`, mapped to the
+    `/vendor/...` URLs (§A11.9).
+- **Manifest:** name and short name `picloud`, `display: standalone`, `start_url: /`, and icons at 192 and 512 px
+  (`any maskable`).
+- **Service worker:**
+  - Precache the app shell under a version constant.
+  - Strategy: network-first for navigation, falling back to the cached shell. Cache-first for shell assets. Never
     cache `/api/*`.
-  - `push`: `showNotification(title, { body, data: { url }, tag: sessionId })`. The `tag` replaces stale
-    notifications for the same session.
-  - `notificationclick`: focus an open client and navigate it to `url`, or `clients.openWindow(url)`.
-- **Icons:** a simple glyph (for example "π") on the accent colour. Export `icon.svg` to PNG at 180, 192 and 512 px
-  with any tool.
+  - On `push`: show the notification with `tag = sessionId` and `data.url`.
+  - On `notificationclick`: focus an open client and navigate it, or open a new window.
+- **Icons:** a simple glyph (for example "π") on the accent colour, in SVG plus PNG at 180, 192 and 512 px.
 
-## 14. Notifications
-
+## A15. Notifications
 - **Events (only these):**
 
   | Event | Title | Body |
   |---|---|---|
-  | `ask_user` parks | "Pi has a question" | first question text |
-  | `submit_plan` parks | "Plan ready" | plan title |
-  | `final_report` filed | "Report ready" | first line of summary |
-  | Run failed | "Run failed" | reason |
-  | Run ended in planning or working | "Pi replied" | first 100 characters of the last assistant text |
-  | Implementing run ended without a report | "Pi stopped without a report" | |
+  | Question | "Pi has a question" | the first question |
+  | Plan | "Plan ready" | the plan title |
+  | Report | "Report ready" | the summary's first line |
+  | Run failed | "Run failed" | the reason |
+  | Pi replied | "Pi replied" | first 100 chars of the last assistant text |
+  | No report | "Pi stopped without a report" | |
+  | Budget | "Budget reached" | |
 
-  - HIG principle: *notifications must be timely, relevant and actionable*. There are no "started" or "still working"
-    notifications.
-- **Payload:** `{ title, body, url: "/#/s/<id>" }`. Send with
-  `webpush.sendNotification(sub, JSON.stringify(payload), { TTL: 86400 })` to every subscription. On status 404 or
-  410, remove that subscription from the `Push` doc.
-- **Suppression:** skip the send if an SSE stream for that session is open (§11.7). The person is already looking.
-- **Enabling on iOS** (requires iOS 16.4 or later):
-  - The app must be **added to the Home Screen** and opened from there.
-  - Permission must be requested from a tap, via the drawer's **Enable notifications** row:
-    `Notification.requestPermission()`, then
-    `registration.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: vapidPublicKey })`, then
-    `POST /api/push/subscribe`.
-- **Delivery:** notifications go out through Apple's and Google's push services. The droplet needs ordinary
-  outbound internet access; nothing inbound is required.
+  - HIG principle: *timely, relevant, actionable*. There are no "started" or "progress" notifications.
+- **Payload and sending:** `{ title, body, url: "/#/s/<id>" }`, sent with TTL 86400 s to every subscription. Remove a
+  subscription when the push service answers 404 or 410.
+- **Suppression:** skip the send while that session has an open session stream (§A11.7).
+- **Subscribing:** happens from a tap on **Enable notifications**: `Notification.requestPermission()`, then
+  `pushManager.subscribe({ userVisibleOnly: true, applicationServerKey })`, then `POST /api/push/subscribe`. On iOS
+  this requires iOS 16.4+ and the app opened from the Home Screen.
 
-## 15. Implementation phases with acceptance criteria
+---
 
-Work through the phases in order. Each ends with a verifiable acceptance check, and you should not start a phase
-until the previous one passes.
+# Part B: Deploy and operate (human operator)
 
-### Phase 0: repository bootstrap
-- Create `package.json` (§5, §7 scripts, `"type": "module"`, `"engines": { "node": ">=22.19" }`), `tsconfig.json`
-  (copy `reference/spike/tsconfig.json`, with `files` replaced by `"include": ["src", "test"]`), and
-  `src/web-push.d.ts`.
-- `npm install` with exact versions (`save-exact=true` in `.npmrc`).
-- **Accept:** `npm run check` passes on an empty `src/main.ts`. In `reference/spike`, `npm install` followed by
-  `node spike.ts` prints the six numbered results shown in §20.
+## B1. Droplet
+- **Size:** 2 vCPU / 4 GB RAM minimum (more for heavy builds), 50 GB disk.
+- **Network:** no inbound ports are needed.
+- **OS:** Ubuntu 24.04: `apt update && apt upgrade -y && apt install -y git curl build-essential sqlite3`.
+- **Node:** install Node ≥ 22.19 (Node 24 LTS is fine).
+- **Service user and directories:**
+  ```bash
+  adduser --system --group --home /home/picloud --shell /bin/bash picloud
+  install -d -o picloud -g picloud -m 700 /var/lib/picloud
+  install -d -o picloud -g picloud -m 755 /opt/picloud
+  ```
+- **Toolchains:** install whatever your repositories need to build and test (Python, Go and so on).
 
-### Phase 1: agent core (no HTTP)
-- Implement `harness.ts` and `extension.ts` exactly as §8 and §10 specify.
-- Port the spike into `test/lifecycle.test.ts` using `node:test`, with the faux provider and a temporary data dir.
-- **Accept:** all of these pass:
-  1. An `ask_user` park survives `harness.close()` and reopen (same task id). The answer signal completes the call.
-  2. `submit_plan` revise returns feedback and state `planning`. Approve sets `implementing`.
-  3. A `write` tool call creates a file in the workspace.
-  4. The `onYield` nudge fires while implementing and stops after exactly 3. It never fires outside `implementing`.
-  5. `final_report` refuses while `git status` is dirty and succeeds after a commit. The report and commits are
-     stored in the item.
-  6. Exactly one notification call per park, even when the tool reruns. Inject a fake `notify`.
-
-### Phase 2: server and git
-- Implement `config.ts`, `main.ts`, `sessions.ts`, `monitor.ts`, `http.ts` (without static files) and `push.ts`
-  (send can be a no-op if `PICLOUD_PUSH_SUBJECT` is unset).
-- `test/git.test.ts`: create a local bare repo as "origin" with one commit. Make the clone step injectable so tests
-  use `git clone <bare>` instead of `gh repo clone`. Verify the branch, identity, exclude, push to the bare repo, and
-  the diff output.
-- `test/routing.test.ts`: covers a pending question, a pending plan, busy, and idle, each producing the correct
-  signal or submit (faux model).
-- **Accept:**
-  - Unit tests pass.
-  - **Manual curl run against a real model on a dev machine** (signed in with `pi`): create a session on a scratch
-    repo with a trivial task, watch `curl -N /api/sessions/<id>/events`, answer via `/answer`, approve, and observe
-    `reported`.
-  - `deliver push` creates the branch on GitHub.
-  - Kill the server (`kill -9`) while parked, restart it, answer, and the run completes.
-
-### Phase 3: PWA shell and transcript
-- `index.html`, `app.js` (routing, drawer, both views, SSE clients), `transcript.js`, `composer.js`, `style.css`,
-  and the static and vendor routes in `http.ts`.
-- **Accept** in Chromium via Playwright at an iPhone viewport (`devices["iPhone 15"]`):
-  - A new session can be started.
-  - Tool calls and thinking render collapsed, with 3-level expansion.
-  - Streaming text updates in place.
-  - The drawer opens, closes, switches sessions and shows the badge.
-  - Dark mode renders.
-  - No console errors.
-  - No horizontal scroll at 375 px width.
-
-### Phase 4: cards and delivery
-- `cards.js`: question, plan and report cards, the diff sheet and the overflow menu. Composer routing placeholders.
-- **Accept:** a scripted end-to-end run (faux model in a test server mode, or a real model) can be driven entirely
-  by taps: answer, approve, read the report, push, open the PR. Free-text "Other" and composer replies route
-  correctly. Archive with Undo works.
-
-### Phase 5: notifications and installability
-- `sw.js`, the manifest, icons, the subscribe flow, the presence-based suppression, and the monitor notifications.
-- **Accept:**
-  - Lighthouse "Installable" passes (use the Chromium path `/opt/pw-browsers/chromium` or any Chrome).
-  - On a real iPhone (Phase 6 deployment): the app installs to the Home Screen, notifications are enabled, and a
-    question arrives as a notification while the app is closed. Tapping it opens the card.
-
-### Phase 6: deployment
-- Follow §17 on a fresh droplet.
-- **Accept:** from the phone over Tailscale, run a real task on a real repo through to a pushed branch and an opened
-  PR. Reboot the droplet mid-run, and the run continues afterwards.
-
-### Phase 7: phone polish checklist (all must pass on a real device)
-- [ ] The composer stays above the keyboard. No content hides behind the notch or home indicator.
-- [ ] Every control is ≥ 44 pt and reachable one-handed. Primary actions are in the bottom half where possible.
-- [ ] Text-size setting at maximum: the layout remains usable.
-- [ ] VoiceOver can start a session, answer a question, approve a plan and push.
-- [ ] Airplane mode on, then off: a "Reconnecting…" bar appears, and the transcript catches up with no duplicate
-      sends.
-- [ ] Backgrounding for 10 minutes, then foregrounding: the transcript updates within 2 s.
-- [ ] The line budget is respected (`wc -l src/*.ts public/*.js public/*.css`).
-
-## 16. Testing strategy
-
-- **Unit and integration tests:**
-  - Run with `node --test` and the **faux provider** from pi-ai (`fauxProvider()`, `fauxAssistantMessage`,
-    `fauxToolCall`). Script responses with `faux.setResponses([...])`.
-  - Every test uses a temporary `PICLOUD_DATA` and real SQLite storage, so restart behavior is tested for real.
-  - `reference/spike/spike.ts` is the template.
-- **Git tests** use local bare repositories, so they need no network.
-- **UI checks** use Playwright with the iPhone 15 device profile against a test server instance running the faux
-  model. Check rendering rules (§13.4) with screenshots at deviceScaleFactor 1.
-- **Manual device test** covers the Phase 5–7 checklists on a real phone. It is required before calling v1 done.
-- **Don't mock Durable.** Its storage and restart semantics are the point.
-
-## 17. Deployment runbook (droplet)
-
-Steps are for Ubuntu 24.04 as root, unless a step says `sudo -iu picloud`.
-
-### 17.1 Provision
-- **Size:** 2 vCPU and 4 GB RAM minimum. Use 4 vCPU and 8 GB RAM if your repos have heavy builds or tests. 50 GB
-  disk.
-- **Firewall:** no inbound ports are needed. Allow SSH only from Tailscale once it's set up.
-- **Base packages:** `apt update && apt upgrade -y && apt install -y git curl build-essential`.
-
-### 17.2 Service user
-```bash
-adduser --system --group --home /home/picloud --shell /bin/bash picloud
-install -d -o picloud -g picloud -m 700 /var/lib/picloud
-install -d -o picloud -g picloud -m 755 /opt/picloud
-```
-The `picloud` user has no sudo.
-
-### 17.3 Node.js
-Install Node 22 (≥ 22.19) or Node 24 LTS from NodeSource or the official tarball, then verify with
-`node --version`.
-
-### 17.4 Pi: sign in and choose the default model
+## B2. Pi sign-in and default model
 ```bash
 npm install -g @earendil-works/pi-coding-agent@1.6.0
-sudo -iu picloud pi            # inside pi: /login (pick provider), then /model (pick default), then quit
-sudo -iu picloud ls ~/.pi/agent  # expect auth.json and settings.json
+sudo -iu picloud pi        # /login → choose provider; /model → choose default; quit
 ```
-To change the model later, repeat `/model` and restart picloud.
 
-### 17.5 GitHub CLI
-1. Install `gh` from GitHub's official apt repository (cli.github.com).
-2. **Recommended:** create a **fine-grained personal access token** limited to the repositories picloud may touch.
-   - Contents: Read and write.
-   - Pull requests: Read and write.
-   - Metadata: Read.
+## B3. GitHub
+1. Install `gh` from GitHub's apt repository.
+2. Create a **fine-grained token** limited to the repositories picloud may use: Contents read/write, Pull requests
+   read/write, Metadata read.
 3. Log in and wire gh into git:
    ```bash
-   sudo -iu picloud gh auth login --with-token < token.txt   # then delete token.txt
+   sudo -iu picloud gh auth login --with-token < token.txt && rm token.txt
    sudo -iu picloud gh auth setup-git
-   sudo -iu picloud gh repo list --limit 5                    # verify
    ```
-4. Turn on **branch protection** for the default branch of each such repo (§19).
+4. Enable **branch protection** on each repo's default branch.
 
-### 17.6 Tailscale
-```bash
-curl -fsSL https://tailscale.com/install.sh | sh
-tailscale up                       # authenticate the droplet into your tailnet
-```
-In the Tailscale admin console, enable **MagicDNS** and **HTTPS certificates**. On the phone, install the Tailscale
-app and sign in to the same tailnet.
+## B4. Tailscale
+- **On the droplet:** `curl -fsSL https://tailscale.com/install.sh | sh && tailscale up`.
+- **In the Tailscale admin console:** enable MagicDNS and HTTPS certificates.
+- **On the phone:** install the Tailscale app and join the same tailnet.
 
-### 17.7 picloud
-```bash
-sudo -iu picloud git clone https://github.com/<you>/picloud /opt/picloud   # or rsync a release
-cd /opt/picloud && sudo -u picloud npm ci --omit=dev
-```
-Create `/etc/picloud.env`:
-```
-PICLOUD_DATA=/var/lib/picloud
-PICLOUD_PUSH_SUBJECT=mailto:you@example.com
-# PICLOUD_ALLOWED_LOGINS=you@example.com
-```
-Create `/etc/systemd/system/picloud.service` (also kept in the repo as `deploy/picloud.service`):
-```ini
-[Unit]
-Description=picloud
-After=network-online.target tailscaled.service
-Wants=network-online.target
+## B5. Service
+1. Install the app:
+   ```bash
+   sudo -iu picloud git clone <your picloud repo> /opt/picloud
+   cd /opt/picloud && sudo -u picloud npm ci --omit=dev
+   ```
+2. Create `/etc/picloud.env` with `PICLOUD_DATA=/var/lib/picloud` and `PICLOUD_PUSH_SUBJECT=mailto:you@example.com`.
+   Optionally add `PICLOUD_ALLOWED_LOGINS` and `PICLOUD_SESSION_BUDGET_USD`.
+3. Install `deploy/picloud.service` into `/etc/systemd/system/`. It runs as user picloud, sets
+   `WorkingDirectory=/opt/picloud`, `EnvironmentFile=/etc/picloud.env` and `Environment=HOME=/home/picloud`, and uses
+   `ExecStart=/usr/bin/node --disable-warning=ExperimentalWarning src/main.ts`, `Restart=always` and
+   `KillSignal=SIGTERM`.
+4. Start it and expose it on the tailnet:
+   ```bash
+   systemctl daemon-reload && systemctl enable --now picloud && journalctl -u picloud -f
+   tailscale serve --bg 8787       # https://<droplet>.<tailnet>.ts.net — never use `tailscale funnel`
+   ```
 
-[Service]
-User=picloud
-Group=picloud
-WorkingDirectory=/opt/picloud
-EnvironmentFile=/etc/picloud.env
-Environment=HOME=/home/picloud NODE_ENV=production
-ExecStart=/usr/bin/node --disable-warning=ExperimentalWarning src/main.ts
-Restart=always
-RestartSec=3
-KillSignal=SIGTERM
-TimeoutStopSec=30
-
-[Install]
-WantedBy=multi-user.target
-```
-Start it and expose it on the tailnet:
-```bash
-systemctl daemon-reload && systemctl enable --now picloud
-journalctl -u picloud -f            # expect "listening on 127.0.0.1:8787"
-tailscale serve --bg 8787           # HTTPS on https://<droplet>.<tailnet>.ts.net
-tailscale serve status
-```
-Never use `tailscale funnel`: that would expose picloud to the public internet.
-
-### 17.8 Phone
-1. Turn Tailscale on, then open `https://<droplet>.<tailnet>.ts.net` in Safari.
+## B6. Phone
+1. With Tailscale on, open the URL in Safari.
 2. Share → **Add to Home Screen**, then open picloud from the Home Screen.
-3. Open the drawer and tap **Enable notifications**, then Allow.
-4. Start a session.
+3. Open the drawer, tap **Enable notifications**, and allow them.
 
-## 18. Operations runbook
+## B7. Operations
+- **Logs:** `journalctl -u picloud`.
+- **Backups:** install `deploy/picloud-backup.service` and `deploy/picloud-backup.timer`.
+  - They run daily: `sqlite3 /var/lib/picloud/durable.sqlite ".backup /var/lib/picloud/backups/picloud-$(date +%F).sqlite"`.
+  - They keep the newest 7 backups.
+  - Also back up `/home/picloud/.pi/agent/`.
+- **Disk:** workspaces of old delivered, archived sessions are pruned automatically (§A11.8). Check usage with
+  `du -sh /var/lib/picloud/work`.
 
-### 18.1 Health and logs
-- **Service status:** `systemctl status picloud` and `journalctl -u picloud --since -1h`.
-- **What's running:** the per-request log shows activity. Durable's own reports are prefixed `[durable]`.
+## B8. Upgrades of `@earendil-works/*`
+1. Read every package's CHANGELOG between the old and new versions, looking for the shapes in §A6.
+2. Bump all five pins together on a dev machine, then run `npm run check`, `npm test` and `npm run e2e`.
+3. **Back up the database before deploying.** Stored data may migrate, and rollback is not guaranteed.
+4. Deploy with `git pull && npm ci --omit=dev && systemctl restart picloud`.
 
-### 18.2 Backups
-- **What to back up:** `/var/lib/picloud/durable.sqlite` (all state) and `/home/picloud/.pi/agent/`. Workspaces are
-  rebuildable from GitHub, except unpushed work.
-- **Consistent snapshot while running:**
-  `sqlite3 /var/lib/picloud/durable.sqlite ".backup '/backup/picloud-$(date +%F).sqlite'"`. Install with
-  `apt install sqlite3`.
+## B9. Troubleshooting
+| Symptom | Fix |
+|---|---|
+| "No default model" at start | §B2 as user picloud |
+| Runs fail with auth errors | `sudo -iu picloud pi` → `/login`, then restart |
+| Repo list empty or clone fails | `sudo -iu picloud gh auth status`; check which repos the token covers |
+| Push 403 | token lacks Contents write, or a protection rule matches the branch |
+| Phone can't connect | Tailscale on the phone; check `tailscale serve status` |
+| No notifications | open from the Home Screen; grant permission; iOS ≥ 16.4; `PICLOUD_PUSH_SUBJECT` set |
+| "Pi stopped without a report" | read its last message and reply in the composer |
+| Database errors | free disk space, or restore the latest backup |
 
-### 18.3 Disk cleanup
-Archived sessions keep their workspace. To prune workspaces of sessions delivered more than 14 days ago, list them
-via the sessions doc, or simply remove workspace directories untouched for 14 days that have no unpushed commits:
-```bash
-sudo -iu picloud bash -c 'for d in /var/lib/picloud/work/*/; do
-  cd "$d" && [ -z "$(git log --branches --not --remotes --oneline 2>/dev/null)" ] \
-  && find "$d" -maxdepth 0 -mtime +14 -print; done'
-# review the list, then rm -rf the printed paths
-```
+---
 
-### 18.4 Upgrading Pi packages (deliberate procedure)
-1. Read `CHANGELOG.md` of each `@earendil-works/*` package between the old and new versions, looking for breaking
-   changes (park shape, signal state, hook returns, `submit`/`admit`, doc semantics).
-2. On a dev machine, bump all five `@earendil-works/*` pins together. Update `reference/spike` too and run it.
-3. Run `npm run check` and `npm test`. Fix the differences.
-4. **Back up `durable.sqlite` (§18.2) before deploying.** Durable may migrate stored data, and rollback after a
-   migration is not guaranteed.
-5. Deploy: `git pull && npm ci --omit=dev && systemctl restart picloud`. Bump the `sw.js` cache version.
+# Appendices
 
-### 18.5 Troubleshooting
-| Symptom | Likely cause | Fix |
+## C1. Security model
+- **Who can reach it:** only tailnet devices (and listed logins, if configured). The server binds to loopback.
+  Anyone who can reach picloud can make Pi run commands as the `picloud` user.
+- **What the agent can reach:** everything the `picloud` user can, including model credentials in `~/.pi/agent` and
+  the GitHub token in `~/.config/gh`. "Never push" is an instruction, not an enforced boundary.
+- **Mitigations:**
+  1. A fine-grained token limited to chosen repos.
+  2. Branch protection on default branches.
+  3. A dedicated user without sudo.
+  4. Normal delivery only happens on a tap.
+- **Prompt injection:** content Pi reads can steer it. The worst case is bounded by the mitigations above.
+- **Deferred:** a credential-holding git proxy, and a separate user or container for the agent's shell.
+- **Durable semantics:** a model request in flight during a crash is retried, and may be billed twice. A
+  non-replay-safe tool cut off by a crash returns "interrupted" to the model.
+
+## C2. Decision log
+| # | Decision | Why |
 |---|---|---|
-| Service exits at start: "No default model" | Pi not signed in or no default model | §17.4 as user picloud |
-| Runs fail with auth errors | expired or revoked provider credential | `sudo -iu picloud pi` → `/login`; restart |
-| Repo list empty or clone fails | gh not authenticated, or token lacks repo access | `sudo -iu picloud gh auth status`; adjust token repos |
-| Push fails with 403 | token lacks Contents write, or branch protection blocks the branch | fix token permissions; protect only the default branch |
-| Phone can't reach the URL | Tailscale off on phone, or serve not configured | Tailscale app on; `tailscale serve status` |
-| No notifications | not opened from the Home Screen, permission not granted, or iOS < 16.4 | §17.8; check `PICLOUD_PUSH_SUBJECT` is set |
-| Session stuck "Setting up" after a crash | server restarted during clone | it is marked failed at next boot; start a new session |
-| Transcript stops updating on iPhone | backgrounded connection | foreground the app; the client reconnects on visibility |
-| Run ended "Pi stopped without a report" | model kept stopping; nudge budget (3) spent | read its last message; reply in the composer to continue |
-| Database errors in log | disk full or file corruption | free disk; restore the last backup |
+| D1 | Fresh thin server rather than reusing existing Pi web apps | Existing apps are prototypes or very large. Durable already provides the hard parts. |
+| D2 | Tailscale instead of app authentication | Removes the whole auth layer and provides HTTPS. |
+| D3 | Pi's own provider configuration | No provider code; one sign-in path. |
+| D4 | One Harness, one SQLite file, state in Durable documents | No second database; list and transcript change atomically. |
+| D5 | Every wait is a park on a signal | Zero cost while waiting; survives restarts. |
+| D6 | Plan approval required before implementing | The owner wants one tap of confidence before unattended work. |
+| D7 | Delivery chosen by the person (push / PR / keep working) | Nothing reaches GitHub without a tap. |
+| D8 | `onYield` nudge (max 3), turn limit, optional budget | Unattended runs reach a report; spend is bounded. |
+| D9 | Workflow taught by prompt, not enforced | Interactive use must remain possible. |
+| D10 | Drawer navigation | Switching sessions should be pull-and-tap; a badge offsets discoverability. |
+| D11 | `ask_user` multiple-choice tool | Front-loads decisions with minimal typing. |
+| D12 | Repo setup memory via `setupNotes` | Each session on a repo starts with what earlier sessions learned. |
+| D13 | Continue-existing-branch mode | Iteration on an existing branch or PR is common. |
+| D14 | Plan progress via `update_plan` | Glanceable progress; helps the model stay on track. |
+| D15 | Rebase before report | Avoids conflicted PRs after long runs. |
+| D16 | Fake mode (faux model + local bare repos) | The whole product is testable and evaluable without credentials. |
+| D17 | No bundler; import maps; Node type stripping | Fewer moving parts. |
+| D18 | Exact pins at 1.6.0; use the npm README | Durable is experimental; GitHub main differs (§A6). |
 
-## 19. Security model and known limitations
-
-- **Who can reach it:**
-  - Only devices on your tailnet (and only allowed logins, if configured).
-  - The server binds to loopback, and there is no public exposure.
-  - Anyone who can reach picloud can make Pi run arbitrary commands as the `picloud` user. Treat tailnet membership
-    as root-equivalent for the `picloud` account.
-- **What the agent can reach:**
-  - Everything the `picloud` Unix user can: all session workspaces, `~/.pi/agent/auth.json` (model credentials) and
-    `~/.config/gh` (GitHub token).
-  - The agent is *instructed* never to push. This is not enforced against a determined or prompt-injected agent.
-- **Mitigations in v1:**
-  1. A fine-grained GitHub token limited to chosen repositories.
-  2. Branch protection on default branches, so even a rogue push can't change `main`.
-  3. Delivery normally happens only when the person taps.
-  4. A dedicated `picloud` user with no sudo.
-- **Prompt injection:** content Pi reads (repo files, web pages, issue text) can steer it. With the mitigations
-  above, the worst case is limited to the scoped repos' non-default branches and the droplet's `picloud` account.
-- **Deferred to later (not v1):**
-  - A credential-holding git proxy, so the token never sits on the same user account.
-  - A separate Unix user or a container for the agent's shell, via `pi-env`'s `RemoteExecutionEnv` over
-    `docker exec -i`. No other picloud code would change, because tools only touch the host through `api.env`.
-- **Model calls after a crash:** a model request in flight during a crash is retried, so it may be billed twice.
-- **Interrupted tools:** a tool cut off by a crash is not rerun, unless it is replay-safe. The model gets an
-  "interrupted" result and continues.
-
-## 20. Verification record
-
-On 2026-11-21, `reference/spike/spike.ts` was run against the published `@earendil-works/*@1.6.0` packages on Node
-22.23.5 with SQLite storage and the faux model. Output:
-```
-1. parked on ask_user; sessions doc: {"items":{"2":{"state":"question","title":"task"}}}
-   wake while parked: {"active":false}                 ← a parked question holds no process
-2. after restart still parked, same task: true          ← survives close + reopen
-   signal: "delivered"
-3. parked on submit_plan; state: approval
-4. submission: done | file: "hi\n"                      ← coding tool wrote in the session cwd
-   final state: reported
-   entries: pi.user pi.system pi.assistant pi.tool-result … pi.user pi.assistant pi.tool-result pi.assistant
-   nudge present: true                                  ← onYield nudge resumed a premature stop
-5. ops applied: 70 | mirror equals watch value: true    ← browser-side applyImmutable reproduces the view
-6. never-reporting run: done | nudges: 3 | model calls left: 1   ← nudge cap holds at exactly 3
-```
-These were also verified:
-- `reference/spike/prod-wiring.ts` typechecks: `ModelRuntime.create()` is accepted as Harness `models`, and
-  `SettingsManager` provides the default model.
-- `ModelRuntime.create()` succeeds with no credentials present.
-- The `pi-context` sections typecheck with `loadProjectContextFiles`, `loadSkills` and `formatSkillsForPrompt`.
-- `reference/spike/browser-check.mjs` loaded Preact, htm, marked, DOMPurify and Chord `delta` through an import map
-  in Chromium with no bundler and no console errors.
-
-The spike uses a reduced set of the §8.1 states and a simplified `ask_user` schema. §8 and §10 are authoritative.
-
-## 21. Decision log
-
-| # | Decision | Rationale |
-|---|---|---|
-| D1 | Build a fresh thin server; do not fork p2, p3 or pi-pocket | p2 is self-declared throwaway and tied to Chord's object runtime. p3 has no Durable, chat or UI yet. pi-pocket is ~280k lines (incl. tests), adds ~5–9k tokens of prompt per request, and waits on in-memory promises instead of Durable parks. See `notes/research/02`, `05`, `06`. |
-| D2 | Tailscale for access; no app auth | Eliminates the authentication layer. HTTPS comes from `tailscale serve`. |
-| D3 | Pi's own provider config (`ModelRuntime`, `SettingsManager`) | No provider code in picloud. One sign-in path (`pi` → `/login`). |
-| D4 | One Harness, one SQLite file; session list as a Durable doc | No second database. List and transcript change atomically. |
-| D5 | Every wait is a tool park on a signal | Survives restarts and costs no process. This is the core property for "answer from the phone hours later". |
-| D6 | Plan approval required before implementation | Owner's choice: one tap buys confidence before unattended work. |
-| D7 | Delivery chosen by the person: push / PR / keep working | Owner's choice. Nothing reaches GitHub without a tap. Removes the need for a push guard on the agent. |
-| D8 | The `onYield` nudge (max 3) plus `maxTurns` 200 | Makes "runs until the final report" reliable rather than up to the model. |
-| D9 | Workflow taught by prompt, not enforced | Interactive use must not be barred. Only the post-approval nudge is enforced. |
-| D10 | Drawer navigation (☰) for sessions | Owner's choice: switching sessions should be pull-and-tap. It's the chat-app convention, and a badge solves discoverability. |
-| D11 | The multiple-choice tool is `ask_user` (1–4 questions, 2–4 options, multiSelect, free-text Other) | Front-loads decisions with minimal typing. The schema follows the proven Claude Code / pi-pocket shape. |
-| D12 | No bundler; Node type stripping on the server; import map on the client | Less tooling, fewer moving parts. |
-| D13 | Agent shares the `picloud` user with gh credentials (v1) | Simplicity for a single-owner droplet with your own repos. Mitigated by a scoped token and branch protection (§19). |
-| D14 | Pin `@earendil-works/*` at exactly 1.6.0; read the README in `node_modules` | Durable is experimental, and GitHub main already differs from 1.6.0 (§6.1). |
-
-## 22. References
-
-- **Pi monorepo:** https://github.com/earendil-works/pi (research done at commit `780bf31`). Pi Durable is
-  `packages/durable`; examples are in `packages/durable/test/examples/` (main-branch shapes, see §6.1). Note
-  `39-ask-a-person.ts`, `40-tool-waits-for-webhook.ts`, `44-approval-gate.ts` and `45-review-on-yield.ts`.
-- **Authoritative API docs for 1.6.0:** `node_modules/@earendil-works/pi-durable/README.md` and the `.d.ts` files
-  under `node_modules/@earendil-works/pi-durable/dist/`.
-- **Research notes in this repo:**
-  - `notes/00-foundation.md`: initial plan.
-  - `notes/01-design.md`: design walkthrough. The drawer navigation in §13.2 supersedes its "no hamburger" choice.
-  - `notes/research/01-pi-durable-runtime.md` to `04-claude-code-cloud.md`, plus `05`/`06` (pi-pocket).
-- **Validated spike:** `reference/spike/` (`spike.ts`, `prod-wiring.ts`, `browser-check.mjs`).
-- **Apple Human Interface Guidelines:** https://developer.apple.com/design/human-interface-guidelines/
-- **Web Push on iOS (16.4+):** https://webkit.org/blog/13878/web-push-for-web-apps-on-ios-and-ipados/
-- **Tailscale serve:** https://tailscale.com/kb/1312/serve
+## C3. Verification record
+These facts were verified on 2026-11-21 against the published 1.6.0 packages, on Node 22.23.5 with SQLite storage
+and the faux model:
+- A tool parked on a signal leaves the Harness inactive (`wake().active === false`), survives close and reopen as
+  the same task, and completes when signalled.
+- `submit_plan`-style approval transitions work, and `CodingTools`' `write` writes into the conversation `cwd`.
+- An `onYield` `{ continue }` resumes a run that stopped early. Counting nudge entries caps it at exactly 3.
+- Applying watch ops with `applyImmutable` reproduces the server's view exactly.
+- `observeDoc` on a session-scoped document delivers one `advance` per commit.
+- `observeConversation` reports run start and end, with `runFailure.reason` `aborted` (abort while parked) and
+  `model_error`.
+- `entries` with `maxEntryId` is inclusive. Entry and conversation IDs are numbers.
+- `pi.usage` reports `models["faux/faux-1"].cost.total`. The faux provider always reports 0, and a host commit to
+  `UsageDoc` is accepted.
+- A faux scenario deciding responses from `context.messages`, with a topped-up queue, drives three concurrent
+  conversations correctly.
+- `ModelRuntime.create()` is accepted as Harness `models` and succeeds without credentials. `SettingsManager` gives
+  the default model. The `pi-context` loaders typecheck.
+- Preact, htm, marked, DOMPurify and Chord `delta` load in Chromium through an import map with no bundler.

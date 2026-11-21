@@ -1,0 +1,13 @@
+import { BACKGROUND_CONTEXT as ctx } from "@earendil-works/chord/context";
+import { createModels } from "@earendil-works/pi-ai/models";
+import { fauxAssistantMessage, fauxProvider } from "@earendil-works/pi-ai/providers/faux";
+import { createRegistry, Harness, MemoryStorage, UsageDoc } from "@earendil-works/pi-durable";
+const faux = fauxProvider({ models: [{ id: "faux-1", cost: { input: 1000, output: 1000, cacheRead: 0, cacheWrite: 0 } }] });
+const m = fauxAssistantMessage("some answer text here"); m.usage = { ...m.usage, cost: { ...m.usage.cost, total: 0.5 } }; faux.setResponses([m]);
+const models = createModels(); models.setProvider(faux.provider);
+const h = await Harness.open(new MemoryStorage(), { models, registry: createRegistry() }, ctx);
+const c = await h.createConversation({ ownership: { kind: "ownerless" }, agent: { model: { provider: "faux", modelId: "faux-1" } } }, ctx);
+await (await c.submit({ type: "input", content: "hello there" }, ctx)).wait(ctx);
+const u: any = await h.snapshot(UsageDoc, c.id, ctx);
+console.log(JSON.stringify(u.models["faux/faux-1"].cost), u.models["faux/faux-1"].totalTokens);
+await h.close(ctx);
