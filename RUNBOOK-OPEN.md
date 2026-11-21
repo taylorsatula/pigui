@@ -59,7 +59,11 @@ plan-first workflow is the default for substantial work. It is not a lock.
    agent commits locally and never pushes.
 4. **The app is approachable.** It is a simple chat interface with an input pill, an attachment button and a send
    button. Tool calls and thinking are collapsed by default and expandable. Switching sessions is a quick pull-and-tap
-   from a navigation drawer.
+   from a navigation drawer. Typing `@` references a repository file, and `#` invokes a Pi skill, through pickers
+   that narrow as the person types.
+5. **Long runs survive compaction.** When the context fills, the run is compacted and continues on its own, and the
+   agent resumes correctly from what was carried forward (§A4.10). A compaction never needs the person and never
+   ends a run.
 
 ## A2. Owner decisions (fixed)
 
@@ -138,6 +142,21 @@ to get wrong.
   - `loadProjectContextFiles`, `loadSkills` and `formatSkillsForPrompt`.
 - **Pi config location:** Pi reads its configuration from `PI_CODING_AGENT_DIR` when that is set, instead of
   `~/.pi/agent`.
+- **Compaction is built into Durable, and its summary is weak.**
+  - **Lifecycle:** a threshold or overflow starts a `CompactionTask`, which summarizes an old prefix of the context
+    and places a `pi.compaction` entry ahead of a verbatim tail. A compaction during a run does not end it: the run
+    continues with the summary in context. That was verified.
+  - **What the built-in summarizer does:** it drops thinking, truncates each tool result to its first 2,000
+    characters, writes one free-form summary, and on later compactions re-summarizes its own previous summary.
+  - **Settings** are fixed token counts by default.
+  - **The hook:** `hook(CompactionTask, { beforeCompact })` receives the replaced entries and messages and may return
+    its own `{ summary }`, in which case the built-in summarizer does not run. The hook API includes `models`, `memo`,
+    `snapshot` and raw `entries`.
+  - **Failure:** a compaction the run waits on that fails ends the run with a `model_error` whose detail begins
+    `Compaction failed`.
+- **Pi's skill invocation format:** Pi invokes a skill by placing its body, with frontmatter stripped
+  (`stripFrontmatter` is exported), in a `<skill name="…" location="…">` block that notes "References are relative
+  to {baseDir}". Matching it keeps skills behaving as they do in the Pi CLI.
 - **Credential-free model:** `@earendil-works/pi-ai/providers/faux` is a scripted model provider. Its responses can
   be functions of the conversation's messages, which makes scripts deterministic across concurrent conversations.
   Each queued response is consumed by one model call. It always reports zero cost.
@@ -234,6 +253,48 @@ cover:
 - the default spend cap;
 - fake mode.
 
+### A4.9 References in messages
+- **The pickers:** typing `@` in the composer opens a picker of the repository's files, and typing `#` opens a picker
+  of available Pi skills. Each refines as the person types and inserts the reference on tap.
+  - Triggers must not fire inside ordinary text, such as email addresses or `#123` issue numbers.
+  - On the New session view, files come from the chosen repo and branch before anything is cloned.
+- **What the agent receives:** a file reference brings that file's contents, within sensible size limits, or a
+  clear pointer when it is too large or binary. A skill reference invokes the skill the same way the Pi CLI does.
+- **Display:** the person's text is shown as typed. The added context is visible but compact in the transcript.
+
+### A4.10 Long sessions: compaction and resumption
+Build picloud's own compaction handoff on top of Durable's compaction lifecycle. It must carry context forward far
+better than the built-in summary (§A3), and the run must always continue on its own. Field-level design is yours.
+These principles are the direction. They are what make a handoff work after a lossy, truncated compaction, so let
+them settle the details, and explain in `DECISIONS.md` how your design follows each one:
+
+1. **Ground truth over memory.** Anything that can be recomputed from the workspace or durable records is recomputed
+   by code at compaction time, not summarized by a model. That includes repository state, commits, changed files,
+   plan progress and session state. Code-built content cannot drift, and it is the same on every run.
+2. **The person's words are never paraphrased.** The task, answers, plan feedback and later instructions are
+   carried verbatim.
+3. **Accumulate; don't re-summarize.** Each handoff updates the previous one. It is never a summary of a summary.
+   Unresolved items persist until they are resolved.
+4. **Lead with the resume point.** What was in progress at the cut, the latest result, and the exact next action,
+   specific enough to act on without rereading.
+5. **Keep negative knowledge.** What was tried and failed, and why.
+6. **Point, don't paste.** Large content becomes pointers (paths and lines, commands to rerun, history to recall).
+   The workspace and the raw history survive compaction.
+7. **Make loss recoverable.** Give the agent a way to search the full pre-compaction history, and tell it that it
+   exists.
+8. **Verify before trusting.** The handoff tells the agent to re-establish ground truth before acting, and not to
+   redo finished work or re-ask answered questions.
+9. **Never strand the run.**
+   - Model-written parts survive a restart without being regenerated.
+   - A failed summarization still yields a usable handoff from the code-built parts.
+   - A run that ends on a compaction error is resumed automatically.
+10. **Degrade in a fixed order.** The handoff has a budget and sheds content in a defined priority order. It never
+    sheds the resume point, the person's words, the plan state or the repository state.
+11. **Size relative to the model.** Thresholds and budgets are proportions of the model's context window.
+
+**Visibility:** the person can see that a compaction happened, and can open what was carried forward. The
+compaction never changes the session's workflow state.
+
 Real mode without a Pi default model must exit immediately with a message telling the operator how to sign in with
 Pi. It must do this before touching the data directory.
 
@@ -259,7 +320,7 @@ unless you justify it in `DECISIONS.md`.
   - Question, plan and report content appear as cards, not raw tool calls.
   - Status and spend are visible without being loud.
 - **Composer:** an input pill, an attachment button, and a send button that becomes Stop while a run is active and
-  nothing is typed. Its placeholder tells the person what sending will do in the current state. Drafts are never
+  nothing is typed. It has the `@` file and `#` skill pickers (§A4.9). Its placeholder tells the person what sending will do in the current state. Drafts are never
   lost.
 - **Errors and failures** show a clear reason and a next step (Continue, raise the budget, and so on).
 - **Archive with undo,** not confirmation dialogs.
@@ -318,7 +379,16 @@ Design the scenario and the stand-in yourself, and document them.
 - the budget stopping a run, then raising it and continuing;
 - a model failure followed by continue;
 - cleanup never touching unpushed work;
-- the access allowlist.
+- the access allowlist;
+- a compaction mid-implementation followed by the run reaching its report with no input from the person;
+- the person's words and the plan state surviving several successive compactions verbatim;
+- a failed summarization still producing a usable handoff and a continuing run;
+- a restart during compaction not regenerating the model-written part;
+- recall of a detail that exists only before a compaction;
+- file and skill references expanding correctly, and unknown references staying plain text.
+
+Fake mode needs repository files and a Pi skill to reference, and a way to force compaction (for example a small
+context window on the scripted model).
 
 **End-to-end tests** (TypeScript, Playwright, Chromium with a phone-sized viewport and touch, against fake mode) must
 demonstrate:
@@ -330,7 +400,8 @@ demonstrate:
 - the per-file diff;
 - dark mode without console errors;
 - no horizontal scroll at 375 px width;
-- recovery after a server restart.
+- recovery after a server restart;
+- the `@` and `#` pickers narrowing as the person types and inserting the chosen reference.
 
 ## A9. Definition of done
 1. A clean install from the committed lockfile succeeds.
@@ -345,8 +416,9 @@ demonstrate:
    - how to deploy (pointing to Part B);
    - how tests construct the server.
 7. `DECISIONS.md` covers the significant design choices with alternatives and reasons. That includes architecture,
-   data model, API and live-update protocol, agent tool design and prompt, the continuation mechanism, the UI
-   approach and its HIG rationale, fake mode, and the installer.
+   data model, API and live-update protocol, agent tool design and prompt, the continuation mechanism, the compaction
+   handoff (mapped to each principle in §A4.10), references in messages, the UI approach and its HIG rationale, fake
+   mode, and the installer.
 8. Real mode without Pi credentials (using an empty Pi configuration directory and a temporary data directory) exits
    with the sign-in message.
 9. The installer passes a syntax check, and its dry run lists every step without changing the system.

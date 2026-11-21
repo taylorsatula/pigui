@@ -383,7 +383,65 @@ serve the core loop.")
 - Leaves so much open that the result is no longer testable.
 - Drops safety constraints.
 
-## Turn 12 (optional): the meta step
+## Turn 12: references and compaction
+
+**Prompt**
+> Something we haven't talked about, but should be in both runbooks. Files can be tagged with @filename.ts in the
+> user message, with a picker that refines as I type. Same for skills, with a # trigger. Also, Pi doesn't have very
+> good session compaction. Look at the compaction in the default codebase, then give the implementer direction to
+> build compaction events that auto-resume and carry context forward much better than the crude thing that ships.
+> You don't need to specify every attribute, but give conceptual direction that leads to something high quality and
+> fairly consistent across multiple runs. Ask yourself what makes a compaction and handoff effective for resuming
+> across a lossy, truncated compaction event.
+
+**Likely reply:** it reads the compaction code, proposes a design, then edits both runbooks (and, if this script
+exists in its repo, this file too).
+
+**Strong**
+- **Reads the published compaction source,** not just the README, and names its concrete weaknesses:
+  - tool results truncated to their first 2,000 characters;
+  - thinking dropped;
+  - a single free-form summary;
+  - summary-of-summary drift across repeated compactions;
+  - the person's words paraphrased;
+  - a compaction failure ends the run.
+- **Also checks the Pi CLI's own compaction** (file tracking, update-not-resummarize, split-turn handling), and
+  separates the two.
+- **Finds the seam:** `beforeCompact` on `CompactionTask` can supply the summary, and Durable's lifecycle already
+  continues a run after a mid-run compaction. Ideally it **verifies both with a spike.** "Auto-resume" is then mostly
+  about never stranding the run (memoized narrative, deterministic fallback, automatic continue on a compaction
+  failure), not about rebuilding the trigger.
+- **Gives principles, not just fields:**
+  - code-computed ground truth versus model-written narrative;
+  - the person's words verbatim;
+  - cumulative updates;
+  - the resume point first;
+  - negative knowledge (dead ends);
+  - pointers over payloads;
+  - a recall tool over the raw history;
+  - a "verify before trusting" resumption directive;
+  - a fixed degradation order;
+  - thresholds relative to the context window.
+- **Gives testable acceptance criteria:** a forced mid-run compaction reaches the report; verbatim items survive
+  repeated compactions; the narrative-failure fallback works; a restart reuses the memoized narrative; recall finds
+  pre-compaction details.
+- **References:**
+  - triggers only at word start, so emails and `#123` don't fire them;
+  - a remote file tree for the New session view, before any clone;
+  - skills expanded in Pi's own `<skill>` format;
+  - unknown references left as text;
+  - pickers that meet HIG and accessibility requirements.
+- **Adapts per document:** the detailed runbook gets specifics, and the open runbook gets the principles plus a
+  requirement to map its design to each one.
+
+**Weak**
+- Proposes "summarize better" or "use a bigger model" with no structural change.
+- Rebuilds Durable's compaction trigger and lifecycle from scratch.
+- Gives a field list with no principles, so runs diverge.
+- Omits the failure path.
+- Leaves the pickers as "autocomplete" with no trigger rules.
+
+## Turn 13 (optional): the meta step
 **Prompt**
 > Last thing. Write a short conversation script, just the human side, that would lead another model through the same
 > design arc we just went through, so I can evaluate whether it can do real agentic work the way you did here.
@@ -433,6 +491,17 @@ Discoveries a strong model makes on its own:
 - **Faux model:** the faux provider can drive deterministic per-conversation scripts, and always reports zero cost.
 - **pi-pocket:** about 2,800 commits in about 7 weeks, mostly one author. A design toolchain of about 42k lines.
   In-memory waits rather than parks. Polling subagents. A measured 8.6k-token prompt overhead (issue #222).
+- **Built-in compaction (`pi-durable` `dist/harness/compaction.js`):** each tool result is truncated at 2,000
+  characters (`TOOL_RESULT_MAX_CHARS`), thinking is omitted, there is one fixed markdown template, and an earlier
+  summary is folded in by re-summarizing it.
+  - `beforeCompact` on `CompactionTask` may return `{ summary }`.
+  - A mid-run threshold compaction continues the run automatically (verified with the faux model at an 8k context
+    window).
+  - A failed compaction the generation waits for ends the run with `model_error` "Compaction failed…".
+  - The Pi CLI's compaction (`coding-agent/src/core/compaction/`) is better: read and modified file lists, update
+    prompts, split-turn handling. picloud runs Durable's, though.
+- **Pi skill invocation format:** `<skill name location>References are relative to {baseDir}…</skill>`, with
+  `stripFrontmatter` exported.
 - **Playwright:** the `iPhone 15` device profile defaults to WebKit, so Chromium must be set explicitly.
 - **Self-hosting collisions:** port 8787, `/var/lib/picloud`, the real Pi credentials, systemd units and
   `tailscale serve`.
@@ -446,6 +515,12 @@ Design end state of the reference session, for comparison:
 - **Phone app:** drawer navigation; question, plan and report cards; collapsed tool and thinking rows;
   notifications only when needed.
 - **Extras:** repo memory, continue-branch mode, progress, per-file diff, rebase before report, backups and pruning.
+- **References:** `@file` and `#skill` pickers, expanding to `<file>` blocks and Pi `<skill>` blocks.
+- **Compaction handoff:** through `beforeCompact`. A code-built ledger (task and the person's words verbatim, plan,
+  repository state, files, recent commands) plus a memoized model narrative (resume point, findings, dead ends,
+  decisions, open questions) plus a fixed "how to continue" directive. Also: a recall tool over raw history, a fixed
+  degradation order, thresholds proportional to the model's window, and an automatic continue after a compaction
+  failure.
 - **Language:** TypeScript everywhere with `tsc` only.
 - **Testability and deployment:** fake mode plus a machine-checkable definition of done; an idempotent installer
   with dry run; the build isolated from live services.

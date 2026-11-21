@@ -85,7 +85,11 @@ plan-first workflow is a default taught by the system prompt, not a lock enforce
 3. **Nothing reaches GitHub without a tap.** Pushes and PRs happen only when the person taps a button. The agent
    commits locally and never pushes.
 4. **The app is a simple chat interface.** It has an input pill, an attachment button and a send button. Tool calls
-   and thinking are collapsed by default. Sessions are listed in a drawer.
+   and thinking are collapsed by default. Sessions are listed in a drawer. Typing `@` references a repository file,
+   and typing `#` invokes a Pi skill, each through a picker that narrows as the person types.
+5. **Long runs survive compaction.** When the context fills, picloud compacts it and the run continues on its own,
+   carrying forward what the agent needs to resume correctly (§A10.5). A compaction never needs the person and never
+   ends a run.
 
 ## A2. Scope rules
 
@@ -381,6 +385,35 @@ The 1.6.0 shapes:
 - **The faux provider always reports zero cost.** To produce spend in tests, commit to the conversation's `UsageDoc`
   directly, for example `(await tx.doc(UsageDoc, conversationId)).models["test/x"] = { cost: { total: 9 } }`.
   Verified.
+- Faux model definitions accept `contextWindow` and `maxTokens`, for example
+  `fauxProvider({ models: [{ id: "faux-1", contextWindow: 8000 }] })`. Use a small window to force compaction in
+  tests.
+
+**Compaction (built in)**
+- **Triggers and lifecycle (verified):** a threshold or context overflow starts a `CompactionTask`. It selects an
+  old prefix of the active context, summarizes it, and places a `pi.compaction` entry: a user message wrapping the
+  summary, with `head` set to the first entry kept verbatim. Older entries stay in storage.
+- **A compaction during a run does not end the run.** The generation waits at the blocking threshold, then
+  continues with the summary plus the kept tail.
+- **Settings:** `settings.compaction` / `configure({ compaction })` take `{ enabled, reserveTokens,
+  keepRecentTokens, backgroundTokens, modelOverrides }`. The defaults are fixed token counts (16,384 / 20,000 /
+  32,768), not proportions of the model's window. A manual compaction is `conversation.compact(instructions?, ctx)`.
+- **Live status:** `pi.live.compactions` lists running compactions (`trigger`: `manual` | `threshold` |
+  `overflow`). `pi.live.compactionFailure` holds the newest failure.
+- **Failure:** if a compaction the generation is waiting for fails, the run fails with `model_error`, with a detail
+  starting `Compaction failed`.
+- **The replacement hook (verified):**
+  `hook(CompactionTask, { beforeCompact({ reason, entries, messages, firstKept, instructions }, api, ctx) })`
+  returns `{ summary }` to supply the summary, or `{ decline: true }`. The built-in summarizer does not run when a
+  summary is supplied. `api` is a hook API with `models`, `memo`, `snapshot`, `entries` (raw history, which
+  compaction never changes), `conversationId` and `now`.
+- **What the built-in summarizer does (the reason picloud replaces it):**
+  - it serializes the replaced messages as plain text, **dropping thinking** and **truncating each tool result to
+    its first 2,000 characters**;
+  - it asks for one free-form markdown summary (Goal / Constraints / Progress / Decisions / Next Steps / Critical
+    Context), with output capped below the reserve;
+  - repeated compactions re-summarize the previous summary together with new messages;
+  - nothing is computed from ground truth, and the person's words are paraphrased.
 
 ## A7. Repository layout
 
@@ -610,6 +643,112 @@ Every session conversation also gets `maxTurns` from config (default 200). Durab
 `onYield` continuation, so one nudged run can take up to 4 × `maxTurns` turns. The spend budget (§A11.6) is the
 bound on cost.
 
+### A10.5 Compaction and resumption: the handoff
+
+**Goal.** When the context is compacted mid-run, the agent continues on its own, and continues *correctly*: no
+redone work, no re-asked questions, no forgotten constraints, no repeated dead ends. Durable's lifecycle (triggers,
+placement, kept tail, continuation) stays. picloud replaces only what is carried forward, through `beforeCompact` in
+the `picloud` extension.
+
+**What makes a handoff effective after a lossy, truncated compaction.** These principles decide every detail below.
+Where this section leaves something open, decide by them.
+1. **Ground truth over memory.** Anything that can be recomputed from the workspace or from durable records is
+   recomputed by code at compaction time, never summarized by a model. That covers git state, commits, changed
+   files, plan progress and session state. It cannot drift, and it comes out the same on every run.
+2. **The person's words are never paraphrased.** The task, every answer, plan feedback and later instructions are
+   carried verbatim. They are short and authoritative, and they are the first thing paraphrase corrupts.
+3. **Accumulate; don't re-summarize.** Each handoff is the previous one updated with what happened since: the
+   ledger rebuilt, the narrative revised. It is never a summary of a summary. An item stays until it is resolved.
+4. **Lead with the resume point.** The most valuable content is what was in progress at the cut, what was just
+   learned, and the exact next action, stated specifically enough to act on without rereading anything.
+5. **Keep negative knowledge.** What was tried, failed and why. It is the most often lost and the most expensive to
+   rediscover.
+6. **Point, don't paste.** Large content becomes a pointer: a path with a line range, a command to rerun, or an
+   entry to recall. The workspace and the raw transcript survive compaction, so a pointer loses nothing.
+7. **Make loss recoverable.** Pre-compaction entries remain in storage. A `recall` tool searches them, and the
+   handoff says it exists.
+8. **Verify before trusting.** The handoff ends by telling the agent to re-establish ground truth before acting.
+9. **Never strand the run.** The model-written part is memoized, so a restart reuses it. If it fails, the
+   deterministic part alone becomes the handoff. A run that still ends on a compaction error is continued
+   automatically.
+10. **Degrade in a fixed order.** The handoff has a size budget, and when over budget it sheds content in a fixed
+    priority order. The same inputs always give the same shape.
+11. **Size relative to the model.** Thresholds and budgets are proportions of the model's context window, not fixed
+    counts.
+
+**Handoff structure.** Markdown, with these sections in this order. **L** marks the ledger, built by code. **N**
+marks the narrative, written by the model.
+
+| Section | Source | Content |
+|---|---|---|
+| `## Resume point` | N | What was in progress at the cut, the latest result or finding, and the single next action. |
+| `## Task` | L | The session's task, verbatim, plus repo, branch and mode. |
+| `## The person's words` | L | In order, verbatim, labelled: every `ask_user` answer, every plan revision, every later person message. Nudges excluded. |
+| `## Plan` | L | The plan, with each step's status from `plan.completed`, and whether it is approved. |
+| `## Repository state` | L | Branch, `compareRef`, commits since start (`git log --format='%h %s' {compareRef}..HEAD`), and `git status --short`. |
+| `## Files` | L | Files modified (from write/edit tool calls in raw history, plus `git diff --name-only`), then files read. |
+| `## Recent commands` | L | The last 5 bash commands from raw history, each with its exit status and the last 15 lines of output. |
+| `## Findings` | N | Facts about the code needed to continue, with `path:line` pointers. |
+| `## Dead ends` | N | Approaches tried that failed, and why. |
+| `## Decisions` | N | Choices the agent made (not the person), with a one-line reason. |
+| `## Open questions` | N | Unresolved risks or questions. |
+| `## How to continue` | fixed | The text below, verbatim. |
+
+`## How to continue` text:
+```
+You are resuming after context compaction. Older details above are condensed and may be incomplete. Before
+continuing: check `git status`, re-read any file before editing it, and re-run the last failing command if one
+matters. Do not redo completed plan steps or re-ask answered questions. If you need a detail from before this point,
+use the recall tool. Then take the next action from "Resume point". If no run was in progress, wait for the person.
+```
+
+**The narrative call.**
+- **One request** to the session's model through `api.models`. Its fixed instruction asks for exactly the five
+  narrative sections, under the principles above.
+- **Input:** the previous handoff's narrative sections, when the replaced range begins with a `pi.compaction`
+  entry, so it is updated rather than re-summarized. Plus the replaced messages, serialized as text.
+- **Tool results in that input:** keep the first 40 and last 40 lines, plus every line that looks like an error or
+  failure, rather than the first N characters.
+- **Parsing:** a missing section becomes `(none)`.
+- **Memoize** the result with `api.memo` under a key that identifies this compaction (for example its `firstKept`).
+- **On any failure** (error, timeout, unparseable output), use `(unavailable; use recall)` for each narrative
+  section, and still return the handoff.
+
+**Budget.**
+- **Target:** about 10% of the model's context window, estimated at 4 characters per token.
+- **When over, shed in this order:**
+  1. files read;
+  2. output tails of recent commands (keep the commands and exit statuses);
+  3. person messages older than the newest 10 (replaced by a count and a recall hint);
+  4. findings, trimmed from the oldest;
+  5. decisions;
+  6. open questions;
+  7. dead ends, trimmed from the oldest.
+- **Never shed:** Resume point, Task, the person's answers and plan feedback, Plan, Repository state, How to
+  continue.
+
+**Thresholds.** When creating a session conversation, `configure` its `compaction` from the model's
+`contextWindow`:
+- `reserveTokens` = max(8,192, 10%);
+- `keepRecentTokens` = 20%;
+- `backgroundTokens` = 10%.
+
+**`recall` tool** (part of the `picloud` extension, `replay: "safe"`):
+- **Description (verbatim):** "Search this session's full history, including what was condensed by compaction.
+  Returns matching excerpts with their entry ids. Use it when the handoff mentions something you need in detail."
+- **Parameters:** `query` (1–200 chars) and `limit?` (1–10, default 5).
+- **Behavior:**
+  - Search the conversation's raw entries case-insensitively for all query terms: user text, assistant text, tool
+    call arguments and tool results.
+  - Return each match as `entry {id} ({kind}): …excerpt…`, with about 300 characters of context, newest first.
+  - Tools reach raw entries through the server's Harness (`harness.conversation(id).entries(...)`).
+
+**Interaction with the rest of the design**
+- **States:** the session state and the nudge accounting (§A10.4) are unaffected, because both read raw history,
+  which compaction never changes.
+- **Monitor (§A11.6):** a run that ends with `model_error` and a detail beginning `Compaction failed` is continued
+  automatically **once** (`submit({ type: "continue" })`). Only a second such failure in a row marks it `failed`.
+
 ## A11. Server behavior
 
 ### A11.1 Configuration (environment variables)
@@ -739,6 +878,7 @@ Use one `observeConversation` per active session. Defer handling out of `advance
 | `runFailure.reason` | Action |
 |---|---|
 | `aborted` | do nothing; Stop or budget already set the state |
+| `model_error` whose detail begins `Compaction failed`, first time in a row | continue the run automatically (§A10.5) |
 | any other reason | `failed`, `error = detail ? "{reason}: {detail}" : reason`, notify "Run failed" |
 | no failure, state `planning` or `working` | `idle`, notify "Pi replied" (body: first 100 chars of the last assistant text) |
 | no failure, state `implementing` | `idle`, notify "Pi stopped without a report" |
@@ -791,6 +931,38 @@ For each session that is archived, delivered and not yet pruned, with `updatedAt
 - **Logging:** one line per request (method, path, status, ms) and one per state change. Never log message contents
   or credentials.
 
+### A11.11 References in messages: `@file` and `#skill`
+**Sources for the pickers:**
+- **Files in a session:** the workspace's `git ls-files --cached --others --exclude-standard`. Cache it per session
+  and refresh it when a run ends.
+- **Files on the New session view:** the chosen repo and branch's remote tree. Real mode:
+  `gh api repos/{repo}/git/trees/{ref}?recursive=1`, keeping blobs. Fake mode: `git ls-tree -r --name-only {ref}`
+  on the bare repo.
+- **Skills:** Pi's `loadSkills` for the session workspace (project plus global skills). On the New session view, use
+  global skills only.
+
+**Ranking** for a query `q` (case-insensitive):
+1. basename starts with `q`;
+2. a path segment starts with `q`;
+3. `q` is a substring;
+4. `q` is a subsequence.
+
+Ties sort shorter path first, then alphabetically. Return at most 50. An empty query returns recently modified files
+first in a session, and alphabetical order otherwise.
+
+**Expansion** happens when a message or task is submitted, after the clone for a new session.
+- **A file reference** is an `@` at the start or after whitespace, followed by a path that exists in the workspace.
+  For each one, append:
+  - `<file path="{path}">{contents}</file>` for a text file ≤ 100 KB, up to 400 KB in total per message;
+  - otherwise `<file path="{path}" omitted="too large|binary"/>`, which the agent can read itself.
+  - An image file becomes an image content part when the model accepts images.
+- **A skill reference** is a `#` at the start or after whitespace, followed by a skill name. Prepend Pi's own skill
+  block, with frontmatter removed (`stripFrontmatter` is exported by `pi-coding-agent`):
+  `<skill name="{name}" location="{filePath}">\nReferences are relative to {baseDir}.\n\n{body}\n</skill>`.
+- **Unknown references** stay as plain text.
+- **The person's text is kept as typed.** The blocks are added around it.
+- **When the message answers a pending card** (§A11.4), the expansions are appended to the signal text.
+
 ## A12. HTTP API
 
 `:id` is the session id.
@@ -812,6 +984,10 @@ For each session that is archived, delivered and not yet pruned, with `updatedAt
 | `GET /api/sessions/:id/diff` | | `text/plain` |
 | `POST /api/sessions/:id/archive` | `{ archived: boolean }` | `200 {}` |
 | `POST /api/push/subscribe` | `PushSubscriptionJSON` | `201 {}` (deduplicated by endpoint) |
+| `GET /api/sessions/:id/files?q=` | | `{ items: string[] }` (§A11.11) |
+| `GET /api/repos/:owner/:name/files?ref=&q=` | | `{ items: string[] }` (New session view) |
+| `GET /api/sessions/:id/skills` | | `[{ name, description }]` |
+| `GET /api/skills` | | `[{ name, description }]` (global skills) |
 
 ## A13. Fake mode, tests and definition of done
 
@@ -840,13 +1016,17 @@ Rules are checked top to bottom.
 | `write` result | `bash` `git add -A && git commit -qm "Add demo file"` |
 | `bash` result | `update_plan` `{ completed: [1, 2] }` |
 | `update_plan` result | `final_report` with summary `Added PICLOUD_DEMO.md.`, 1 change, verification `File exists.`, setupNotes `No build needed.` |
+| a picloud handoff (narrative) request | the five narrative sections, each with one fixed line |
 | a nudge, or a `final_report` result | text `Done.` |
 | a person's message (any state) | text `Noted.` |
 | anything else | text `Done.` |
 
 **Fake GitHub:**
 - **Seeding:** at startup, create local bare repositories under `<PICLOUD_DATA>/fake-origin/`, if absent:
-  - `demo/app`: default branch `main` with a `README.md`, plus a second branch `feature/x` with one extra commit.
+  - `demo/app`: default branch `main` with `README.md`, `src/app.ts` and `src/util.ts`, plus a second branch
+    `feature/x` with one extra commit.
+  - A global Pi skill `demo-skill` (a `SKILL.md` with a name and a description) in the temporary Pi agent
+    directory.
   - `demo/lib`: `main` only.
 - **Operations:**
   - The repo list and branches come from those bare repos.
@@ -905,6 +1085,21 @@ Required cases:
 12. **Failure:** a model error ends in `failed` with the reason. Continue resumes.
 13. **Maintenance:** prunes only archived, delivered, clean, fully pushed workspaces older than 14 days.
 14. **Access control:** with `PICLOUD_ALLOWED_LOGINS` set, requests without a listed `Tailscale-User-Login` get 403.
+15. **Compaction mid-implementation** (faux model with a small `contextWindow`): the run continues to `reported`
+    with no input from the person.
+16. **Handoff contents:** the handoff contains the task verbatim, every answer verbatim, the plan with step
+    statuses, the commits and modified files, and the fixed "How to continue" text. Three successive compactions
+    still contain the task and the answers verbatim.
+17. **Narrative failure:** with the narrative request failing, the handoff is the ledger with `(unavailable; use
+    recall)` sections, and the run continues.
+18. **Restart during compaction:** reopening reuses the memoized narrative. There is no second narrative request for
+    the same compaction.
+19. **Recall** finds a detail that exists only before the compaction.
+20. **References:**
+    - `@src/app.ts` adds that file's `<file>` block;
+    - `#demo-skill` prepends its `<skill>` block;
+    - an unknown `@x` stays plain text;
+    - picker ranking orders basename-prefix matches first.
 
 ### A13.3 Required end-to-end suite (`npm run e2e`, Playwright)
 - **Setup:** Playwright's `webServer` starts `npm run dev:fake` on a free port.
@@ -925,6 +1120,8 @@ Required cases:
   7. **Dark mode** (emulated `prefers-color-scheme: dark`) renders with no console errors.
   8. At a **375 px** width there is no horizontal page scroll.
   9. After a server restart mid-session, the page reconnects and shows current state.
+  10. Typing `@ut` in the composer shows a picker containing `src/util.ts` that narrows as more is typed. Tapping it
+      inserts `@src/util.ts `. Typing `#de` offers `demo-skill`.
 
 ### A13.4 Definition of done (all must hold)
 1. `npm ci` succeeds from the committed lockfile.
@@ -1005,7 +1202,8 @@ Each design choice names the Apple Human Interface Guidelines (HIG) principle it
 | assistant thinking | Collapsed row "▸ Thinking"; expands to secondary-colour text. | progressive disclosure |
 | tool calls + results | Consecutive calls fold into one collapsed row summarized in plain words ("Read 6 files, edited 2, ran 3 commands"). A red mark shows on the row if any result `isError`. Expanded, it shows one line per call ("Read `src/a.ts`", "Ran `npm test`"). Tapping a call shows its input and output in monospace (first 200 lines, then "Show all"). | progressive disclosure (3 levels), plain language, never hide problems |
 | `ask_user`, `submit_plan`, `update_plan`, `final_report` | Cards (§A14.5), never tool rows. `update_plan` renders nothing and only updates the plan card. | one clear call to action |
-| `pi.compaction` | A thin divider: "Earlier context summarized". `pi.system` and `pi.reset` are hidden. | deference |
+| `pi.compaction` | A thin divider: "Context compacted", plus "· continuing" if a run was active. Tapping it opens the handoff in a sheet. `pi.system` and `pi.reset` are hidden. | deference, progressive disclosure |
+| `<file>` / `<skill>` blocks in a user message | Small chips ("📄 src/app.ts", "✦ demo-skill"), tap to expand. The person's own text renders normally. | clarity |
 | `live.generation.message` | The streamed partial, rendered as the last assistant block and updated in place. No spinner over content. | non-blocking feedback |
 | running tool slots | The group row reads "Running `npm test`…"; live output is shown at level 3. | feedback |
 | `live.generation.retry` | Status line "Model error, retrying…" | keep people informed |
@@ -1014,6 +1212,7 @@ Each design choice names the Apple Human Interface Guidelines (HIG) principle it
 - **Status line,** above the composer:
   - "Working · step {done}/{total}" when there's a plan, or "Working · turn {run.turns}" when there isn't;
   - "Waiting for you" when a card is pending;
+  - "Compacting context…" while `pi.live.compactions` is non-empty;
   - hidden otherwise.
   - HIG principle: *system status visible, unobtrusively*.
 - **Scrolling:** follow new content only when within 80 px of the bottom; otherwise show a "↓ New activity" pill.
@@ -1045,6 +1244,17 @@ Each design choice names the Apple Human Interface Guidelines (HIG) principle it
   - HIG principles: *keyboard avoidance*, *safe areas*.
 - **Drafts:** per-session drafts persist in `localStorage` (try/catch).
   - HIG principle: *never lose input*.
+- **Reference pickers:**
+  - **Triggers:** `@` (files) and `#` (skills), only at the start of the input or after whitespace, so emails and
+    `#123` issue numbers don't trigger them. A `#` followed by a digit closes the skill picker.
+  - **Behavior:** the query is the text from the trigger to the cursor. The list refines on every keystroke
+    (debounced about 100 ms) and sits directly above the composer. Rows are ≥ 44 pt: for files the basename in bold
+    with the directory in secondary text, for skills the name with its description.
+  - **Selection:** tapping, or Enter or arrows with a hardware keyboard, inserts the token followed by a space.
+    Space, Escape or a tap outside dismisses the list.
+  - **Accessibility:** `role="listbox"` with options and `aria-activedescendant`.
+  - **No match:** a single "No matching files" row. The text stays plain.
+  - HIG principles: *suggest, don't require*, *recognition over recall*, *minimize typing*, *immediate feedback*.
 - **Attachments:**
   - (+) opens the system file picker: `multiple`, accepting images plus common text, pdf and zip types.
     - HIG principle: *use system pickers*.
@@ -1297,6 +1507,8 @@ The installer prints whichever of these are still outstanding.
 | D16 | Fake mode (faux model + local bare repos) | The whole product is testable and evaluable without credentials. |
 | D17 | TypeScript everywhere; `tsc` as the only build tool; import maps; Node type stripping on the server | Seamless use of Pi Durable's types end to end, and API shapes shared between server and client; no bundler to maintain. |
 | D19 | No size target; judged on completeness, correctness and maintainability | Size can't be known in advance. Optimizing for it trades away behavior and clarity. |
+| D21 | `@file` and `#skill` references with narrowing pickers; skills use Pi's own block format | Fast, precise context from a phone without typing paths; the same skill semantics as the Pi CLI. |
+| D22 | Replace the built-in summary with a structured handoff via `beforeCompact`, keeping Durable's lifecycle | The built-in summary truncates tool output, paraphrases the person and re-summarizes itself. A code-built ledger plus a narrow model-written narrative is accurate and consistent across runs. |
 | D20 | Part A installs its own build and test tools and writes an idempotent installer; deployment runs only when deliberately invoked | The implementer has full CLI access, so setup should be automated. But Part A may run on a machine already serving picloud (including picloud rebuilding itself), so it must never touch live services, port 8787, the data directory or the real Pi config. |
 | D18 | Exact pins at 1.6.0; use the npm README | Durable is experimental; GitHub main differs (§A6). |
 
@@ -1320,6 +1532,10 @@ and the faux model:
   conversations correctly.
 - `ModelRuntime.create()` is accepted as Harness `models` and succeeds without credentials. `SettingsManager` gives
   the default model. The `pi-context` loaders typecheck.
+- With a faux model whose `contextWindow` is 8,000 and small compaction settings, a threshold compaction triggered
+  mid-run. A `beforeCompact` hook's `{ summary }` was used: one hook call, and the built-in summarizer did not run.
+  The `pi.compaction` entry wrapped that summary, and the run continued on its own to its final answer, with the
+  summary in context.
 - The browser toolchain works end to end: TSX components using `preact/jsx-runtime`, plus shared types imported with
   `import type`, compiled by `tsc` 5.9.3 (`moduleResolution` bundler, `rewriteRelativeImportExtensions`). The result
   loads in Chromium through an import map mapping `preact`, `preact/hooks`, `preact/jsx-runtime`, `marked`,
