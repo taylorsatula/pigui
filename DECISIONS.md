@@ -105,7 +105,7 @@ from that list rather than editing sentences. It is organised around the moments
 
 Tool descriptions carry only how to fill each field: the report summary's first line is both the notification and the
 pull request title. The session section states only this session's facts and its current state; two of its states
-had been wrong. The full primitives table is kept with the change that introduced it (`git log -- src/server/agent/prompt.ts`).
+had been wrong.
 
 **Waiting is a parked tool.** A question or plan tool commits its card (and its notification) to the session
 document, then returns `{ sleep: { signals: [picloud.card-answer] } }`; the call holds no process. The person's answer
@@ -255,6 +255,18 @@ opening a disclosure and switching the send/stop button are not animated; presse
 scale to 0.97, text and icon buttons dim, rows highlight); the sheet, drawer and toast enter on `--present` and leave
 on `--quick`, with CSS transitions so a gesture can interrupt them. Reduced motion keeps the fades and drops the
 movement.
+
+**A wide screen gets the same app, laid out for its width.** It has no extra features, only a layout for the
+space:
+- From 900 px the drawer becomes a persistent sidebar.
+- Every band of a page runs the full width of its pane: title bar, status line, transcript, composer bar, setup
+  form. So the bars and their hairlines meet the pane's edges, while the content keeps to a centred 760 px reading
+  column. This is padding computed from the pane width, so no wrapper elements are needed.
+- Without the menu button, the title lines up with the content.
+- Toasts centre on the conversation, not on the window.
+- The diff sheet becomes a centred dialog, as iPad and Mac present sheets. It fades and grows slightly into place
+  rather than rising from the bottom edge, and is wider for patches.
+- The grabber appears only when the device has touch, since only touch can drag the sheet.
 
 **Sheets, the drawer and toasts follow the finger and dismiss the ways people expect.** The diff is a bottom sheet with
 a grabber and Done; it also closes with Escape, a tap on the dimmed page, or a drag down from its bar (or from its

@@ -46,6 +46,9 @@
 	--radius-l: 16px;
 	--radius-full: 999px;
 	--target: 44px;
+	/* The reading column, and the sidebar the drawer becomes on a wide screen. */
+	--column: 760px;
+	--sidebar: 340px;
 
 	--ease-out: cubic-bezier(0.23, 1, 0.32, 1);
 	/* The curve iOS sheets move on: quick to start, long to settle. */
@@ -279,10 +282,22 @@ details > summary:active {
 	display: flex;
 	flex-direction: column;
 	min-height: 100dvh;
-	max-width: 760px;
-	margin: 0 auto;
 	padding-left: var(--safe-left);
 	padding-right: var(--safe-right);
+}
+
+/* Each band of a page (title bar, status line, transcript, composer bar, form) runs the full width of its pane, so
+   bars and their hairlines meet the pane's edges, while its content sits in a centred column of --column at most.
+   --inset is the band's own side padding inside that column. */
+.topbar,
+.status-line,
+.transcript,
+.composer-dock,
+.setup-form,
+.session > .empty {
+	--gutter: max(0px, (100% - var(--column)) / 2);
+	padding-left: calc(var(--gutter) + var(--inset-left, var(--inset)));
+	padding-right: calc(var(--gutter) + var(--inset));
 }
 
 /* The title bar, and the status line under it when a session is open, stay in view while the transcript scrolls. */
@@ -298,10 +313,12 @@ details > summary:active {
 }
 
 .topbar {
+	--inset: 4px;
 	display: flex;
 	align-items: center;
 	gap: 4px;
-	padding: calc(var(--safe-top) + 4px) 4px 4px;
+	padding-top: calc(var(--safe-top) + 4px);
+	padding-bottom: 4px;
 }
 
 .pinned .topbar {
@@ -353,10 +370,12 @@ details > summary:active {
 }
 
 .status-line {
+	--inset: 16px;
 	display: flex;
 	align-items: center;
 	gap: 12px;
-	padding: 4px 16px 8px;
+	padding-top: 4px;
+	padding-bottom: 8px;
 	font-size: var(--footnote);
 	color: var(--text-2);
 }
@@ -405,7 +424,7 @@ details > summary:active {
 	position: fixed;
 	z-index: 20;
 	inset: 0 auto 0 0;
-	width: min(86vw, 340px);
+	width: min(86vw, var(--sidebar));
 	background: var(--surface);
 	display: flex;
 	flex-direction: column;
@@ -474,6 +493,12 @@ details > summary:active {
 	.icon-button.menu {
 		display: none;
 	}
+
+	/* With no menu button, the title lines up with the content under it. */
+	.topbar {
+		--inset-left: 16px;
+	}
+
 }
 
 .drawer-header {
@@ -634,6 +659,7 @@ li:last-child > .row::after {
 }
 
 .empty {
+	--inset: 16px;
 	color: var(--text-2);
 	padding: 16px;
 	margin: 0;
@@ -670,11 +696,13 @@ details[open] > summary > .icon:first-child {
 /* ---- Transcript */
 
 .transcript {
+	--inset: 16px;
 	flex: 1;
 	display: flex;
 	flex-direction: column;
 	gap: 12px;
-	padding: 8px 16px 16px;
+	padding-top: 8px;
+	padding-bottom: 16px;
 	min-width: 0;
 	/* Loading earlier messages keeps the reading position by hand, the same way in every browser. */
 	overflow-anchor: none;
@@ -1244,6 +1272,14 @@ details[open] > summary > .icon:first-child {
 	pointer-events: none;
 }
 
+/* Beside the wide-screen sidebar, a toast belongs to the conversation, so it centres on that rather than the window. */
+@media (min-width: 900px) {
+	.toast {
+		left: calc(50% + var(--sidebar) / 2);
+		width: min(calc(100vw - var(--sidebar) - 32px), 480px);
+	}
+}
+
 .toast span {
 	flex: 1;
 	overflow-wrap: anywhere;
@@ -1257,10 +1293,12 @@ details[open] > summary > .icon:first-child {
 /* ---- Composer */
 
 .composer-dock {
+	--inset: 12px;
 	position: sticky;
 	bottom: 0;
 	z-index: 5;
-	padding: 8px 12px max(8px, var(--safe-bottom));
+	padding-top: 8px;
+	padding-bottom: max(8px, var(--safe-bottom));
 	background: color-mix(in srgb, var(--bg) 88%, transparent);
 	-webkit-backdrop-filter: saturate(180%) blur(16px);
 	backdrop-filter: saturate(180%) blur(16px);
@@ -1411,8 +1449,10 @@ details[open] > summary > .icon:first-child {
 /* ---- New session */
 
 .setup-form {
+	--inset: 16px;
 	flex: 1;
-	padding: 16px;
+	padding-top: 16px;
+	padding-bottom: 16px;
 	display: flex;
 	flex-direction: column;
 	gap: 16px;
@@ -1670,6 +1710,55 @@ details[open] > summary > .icon:first-child {
 
 .patch .hunk {
 	color: var(--text-2);
+}
+
+/* The grabber promises a drag, which only touch can do; without any touch input it is left out. */
+@media not all and (any-pointer: coarse) {
+	.grabber {
+		display: none;
+	}
+
+	.sheet-header {
+		padding-top: 4px;
+	}
+}
+
+/* On a wide screen the sheet is a dialog in the middle of the window, as iPad and Mac present sheets: it fades and
+   grows slightly into place instead of rising from the bottom edge, and gives a patch more width. Touch can still
+   drag it down to close it. */
+@media (min-width: 900px) and (min-height: 600px) {
+	.sheet {
+		top: 50%;
+		left: 50%;
+		bottom: auto;
+		right: auto;
+		translate: -50% -50%;
+		width: min(960px, calc(100vw - 64px));
+		height: min(860px, calc(100dvh - 64px));
+		max-width: none;
+		margin: 0;
+		border-radius: var(--radius-l);
+		transition:
+			transform var(--present) var(--ease-out),
+			opacity var(--present) var(--ease-out);
+	}
+
+	@starting-style {
+		.sheet {
+			transform: scale(0.97);
+			opacity: 0;
+		}
+	}
+
+	.sheet.closing {
+		transform: scale(0.97);
+		opacity: 0;
+		transition-duration: var(--quick);
+	}
+
+	.sheet-body {
+		padding-bottom: 24px;
+	}
 }
 
 /* Reduced motion: nothing slides or scales; fades stay, so changes still read as changes. */
