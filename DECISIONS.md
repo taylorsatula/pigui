@@ -285,6 +285,47 @@ the configuration file keeps existing values unless an option replaces them, so 
 by listing the steps only a person can do. The systemd unit uses `RestartPreventExitStatus=78` so a missing Pi
 sign-in waits for a person instead of restarting in a loop.
 
+## Running in Docker
+
+**Two containers: Tailscale as a sidecar, picloud sharing its network.** picloud keeps listening on loopback only,
+and `tailscale serve` is the only way in, as on the installer path. So the security model does not change, and the
+`Tailscale-User-Login` header still comes only from Tailscale. The alternative, publishing a port on the host, would
+put picloud on the droplet's public interface. Tailscale uses its documented setup for serving from a container:
+kernel networking with `/dev/net/tun`, a serve file applied at start, and the auth key used once.
+
+**Configuration lives in one `.env` that compose reads.** Each value goes only to the container that needs it: the
+auth key to Tailscale, `GH_TOKEN` and the `PICLOUD_*` settings to picloud. GitHub access uses `GH_TOKEN`, which `gh`
+reads and which git reaches through gh's credential helper (configured system-wide in the image). That is the same
+access the service user's `gh` login gives under the installer. Pi's sign-in stays interactive (`docker compose run
+--rm picloud pi`), because it often uses Pi's own subscription login, and writing Pi's configuration ourselves would
+take that over from Pi.
+
+**The image is Ubuntu 24.04, with Node copied from the official Node image.**
+- Ubuntu 24.04 is what the installer targets, so the agent's tools are the same on either path.
+- `gh` comes from Ubuntu's own archive rather than a third-party apt repository.
+- Copying Node pins it exactly (22.23.4), which NodeSource's 22.x channel would not.
+- A build stage installs everything and builds the phone app; the runtime stage keeps production dependencies only.
+- Base images are pinned by exact tag. Ubuntu packages follow the pinned snapshot's archive.
+
+**Not signed in is left to Docker's restart backoff.** systemd's `RestartPreventExitStatus=78` has no Docker
+equivalent. A wrapper script that waits for a person would sit between the init process and picloud, and break the
+clean shutdown on stop. Docker's growing restart delay keeps the loop cheap, and every attempt logs the instructions.
+
+## Slash commands: not built
+
+Pi Durable has no command concept; its extensions contribute tools, hooks, tasks, prompt sections and documents. Pi's
+slash commands belong to the terminal agent:
+- built-ins such as `/model`, `/tree` and `/login`, implemented inside its interactive mode;
+- extension commands, whose handlers drive an `AgentSession` and draw their menus through `ExtensionUIContext`,
+  including arbitrary terminal UI components;
+- prompt templates.
+
+picloud runs Durable conversations, not an `AgentSession`. So no generic way exists to enumerate these commands,
+run them, and render their inner menus in the web app; each would need its own adapter. The one generic piece is
+prompt templates: markdown files with a description and an argument hint, loaded and expanded by Pi's own functions.
+They could appear in the composer the way skills do with `#`, but they have no inner menus, so they were left for a
+decision of their own.
+
 ## Dependencies
 
 Pinned exactly, with the lockfile committed: the five `@earendil-works/*` packages at 1.6.0; `preact`, `marked` and

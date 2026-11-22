@@ -5,11 +5,11 @@ import type { ModelRef } from "@earendil-works/pi-durable";
 
 const SIGN_IN_MESSAGE = `Pi has no default model with credentials, so picloud cannot run it.
 
-As the picloud service user, sign in with Pi and choose a model:
-  sudo -u picloud -i pi
-  then type /login, and then /model
-
-Then start picloud again (sudo systemctl restart picloud).`;
+Sign in with Pi as the user picloud runs as: run pi, type /login, then /model.
+  With Docker:        docker compose run --rm picloud pi
+                      then: docker compose restart picloud
+  With the installer: sudo -u picloud -i pi
+                      then: sudo systemctl restart picloud`;
 
 export class NotSignedIn extends Error {}
 

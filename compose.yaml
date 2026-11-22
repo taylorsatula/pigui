@@ -1,0 +1,56 @@
+# picloud on one machine: the app, and Tailscale serving it over HTTPS to your tailnet only.
+#
+#   cp .env.example .env                    # fill it in
+#   docker compose build
+#   docker compose run --rm picloud pi      # once: /login, then /model, then /quit
+#   docker compose up -d
+#
+# README.md, "Run with Docker", has the details.
+name: picloud
+
+services:
+  tailscale:
+    image: tailscale/tailscale:v1.104.4
+    hostname: ${PICLOUD_TS_HOSTNAME:-picloud}
+    environment:
+      TS_AUTHKEY: ${TS_AUTHKEY:-}
+      # The key is only for joining; afterwards the state volume keeps the machine signed in.
+      TS_AUTH_ONCE: "true"
+      TS_STATE_DIR: /var/lib/tailscale
+      TS_SERVE_CONFIG: /config/serve.json
+      TS_USERSPACE: "false"
+    volumes:
+      - tailscale:/var/lib/tailscale
+      - ./deploy/docker/serve.json:/config/serve.json:ro
+    devices:
+      - /dev/net/tun:/dev/net/tun
+    cap_add:
+      - NET_ADMIN
+    restart: unless-stopped
+
+  picloud:
+    build: .
+    image: picloud:local
+    # picloud listens on the loopback of the Tailscale container's network, so `tailscale serve` is the only way in.
+    network_mode: service:tailscale
+    depends_on:
+      - tailscale
+    environment:
+      GH_TOKEN: ${GH_TOKEN:?Set GH_TOKEN in .env; see .env.example}
+      PICLOUD_PUSH_SUBJECT: ${PICLOUD_PUSH_SUBJECT:-mailto:picloud@localhost}
+      PICLOUD_ALLOWED_LOGINS: ${PICLOUD_ALLOWED_LOGINS:-}
+      PICLOUD_SPEND_CAP: ${PICLOUD_SPEND_CAP:-}
+      PICLOUD_MAX_TURNS: ${PICLOUD_MAX_TURNS:-150}
+    volumes:
+      - data:/data
+      - pi:/home/picloud/.pi
+    # An init process reaps whatever the agent's commands leave behind, and passes on the stop signal so picloud
+    # can shut down cleanly within the grace period.
+    init: true
+    stop_grace_period: 60s
+    restart: unless-stopped
+
+volumes:
+  tailscale:
+  data:
+  pi:

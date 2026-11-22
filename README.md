@@ -132,6 +132,40 @@ and enabling MagicDNS and HTTPS certificates, signing Pi in (`sudo -u picloud -i
 creating the GitHub token and branch protection, and installing the app on the phone (Safari, Share, Add to Home
 Screen, then turn on notifications from the app's menu). Re-run it after those steps, and to upgrade.
 
+### Run with Docker
+
+The other way to deploy: two containers on any machine with Docker (a 2 vCPU, 4 GB droplet is enough). Tailscale
+runs in one and serves picloud over HTTPS to your tailnet only. picloud runs in the other, sharing the first one's
+network and listening on its loopback. Nothing is exposed on the machine's own ports. From a checkout of picloud:
+
+```bash
+cp .env.example .env              # fill in TS_AUTHKEY and GH_TOKEN; the rest is optional
+docker compose build
+docker compose run --rm picloud pi   # once: /login, then /model, then /quit
+docker compose up -d
+```
+
+Then, in the Tailscale admin console, turn on MagicDNS and HTTPS certificates. Open
+`https://<PICLOUD_TS_HOSTNAME>.<tailnet>.ts.net` on the phone and install it as on the other path. `.env.example`
+documents every setting.
+
+- **What lives where:**
+  - the `data` volume holds the database, workspaces and daily backups;
+  - the `pi` volume holds Pi's sign-in and model choice;
+  - the `tailscale` volume holds the machine's tailnet identity.
+
+  Back up the first two.
+- **Not signed in to Pi:** picloud exits with instructions, and Docker retries with a growing delay. Sign in with the
+  `run` line above, then `docker compose restart picloud`.
+- **GitHub:** `gh` and git use `GH_TOKEN`. The agent's commands inherit it, as they inherit the service user's `gh`
+  login under the installer, so give the token only the repositories picloud should touch.
+- **Logs:** `docker compose logs -f picloud`. **Upgrade:** pull the checkout, then `docker compose up -d --build`.
+- **The image:**
+  - Ubuntu 24.04, the installer's target, so the agent works in the same environment either way;
+  - Node.js exactly as the official image ships it;
+  - `git`, `gh`, a C toolchain and ripgrep;
+  - the `pi` CLI from picloud's own pinned dependencies.
+
 ### Operate
 
 - **Logs:** `journalctl -u picloud`.
@@ -156,5 +190,5 @@ src/client/     the phone app (Preact), bundled by scripts/build.ts
 src/sw/         the service worker
 test/           automated tests (node:test)
 e2e/            end-to-end tests (Playwright)
-deploy/         the installer
+deploy/         the installer, and the serve config for the Docker setup (Dockerfile and compose.yaml are at the root)
 ```
