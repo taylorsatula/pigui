@@ -231,7 +231,7 @@ How the Human Interface Guidelines shaped it:
 
 **One small set of values, declared once at the top of `app.css`.** Spacing comes from 2/4/8/12/16/24 px, radii from
 four tokens, type from Apple's text styles expressed as fractions of Body (so Dynamic Type scales all of it), colour
-from semantic tokens with a dark set, and motion from three durations (160 ms press, 240 ms exit, 400 ms present) and
+from semantic tokens with a dark set, and motion from three durations (160 ms press, 200 ms exit, 400 ms present) and
 two curves (a strong ease-out, and the iOS sheet curve). The alternative, values chosen per element, is what the first
 pass had, and it showed as nine type sizes and eleven spacings. Motion follows frequency: sending, picking a file,
 opening a disclosure and switching the send/stop button are not animated; presses respond at once (filled buttons
@@ -241,8 +241,10 @@ movement.
 
 **Sheets, the drawer and toasts follow the finger and dismiss the ways people expect.** The diff is a bottom sheet with
 a grabber and Done; it also closes with Escape, a tap on the dimmed page, or a drag down from its bar (or from its
-content when scrolled to the top), by distance or by flick. The drawer drags open from the left edge and shut from
-anywhere, settling by flick or by position, and closes with Escape. A toast rises just above the composer, can be
+content when it rests at the top). A released drag settles where its momentum would carry it, projected with iOS's
+scroll deceleration as Apple's "Designing Fluid Interfaces" describes, so a short flick and a long slow drag are judged
+by one rule; the finger's speed is read over its last 100 ms, so a finger that stopped before lifting is not a flick. The drawer drags open from the left edge and shut from
+anywhere, and closes with Escape. A toast rises just above the composer, can be
 swiped down, and its clock stops while a finger is on it or the app is in the background. The gestures are one small
 hook each (`src/client/motion.ts`, `useDrawerDrag`) on touch events, which hand the remaining motion to the
 stylesheet's transitions; a gesture library would bring more than these three need.

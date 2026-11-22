@@ -13,7 +13,7 @@ import { watchViewport } from "./viewport.ts";
 function ToastCard(props: { toast: Toast; leaving: boolean }): JSX.Element {
 	const { toast } = props;
 	const element = useRef<HTMLDivElement>(null);
-	useSwipeDown({ element, canStart: () => true, distance: () => 45, velocity: 0.11, onDismiss: dismissToast, onHold: holdToast });
+	useSwipeDown({ element, canStart: () => true, distance: () => 45, onDismiss: dismissToast, onHold: holdToast });
 	return (
 		<div ref={element} class={`toast ${props.leaving ? "leaving" : ""}`} role="status" aria-live="polite">
 			<span>{toast.message}</span>

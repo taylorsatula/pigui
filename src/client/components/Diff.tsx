@@ -30,6 +30,9 @@ function Counts(props: { added: number; removed: number }): JSX.Element {
 	);
 }
 
+/** After its content scrolls, the sheet waits this long before a drag on the content may move it (as Vaul does). */
+const SCROLL_SETTLE = 100;
+
 export function DiffSheet(props: { session: number; onClose: () => void }): JSX.Element {
 	const [diff, setDiff] = useState<SessionDiff | undefined>(undefined);
 	const [error, setError] = useState<string | undefined>(undefined);
@@ -38,6 +41,7 @@ export function DiffSheet(props: { session: number; onClose: () => void }): JSX.
 	const scrim = useRef<HTMLDivElement>(null);
 	const header = useRef<HTMLElement>(null);
 	const body = useRef<HTMLDivElement>(null);
+	const scrolledAt = useRef(0);
 	const close = () => setClosing(true);
 
 	useEffect(() => {
@@ -62,10 +66,12 @@ export function DiffSheet(props: { session: number; onClose: () => void }): JSX.
 	}, []);
 	useSwipeDown({
 		element: sheet,
-		// From the top bar always; from the content only when it is scrolled to its top, so it can still scroll.
-		canStart: (target) => (target instanceof Node && header.current?.contains(target) === true) || (body.current?.scrollTop ?? 0) <= 0,
+		// From the top bar always; from the content only when it rests at its top, so a scroll that just reached the
+		// top, still gliding, is not caught as a dismissal.
+		canStart: (target) =>
+			(target instanceof Node && header.current?.contains(target) === true) ||
+			((body.current?.scrollTop ?? 0) <= 0 && performance.now() - scrolledAt.current > SCROLL_SETTLE),
 		distance: (height) => height * 0.25,
-		velocity: 0.4,
 		onDismiss: close,
 		onProgress: (shown) => {
 			const element = scrim.current;
@@ -88,7 +94,7 @@ export function DiffSheet(props: { session: number; onClose: () => void }): JSX.
 						Done
 					</button>
 				</header>
-				<div ref={body} class="sheet-body">
+				<div ref={body} class="sheet-body" onScroll={() => (scrolledAt.current = performance.now())}>
 					{error !== undefined ? <p class="error-text">{error}</p> : null}
 					{diff === undefined && error === undefined ? (
 						<p class="sheet-status">

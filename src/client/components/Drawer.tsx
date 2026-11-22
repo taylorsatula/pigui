@@ -5,6 +5,7 @@ import type { RefObject } from "preact";
 import { useEffect, useRef, useState } from "preact/hooks";
 import { needsAttention, type SessionGroup, type SessionRow } from "../../shared/session.ts";
 import { describeFailure } from "../api.ts";
+import { FingerSpeed, projected } from "../motion.ts";
 import { timeAgo } from "../format.ts";
 import { enableNotifications, pushSupported } from "../push.ts";
 import { navigate, showToast, store, useStore } from "../store.ts";
@@ -45,17 +46,15 @@ function Row(props: { row: SessionRow; current: boolean }): JSX.Element {
 
 /** How near the left edge a touch must start to open the drawer. */
 const EDGE = 24;
-/** A flick faster than this, in px/ms, settles the drawer the way it was going. */
-const FLICK = 0.4;
 
 /**
- * Drag the drawer open from the left edge and drag it shut from anywhere while it is open. It tracks the finger,
- * a flick finishes the move, and otherwise it settles on whichever side it is nearer. Vertical drags stay scrolls.
+ * Drag the drawer open from the left edge and drag it shut from anywhere while it is open. It tracks the finger and,
+ * on release, settles on whichever side the drag's momentum would carry it to. Vertical drags stay scrolls.
  */
 function useDrawerDrag(drawer: RefObject<HTMLElement>, backdrop: RefObject<HTMLElement>): void {
 	useEffect(() => {
 		const wide = window.matchMedia("(min-width: 900px)");
-		let drag: { x: number; y: number; open: boolean; width: number; moving: boolean; offset: number; lastX: number; lastT: number; speed: number } | undefined;
+		let drag: { x: number; y: number; open: boolean; width: number; moving: boolean; offset: number; speed: FingerSpeed } | undefined;
 
 		const onMove = (event: TouchEvent) => {
 			const touch = event.touches[0];
@@ -63,11 +62,13 @@ function useDrawerDrag(drawer: RefObject<HTMLElement>, backdrop: RefObject<HTMLE
 			const scrim = backdrop.current;
 			if (drag === undefined || touch === undefined || panel === null || scrim === null) return;
 			const dx = touch.clientX - drag.x;
+			drag.speed.add(touch.clientX, event.timeStamp);
 			if (!drag.moving) {
 				const dy = touch.clientY - drag.y;
 				if (Math.abs(dx) < 8 && Math.abs(dy) < 8) return;
 				if (Math.abs(dy) > Math.abs(dx)) {
-					finish();
+					document.removeEventListener("touchmove", onMove);
+					drag = undefined;
 					return;
 				}
 				drag.moving = true;
@@ -76,17 +77,14 @@ function useDrawerDrag(drawer: RefObject<HTMLElement>, backdrop: RefObject<HTMLE
 			}
 			event.preventDefault();
 			drag.offset = Math.min(drag.width, Math.max(0, (drag.open ? drag.width : 0) + dx));
-			drag.speed = (touch.clientX - drag.lastX) / Math.max(1, event.timeStamp - drag.lastT);
-			drag.lastX = touch.clientX;
-			drag.lastT = event.timeStamp;
 			panel.style.transform = `translateX(${drag.offset - drag.width}px)`;
 			scrim.style.opacity = String(drag.offset / drag.width);
 		};
 
-		const finish = () => {
+		const finish = (event: TouchEvent) => {
 			document.removeEventListener("touchmove", onMove);
 			if (drag?.moving) {
-				const open = Math.abs(drag.speed) > FLICK ? drag.speed > 0 : drag.offset > drag.width / 2;
+				const open = projected(drag.offset, drag.speed.at(event.timeStamp)) > drag.width / 2;
 				for (const element of [drawer.current, backdrop.current]) {
 					element?.classList.remove("dragging");
 					element?.style.removeProperty("transform");
@@ -103,7 +101,8 @@ function useDrawerDrag(drawer: RefObject<HTMLElement>, backdrop: RefObject<HTMLE
 			const open = store.get().drawerOpen;
 			if (wide.matches || event.touches.length !== 1 || touch === undefined || panel === null) return;
 			if (!open && touch.clientX > EDGE) return;
-			drag = { x: touch.clientX, y: touch.clientY, open, width: panel.offsetWidth, moving: false, offset: open ? panel.offsetWidth : 0, lastX: touch.clientX, lastT: event.timeStamp, speed: 0 };
+			drag = { x: touch.clientX, y: touch.clientY, open, width: panel.offsetWidth, moving: false, offset: open ? panel.offsetWidth : 0, speed: new FingerSpeed() };
+			drag.speed.add(touch.clientX, event.timeStamp);
 			// Only while a drag may be starting, so ordinary scrolling never waits on this listener.
 			document.addEventListener("touchmove", onMove, { passive: false });
 		};

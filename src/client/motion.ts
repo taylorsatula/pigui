@@ -1,24 +1,52 @@
-// What moves: the exit timing shared with the stylesheet, and the swipe-down gesture that dismisses a sheet or a toast.
+// What moves: the exit timing shared with the stylesheet, how a released drag decides where to settle, and the
+// swipe-down gesture that dismisses a sheet or a toast.
 import type { RefObject } from "preact";
 import { useEffect, useRef } from "preact/hooks";
 
 /** How long a leaving element takes, read from the stylesheet's --quick so the two cannot drift apart. */
 export function exitMs(): number {
-	return Number.parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--quick")) || 240;
+	return Number.parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--quick")) || 200;
 }
 
 /** Below this, a touch is a tap that may still turn into a drag. */
 const SLOP = 6;
+
+/** The finger's speed is read over this much of its most recent movement, so one jittery sample does not decide. */
+const SPEED_WINDOW = 100;
+
+/**
+ * How far momentum would carry a released drag: the speed in px/ms times 499 ms, which is what iOS's normal scroll
+ * deceleration (0.998 per ms) adds up to. A drag settles where it would have landed, not where the finger let go,
+ * so a short flick and a long slow drag are judged by one rule.
+ */
+export function projected(position: number, speed: number): number {
+	return position + (speed * 0.998) / (1 - 0.998);
+}
+
+/** Follows one axis of a finger and reports its speed in px/ms at release; a finger that came to rest has none. */
+export class FingerSpeed {
+	#samples: { at: number; time: number }[] = [];
+
+	add(at: number, time: number): void {
+		this.#samples.push({ at, time });
+		this.#samples = this.#samples.filter((sample) => time - sample.time <= SPEED_WINDOW);
+	}
+
+	at(time: number): number {
+		const first = this.#samples[0];
+		const last = this.#samples.at(-1);
+		if (first === undefined || last === undefined || last.time === first.time || time - last.time > SPEED_WINDOW) return 0;
+		return (last.at - first.at) / (last.time - first.time);
+	}
+}
 
 type SwipeDown = {
 	/** The element that moves. */
 	element: RefObject<HTMLElement>;
 	/** Whether a touch on this target may start a drag; a sheet's content only when scrolled to its top. */
 	canStart: (target: EventTarget | null) => boolean;
-	/** How far, in px, a drag must go to dismiss, given the element's height. */
+	/** Where, in px below its resting place, a released drag must be headed to dismiss, given the element's height. */
 	distance: (height: number) => number;
-	/** A flick faster than this, in px/ms, dismisses however short it was. */
-	velocity: number;
 	onDismiss: () => void;
 	/** How much of the element is still showing while it is dragged, 0 to 1, then undefined when the drag ends. */
 	onProgress?: (shown: number | undefined) => void;
@@ -38,7 +66,7 @@ export function useSwipeDown(options: SwipeDown): void {
 	useEffect(() => {
 		const element = latest.current.element.current;
 		if (element === null) return;
-		let drag: { x: number; y: number; moving: boolean; offset: number; lastY: number; lastT: number; speed: number } | undefined;
+		let drag: { x: number; y: number; moving: boolean; offset: number; speed: FingerSpeed } | undefined;
 
 		const onStart = (event: TouchEvent) => {
 			const touch = event.touches[0];
@@ -46,7 +74,8 @@ export function useSwipeDown(options: SwipeDown): void {
 				drag = undefined;
 				return;
 			}
-			drag = { x: touch.clientX, y: touch.clientY, moving: false, offset: 0, lastY: touch.clientY, lastT: event.timeStamp, speed: 0 };
+			drag = { x: touch.clientX, y: touch.clientY, moving: false, offset: 0, speed: new FingerSpeed() };
+			drag.speed.add(touch.clientY, event.timeStamp);
 			latest.current.onHold?.(true);
 		};
 
@@ -55,11 +84,12 @@ export function useSwipeDown(options: SwipeDown): void {
 			if (drag === undefined || touch === undefined) return;
 			const dx = touch.clientX - drag.x;
 			const dy = touch.clientY - drag.y;
+			drag.speed.add(touch.clientY, event.timeStamp);
 			if (!drag.moving) {
 				if (Math.abs(dx) < SLOP && Math.abs(dy) < SLOP) return;
 				// Up or sideways is a scroll, not a dismissal.
 				if (dy <= 0 || Math.abs(dx) > Math.abs(dy)) {
-					end(false);
+					end(undefined);
 					return;
 				}
 				drag.moving = true;
@@ -67,26 +97,24 @@ export function useSwipeDown(options: SwipeDown): void {
 			}
 			event.preventDefault();
 			drag.offset = dy >= 0 ? dy : -Math.sqrt(-dy);
-			drag.speed = (touch.clientY - drag.lastY) / Math.max(1, event.timeStamp - drag.lastT);
-			drag.lastY = touch.clientY;
-			drag.lastT = event.timeStamp;
 			element.style.transform = `translateY(${drag.offset}px)`;
 			latest.current.onProgress?.(1 - Math.max(0, drag.offset) / element.offsetHeight);
 		};
 
-		const end = (finished: boolean) => {
+		/** `releasedAt` is when the finger lifted; undefined when the touch turned out not to be a drag. */
+		const end = (releasedAt: number | undefined) => {
 			if (drag === undefined) return;
 			const { moving, offset, speed } = drag;
 			drag = undefined;
-			const { onHold, onProgress, distance, velocity, onDismiss } = latest.current;
+			const { onHold, onProgress, distance, onDismiss } = latest.current;
 			onHold?.(false);
 			if (!moving) return;
 			element.classList.remove("dragging");
 			element.style.transform = "";
 			onProgress?.(undefined);
-			if (finished && (offset > distance(element.offsetHeight) || speed > velocity)) onDismiss();
+			if (releasedAt !== undefined && projected(offset, speed.at(releasedAt)) > distance(element.offsetHeight)) onDismiss();
 		};
-		const onEnd = () => end(true);
+		const onEnd = (event: TouchEvent) => end(event.timeStamp);
 
 		element.addEventListener("touchstart", onStart, { passive: true });
 		element.addEventListener("touchmove", onMove, { passive: false });

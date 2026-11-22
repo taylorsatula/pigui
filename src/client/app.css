@@ -6,7 +6,8 @@
    - radii: --radius-s (inline code), -m (controls, rows, code), -l (cards, bubbles, panels, sheets), -full (pills);
    - type: Apple's text styles as fractions of Body, so they follow Dynamic Type;
    - motion: three durations and two curves. Frequent actions (send, pick, disclose) are not animated; presses give
-     feedback at once; sheets, the drawer and toasts enter with --present and leave faster with --quick. */
+     feedback at once; feedback on an interaction stays within 200 ms; sheets, the drawer and toasts enter with
+     --present and leave faster with --quick. */
 
 :root {
 	color-scheme: light dark;
@@ -50,7 +51,7 @@
 	/* The curve iOS sheets move on: quick to start, long to settle. */
 	--ease-sheet: cubic-bezier(0.32, 0.72, 0, 1);
 	--press: 160ms;
-	--quick: 240ms;
+	--quick: 200ms;
 	--present: 400ms;
 
 	--safe-top: env(safe-area-inset-top, 0px);
@@ -119,6 +120,14 @@ html:has(.sheet) {
 *::before,
 *::after {
 	box-sizing: border-box;
+}
+
+/* When the system switches between light and dark, everything changes colour at once; without this, elements with a
+   colour transition would fade a beat behind the rest. main.tsx sets the class for the frame of the switch. */
+.theme-changing *,
+.theme-changing *::before,
+.theme-changing *::after {
+	transition: none !important;
 }
 
 button,
@@ -402,6 +411,8 @@ details > summary:active {
 	flex-direction: column;
 	padding: var(--safe-top) 0 var(--safe-bottom) var(--safe-left);
 	border-right: 0.5px solid var(--separator);
+	/* Sideways drags belong to the drawer's own gesture; vertical ones scroll its list. */
+	touch-action: pan-y;
 	transform: translateX(-100%);
 	/* Hidden once it has slid away, so a closed drawer is not in the tab order or read aloud. */
 	visibility: hidden;
@@ -509,6 +520,8 @@ details > summary:active {
 	text-decoration: none;
 	transition: background-color var(--quick) var(--ease-out);
 	-webkit-touch-callout: none;
+	-webkit-user-select: none;
+	user-select: none;
 }
 
 /* Separators start at the text, as in iOS lists. */
@@ -578,6 +591,7 @@ li:last-child > .row::after {
 	gap: 8px;
 	font-size: var(--footnote);
 	color: var(--text-2);
+	font-variant-numeric: tabular-nums;
 }
 
 .dot {
@@ -630,6 +644,8 @@ li:last-child > .row::after {
 details > summary {
 	list-style: none;
 	cursor: pointer;
+	-webkit-user-select: none;
+	user-select: none;
 	display: flex;
 	align-items: center;
 	gap: 8px;
@@ -1428,7 +1444,7 @@ details[open] > summary > .icon:first-child {
 	padding: 2px;
 }
 
-/* Concentric with the track: its radius less its inset. */
+/* Concentric with the track: its radius less its inset. One weight whether chosen or not, so the labels never shift. */
 .segmented button {
 	flex: 1;
 	color: var(--text);
@@ -1440,7 +1456,6 @@ details[open] > summary > .icon:first-child {
 .segmented button.selected {
 	background: var(--raised);
 	box-shadow: 0 1px 3px rgba(0, 0, 0, 0.12);
-	font-weight: 600;
 }
 
 /* ---- Sheet: rises from the bottom over a dimmed page. It closes with Done, Escape, a tap on the dimmed page, or a
