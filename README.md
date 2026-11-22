@@ -151,10 +151,19 @@ documents every setting.
 
 - **What lives where:**
   - the `data` volume holds the database, workspaces and daily backups;
-  - the `pi` volume holds Pi's sign-in and model choice;
+  - the `home` volume holds picloud's home directory: Pi's sign-in and model choice, and the caches of tools the
+    agent runs;
   - the `tailscale` volume holds the machine's tailnet identity.
 
   Back up the first two.
+- **Locked down:**
+  - **picloud** runs as an unprivileged user with no Linux capabilities, cannot gain privileges, and has no setuid
+    programs to try. Its system files are read-only: it writes only its two volumes and a 512 MB scratch `/tmp`. A
+    process limit stops a runaway test from exhausting the machine.
+  - **Tailscale** keeps only the two capabilities a VPN interface needs, on a read-only system.
+  - **Network:** no port is published on the machine, and Docker's default seccomp and AppArmor profiles stay on.
+  - **Tailscale's access controls** can narrow which devices reach this machine, alongside
+    `PICLOUD_ALLOWED_LOGINS`.
 - **Not signed in to Pi:** picloud exits with instructions, and Docker retries with a growing delay. Sign in with the
   `run` line above, then `docker compose restart picloud`.
 - **GitHub:** `gh` and git use `GH_TOKEN`. The agent's commands inherit it, as they inherit the service user's `gh`

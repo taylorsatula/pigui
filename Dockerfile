@@ -27,15 +27,19 @@ RUN ln -s ../lib/node_modules/npm/bin/npm-cli.js /usr/local/bin/npm \
 RUN git config --system credential.https://github.com.helper '!gh auth git-credential'
 
 COPY --from=build /app /app
+# No setuid or setgid programs: nothing in the container can become another user, even with privilege escalation
+# allowed, which compose.yaml also forbids.
 RUN ln -s /app/node_modules/.bin/pi /usr/local/bin/pi \
 	&& useradd --create-home --shell /bin/bash picloud \
-	&& install -d -o picloud -g picloud /data /home/picloud/.pi
+	&& install -d -o picloud -g picloud /data /home/picloud/.pi \
+	&& find / -xdev -perm /6000 -type f -exec chmod a-s {} +
 
 ENV PICLOUD_DATA_DIR=/data \
 	PICLOUD_HOST=127.0.0.1 \
 	PICLOUD_PORT=8787
 USER picloud
 WORKDIR /app
-# /data holds the database, workspaces and backups; ~/.pi holds Pi's sign-in and model choice.
-VOLUME ["/data", "/home/picloud/.pi"]
+# /data holds the database, workspaces and backups; the home holds Pi's sign-in and model choice, and the caches of
+# the tools the agent runs (npm and the like). With compose.yaml's read-only root, these and /tmp are all it can write.
+VOLUME ["/data", "/home/picloud"]
 CMD ["node", "--disable-warning=ExperimentalWarning", "src/server/main.ts"]

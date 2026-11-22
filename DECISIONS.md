@@ -336,6 +336,24 @@ take that over from Pi.
 - A build stage installs everything and builds the phone app; the runtime stage keeps production dependencies only.
 - Base images are pinned by exact tag. Ubuntu packages follow the pinned snapshot's archive.
 
+**Both containers run with least privilege.**
+- **picloud**
+  - runs as an unprivileged user;
+  - has every Linux capability dropped and `no-new-privileges` set;
+  - has the setuid and setgid bits stripped from the image;
+  - has a read-only root filesystem, writing only to the `data` volume, its `home` volume and a size-capped `/tmp`.
+
+  The agent still builds and runs code: the volumes and `/tmp` allow it to execute programs, and npm and the like keep
+  their caches in the home volume. That is why the volume is now the whole home directory and not just `~/.pi`. A
+  process limit (1024) contains a runaway test.
+- **Tailscale** keeps only `NET_ADMIN` and `NET_RAW`, the two capabilities its tunnel and firewall rules need, on a
+  read-only root.
+
+Userspace networking would drop even those two, and the tun device too. But Tailscale's own documentation
+contradicts itself on whether serve works in that mode, so the documented kernel-mode setup stays until it has been
+tried on a real tailnet. `GH_TOKEN` stays an environment variable, because gh and git read it from there. It is
+visible to whoever can run `docker inspect`, which on the host already means root.
+
 **Not signed in is left to Docker's restart backoff.** systemd's `RestartPreventExitStatus=78` has no Docker
 equivalent. A wrapper script that waits for a person would sit between the init process and picloud, and break the
 clean shutdown on stop. Docker's growing restart delay keeps the loop cheap, and every attempt logs the instructions.

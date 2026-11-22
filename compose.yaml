@@ -32,8 +32,20 @@ services:
       - ./deploy/docker/serve.json:/config/serve.json:ro
     devices:
       - /dev/net/tun:/dev/net/tun
+    # Only what a VPN interface needs (configuring it, and its firewall rules), instead of Docker's default set, and
+    # a read-only system that writes only its state, its socket and lock files.
+    cap_drop:
+      - ALL
     cap_add:
       - NET_ADMIN
+      - NET_RAW
+    security_opt:
+      - no-new-privileges:true
+    read_only: true
+    tmpfs:
+      - /tmp
+      - /run
+    pids_limit: 128
     logging: *logging
     restart: unless-stopped
 
@@ -52,7 +64,18 @@ services:
       PICLOUD_MAX_TURNS: ${PICLOUD_MAX_TURNS:-150}
     volumes:
       - data:/data
-      - pi:/home/picloud/.pi
+      - home:/home/picloud
+    # Least privilege: picloud and the agent's commands run as an unprivileged user with no capabilities, cannot gain
+    # privileges, and cannot change the system. They write only the two volumes and a scratch /tmp, which builds and
+    # tests may run programs from. A process limit stops a runaway test from exhausting the machine.
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    read_only: true
+    tmpfs:
+      - /tmp:exec,nosuid,nodev,size=512m
+    pids_limit: 1024
     # An init process reaps whatever the agent's commands leave behind, and passes on the stop signal so picloud
     # can shut down cleanly within the grace period.
     init: true
@@ -63,4 +86,4 @@ services:
 volumes:
   tailscale:
   data:
-  pi:
+  home:
