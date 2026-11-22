@@ -180,6 +180,26 @@ export class TestServer {
 		return join(this.dataDir, "workspaces", String(id));
 	}
 
+	/** The session's own home, tmp and gh configuration live here. */
+	scratch(id: number): string {
+		return join(this.dataDir, "sandbox", String(id));
+	}
+
+	/**
+	 * Run `lines` in a new session through the scripted model's [probe]: `$ command` with bash, `read PATH` with read,
+	 * `write PATH` with write, in order. Resolves with each call's result.
+	 */
+	async probe(lines: readonly string[]): Promise<{ id: number; results: { text: string; isError: boolean }[] }> {
+		const id = await this.createSession(["Probe the machine [probe]", ...lines].join("\n"));
+		await this.settled(id, "the probe");
+		const results = (await this.entries(id)).flatMap((entry) => {
+			const message = entry.model?.[0];
+			return message?.role === "toolResult" && message.toolCallId.startsWith("probe:") ? [{ text: modelText(entry), isError: message.isError }] : [];
+		});
+		if (results.length !== lines.length) throw new Error(`The probe ran ${results.length} of ${lines.length} calls`);
+		return { id, results };
+	}
+
 	/** Answer the scenario's question card with the recommended options, then approve its plan. */
 	async approveThrough(id: number): Promise<void> {
 		const questions = await this.until(id, (doc) => doc.card?.kind === "questions", "the question card");

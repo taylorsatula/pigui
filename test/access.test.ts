@@ -41,11 +41,27 @@ describe("access and configuration", () => {
 		assert.throws(() => readConfig({ PICLOUD_DATA_DIR: "/tmp/x", PICLOUD_SPEND_CAP: "-1" }), ConfigError);
 		assert.throws(() => readConfig({ PICLOUD_DATA_DIR: "/tmp/x", PICLOUD_PUSH_SUBJECT: "picloud" }), ConfigError);
 		assert.throws(() => readConfig({}), ConfigError);
-		const config = readConfig({ PICLOUD_DATA_DIR: "/tmp/x", PICLOUD_HOST: "::1", PICLOUD_SPEND_CAP: "5", PICLOUD_ALLOWED_LOGINS: "A@b.c" });
+		const config = readConfig({
+			PICLOUD_DATA_DIR: "/tmp/x",
+			PICLOUD_HOST: "::1",
+			PICLOUD_SPEND_CAP: "5",
+			PICLOUD_ALLOWED_LOGINS: "A@b.c",
+			PICLOUD_AGENT_GH_TOKEN: "agent-token",
+		});
 		assert.equal(config.host, "::1");
 		assert.equal(config.spendCap, 5);
 		assert.deepEqual(config.allowedLogins, ["a@b.c"]);
 		assert.equal(config.port, 8787);
+		assert.equal(config.agentGitHubToken, "agent-token");
+		assert.equal(config.sandbox, true);
+	});
+
+	test("real mode needs the agent's own GitHub token; the sandbox is on unless turned off", () => {
+		assert.throws(() => readConfig({ PICLOUD_DATA_DIR: "/tmp/x" }), /PICLOUD_AGENT_GH_TOKEN is not set/);
+		assert.equal(readConfig({ PICLOUD_DATA_DIR: "/tmp/x", PICLOUD_FAKE: "1" }).agentGitHubToken, undefined);
+		const off = readConfig({ PICLOUD_DATA_DIR: "/tmp/x", PICLOUD_FAKE: "1", PICLOUD_SANDBOX: "off" });
+		assert.equal(off.sandbox, false);
+		assert.throws(() => readConfig({ PICLOUD_DATA_DIR: "/tmp/x", PICLOUD_FAKE: "1", PICLOUD_SANDBOX: "0" }), /PICLOUD_SANDBOX must be on or off/);
 	});
 
 	test("real mode without a Pi sign-in exits with instructions before touching the data directory", async () => {
@@ -53,7 +69,7 @@ describe("access and configuration", () => {
 		const dataDir = join(parent, "data");
 		const agentDir = await mkdtemp(join(tmpdir(), "picloud-pi-"));
 		const child = spawn(process.execPath, ["--disable-warning=ExperimentalWarning", join(import.meta.dirname, "..", "src", "server", "main.ts")], {
-			env: { ...process.env, PICLOUD_DATA_DIR: dataDir, PICLOUD_PORT: "0", PI_CODING_AGENT_DIR: agentDir, PICLOUD_FAKE: "" },
+			env: { ...process.env, PICLOUD_DATA_DIR: dataDir, PICLOUD_PORT: "0", PI_CODING_AGENT_DIR: agentDir, PICLOUD_FAKE: "", PICLOUD_AGENT_GH_TOKEN: "agent-token" },
 			stdio: ["ignore", "pipe", "pipe"],
 		});
 		let stderr = "";

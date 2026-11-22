@@ -1,8 +1,9 @@
 // Builds the phone app into dist/public: one esbuild bundle for the app and one for the service worker, the static
-// shell, and the icons, drawn here so the repository holds no binary assets.
+// shell, and the icons, drawn here so the repository holds no binary assets. Then the sandbox launcher into dist/bin.
+import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { copyFile, mkdir, readFile, rm, writeFile } from "node:fs/promises";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { deflateSync } from "node:zlib";
 import { build } from "esbuild";
 
@@ -107,3 +108,17 @@ await writeFile(join(out, "icons", "apple-touch-icon.png"), icon(180, 0));
 await writeFile(join(out, "icons", "icon-maskable-512.png"), icon(512, 0.12));
 
 process.stdout.write(`Built the app into ${out} (build ${buildId}).\n`);
+
+// ---- The agent sandbox's launcher. Without a C compiler the app still builds, and picloud looks for the launcher on
+// PATH instead, where the Docker image installs it.
+
+const launcher = join(root, "dist", "bin", "picloud-sandbox");
+if (process.platform !== "linux") {
+	process.stdout.write("Skipped the sandbox launcher: Landlock is Linux's.\n");
+} else {
+	await mkdir(dirname(launcher), { recursive: true });
+	const compiled = spawnSync("cc", ["-O2", "-Wall", "-o", launcher, join(root, "src", "sandbox", "picloud-sandbox.c")], { stdio: "inherit" });
+	if (compiled.error !== undefined) process.stdout.write("Skipped the sandbox launcher: no C compiler (cc) here.\n");
+	else if (compiled.status !== 0) throw new Error("Compiling src/sandbox/picloud-sandbox.c failed.");
+	else process.stdout.write(`Built the sandbox launcher into ${launcher}.\n`);
+}

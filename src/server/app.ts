@@ -6,7 +6,6 @@ import { join } from "node:path";
 import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
 import type { Api, Model, Models } from "@earendil-works/pi-ai";
 import { createRegistry, defineExtension, Harness, type ModelRef, type Report } from "@earendil-works/pi-durable";
-import { NodeExecutionEnv } from "@earendil-works/pi-durable/env/node";
 import { createFitImagesExtension } from "@earendil-works/pi-durable/images/fit";
 import { createNodePhotonImages } from "@earendil-works/pi-durable/images/node";
 import { openNodeSqliteStorage } from "@earendil-works/pi-durable/storage/sqlite/node";
@@ -18,7 +17,6 @@ import { Delivery } from "./delivery.ts";
 import { SessionIndexToken } from "./docs.ts";
 import { LocalGitHub } from "./fake/github.ts";
 import { type ScriptedModelOptions, scriptedModels } from "./fake/model.ts";
-import { NO_PROMPT_ENV } from "./git.ts";
 import { GhHost, type RepoHost } from "./host.ts";
 import { createHttpServer } from "./http.ts";
 import { Uploads } from "./input.ts";
@@ -26,6 +24,8 @@ import { createLogger, type Logger } from "./log.ts";
 import { Maintenance } from "./maintenance.ts";
 import { Notifications } from "./notify.ts";
 import { Presence } from "./presence.ts";
+import { openSandbox, readableGrants, type Sandbox } from "./sandbox.ts";
+import { sessionEnvs } from "./session-env.ts";
 import { Sessions } from "./sessions.ts";
 import { Supervisor } from "./supervisor.ts";
 import { loadVapidKeys, type PushSender, RecordingPushSender, WebPushSender } from "./webpush.ts";
@@ -55,6 +55,8 @@ export type App = {
 	host: RepoHost;
 	push: PushSender;
 	presence: Presence;
+	/** Undefined when agent commands run unconfined. */
+	sandbox: Sandbox | undefined;
 	close(): Promise<void>;
 };
 
@@ -63,16 +65,21 @@ export async function startApp(options: AppOptions): Promise<App> {
 	const log = options.log ?? createLogger();
 	const now = options.now ?? (() => Date.now());
 	const context = BACKGROUND_CONTEXT;
+	const sandbox = await openSandbox({ enabled: config.sandbox, fake: config.fake, log });
 	const paths = {
 		database: join(config.dataDir, "picloud.sqlite"),
 		workspaces: join(config.dataDir, "workspaces"),
 		uploads: join(config.dataDir, "uploads"),
 		backups: join(config.dataDir, "backups"),
+		sandbox: join(config.dataDir, "sandbox"),
 	};
 	for (const dir of [config.dataDir, paths.workspaces, paths.uploads, paths.backups]) await mkdir(dir, { recursive: true });
 	const workspace = (id: number) => join(paths.workspaces, String(id));
+	/** A session's own home, tmp and gh configuration, which its commands get instead of picloud's. */
+	const scratch = (id: number) => join(paths.sandbox, String(id));
 
-	const host: RepoHost = config.fake ? await LocalGitHub.open(join(config.dataDir, "fake-github")) : new GhHost();
+	const fakeGitHub = config.fake ? await LocalGitHub.open(join(config.dataDir, "fake-github")) : undefined;
+	const host: RepoHost = fakeGitHub ?? new GhHost();
 	const pi = config.fake ? toPi(scriptedModels(options.fakeModel)) : options.pi;
 	if (pi === undefined) throw new Error("Real mode needs Pi's models.");
 	const vapid = await loadVapidKeys(join(config.dataDir, "vapid.json"));
@@ -118,6 +125,7 @@ export async function startApp(options: AppOptions): Promise<App> {
 		backupDir: paths.backups,
 		uploadsDir: paths.uploads,
 		workspace,
+		scratch,
 	});
 	const delivery = new Delivery({ harness, host, workspace, now });
 	const supervisor = new Supervisor({ harness, notifications, log, now });
@@ -128,7 +136,14 @@ export async function startApp(options: AppOptions): Promise<App> {
 	registry.install(picloudAgent(services));
 	registry.install(defineExtension({ name: "picloud-sessions", tasks: [sessions.setupTask, notifications.task, maintenance.task] }));
 
-	const shellEnv = { ...NO_PROMPT_ENV, PI_CODING_AGENT_DIR: options.agentDir };
+	const env = sessionEnvs({
+		dirs: (id) => ({ workspace: workspace(id), scratch: scratch(id) }),
+		gitHubToken: config.agentGitHubToken,
+		sandbox,
+		// Skills are read and run, while the rest of Pi's directory (sign-in, settings, models) stays out of reach. In fake
+		// mode the agent's git fetch reads the stand-in remote.
+		readable: readableGrants([join(options.agentDir, "skills"), ...(fakeGitHub === undefined ? [] : [fakeGitHub.root])]),
+	});
 	opened = await Harness.open(
 		await openNodeSqliteStorage(paths.database),
 		{
@@ -140,7 +155,7 @@ export async function startApp(options: AppOptions): Promise<App> {
 				retry: config.fake ? { maxRetries: 1, baseDelayMs: 10 } : { maxRetries: 3 },
 				afterFailedRun: "keep",
 			},
-			env: ({ cwd }) => new NodeExecutionEnv({ cwd: cwd ?? config.dataDir, shellEnv }),
+			env,
 			onReport: (report: Report) => {
 				const task = "task" in report ? report.task : undefined;
 				log.warn("durable.report", {
@@ -195,6 +210,7 @@ export async function startApp(options: AppOptions): Promise<App> {
 		host,
 		push,
 		presence,
+		sandbox,
 		async close() {
 			supervisor.stop();
 			await new Promise<void>((resolve) => {

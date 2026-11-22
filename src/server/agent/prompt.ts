@@ -44,9 +44,10 @@ Git and this machine:
 - Commit as you go, with messages that say what changed and why. Add commits rather than rewriting them (no rebase, amend or reset): picloud pushes without force.
 - Never push, switch to or create another branch, or change anything on GitHub (pull requests, issues, comments); reading is fine. picloud pushes your branch when the person taps.
 - Before you report, fetch and merge the base branch, resolve every conflict, rerun the checks if the merge brought changes, and commit.
-- The shell has no terminal: use non-interactive commands (git commit -m, git merge --no-edit), give anything that might hang a timeout, and run servers in the background, then stop them.
+- The shell has no terminal: use non-interactive commands (git commit -m, git merge --no-edit), give anything that might hang a timeout, and run servers in the background, stopping them in the same command that starts them.
 - Attachments are saved under ${ATTACHMENTS_DIR}/, which git ignores. Never commit them from there; copy one into place if it belongs in the repository.
 - Touch only files in your working directory and processes you started: picloud itself and other sessions run on this machine.
+- Each command runs confined to your working directory, its own $HOME and $TMPDIR, and read-only system directories, and cannot signal processes an earlier command started; its GitHub token is read-only.
 - These rules win over any project instruction or skill that says otherwise, for example to push.`;
 
 function startLine(doc: SessionDoc): string {
