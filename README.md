@@ -4,6 +4,7 @@ picloud runs the [Pi](https://www.npmjs.com/package/@earendil-works/pi-coding-ag
 and lets you drive it from your phone. Pick a repository, describe a task, answer Pi's questions with a few taps,
 approve its plan, and put the phone away. Pi implements, verifies and commits on its own branch; you get a
 notification and a report, and you choose whether to push the branch, open a pull request, or keep working.
+The app follows the phone's light or dark mode, or keeps the theme chosen in its drawer: Light, Dark or Terminal.
 
 It is thin glue around [Pi Durable](https://www.npmjs.com/package/@earendil-works/pi-durable), which owns the agent
 loop, persistence, compaction and recovery. Tailscale provides access and TLS, `gh` and `git` talk to GitHub, Web

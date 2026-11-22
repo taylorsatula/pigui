@@ -3,48 +3,38 @@
 
    Everything below draws on one small set of values:
    - spacing: 2, 4, 8, 12, 16 and 24 px;
-   - radii: --radius-s (inline code), -m (controls, rows, code), -l (cards, bubbles, panels, sheets), -full (pills);
+   - radii: --radius-s (inline code), -m (controls, rows, code), -l (cards, bubbles, panels, sheets), -full (pills
+     and discs);
    - type: Apple's text styles as fractions of Body, so they follow Dynamic Type;
+   - colour: surfaces and text, plus one token per meaning (done, warn, error, waiting, working, deliver, neutral,
+     person), which every theme defines;
    - motion: three durations and two curves. Frequent actions (send, pick, disclose) are not animated; presses give
      feedback at once; feedback on an interaction stays within 200 ms; sheets, the drawer and toasts enter with
-     --present and leave faster with --quick. */
+     --present and leave faster with --quick.
+
+   Themes: System (no data-theme on <html>) follows the OS between Light and Dark; Light, Dark and Terminal are chosen
+   in the drawer (theme.ts). A theme is a block of these values; only the Terminal also has a short section of its
+   own, at the end, for the few things it draws differently. */
 
 :root {
-	color-scheme: light dark;
-	--bg: #f6f6f8;
-	--surface: #ffffff;
-	--surface-2: #efeff4;
-	/* Panels that float over content: toasts, the picker, the chosen segment. */
-	--raised: #ffffff;
-	/* A translucent fill laid over any background: pressed and hovered rows, tracks. */
-	--fill: rgba(120, 120, 128, 0.12);
-	--text: #111114;
-	--text-2: #55555c;
-	--separator: rgba(60, 60, 67, 0.22);
-	--accent: #0a64d8;
-	--accent-text: #ffffff;
-	--accent-tint: color-mix(in srgb, var(--accent) 12%, transparent);
-	--good: #1c7c3a;
-	--warn: #9a5b00;
-	--bad: #c4271d;
-	--bubble: #0a64d8;
-	--bubble-text: #ffffff;
-	--code: #f2f2f6;
-	--add: rgba(28, 124, 58, 0.14);
-	--del: rgba(196, 39, 29, 0.12);
-	--scrim: rgba(0, 0, 0, 0.32);
-	--shadow: 0 1px 3px rgba(0, 0, 0, 0.08), 0 8px 32px rgba(0, 0, 0, 0.14);
-
+	--font: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+	--mono: ui-monospace, "SF Mono", Menlo, monospace;
 	/* Title 3 20 pt, Subheadline 15 pt, Footnote 13 pt, against Body 17 pt. Headline is Body in semibold. */
 	--title: 1.1765rem;
 	--subhead: 0.8824rem;
 	--footnote: 0.7647rem;
-	--mono: ui-monospace, "SF Mono", Menlo, monospace;
+	/* Prose; titles, labels and rows, which sit on one or two lines; a patch's lines. */
+	--leading: 1.45;
+	--leading-tight: 1.3;
+	--leading-code: 1.5;
+	--caps-tracking: 0.02em;
 
 	--radius-s: 4px;
 	--radius-m: 12px;
 	--radius-l: 16px;
 	--radius-full: 999px;
+	/* The width of separators and of the line around cards and fields. */
+	--hairline: 0.5px;
 	--target: 44px;
 	/* The reading column, and the sidebar the drawer becomes on a wide screen. */
 	--column: 760px;
@@ -63,8 +53,56 @@
 	--safe-right: env(safe-area-inset-right, 0px);
 }
 
+/* ---- Colour themes. Light's colours are :root's own, so they serve System in light mode and the Light theme. */
+
+:root {
+	color-scheme: light dark;
+	--bg: #f6f6f8;
+	--surface: #ffffff;
+	--surface-2: #efeff4;
+	/* Panels that float over content: toasts, the picker, the chosen segment. */
+	--raised: #ffffff;
+	/* A translucent fill laid over any background: pressed and hovered rows, tracks. */
+	--fill: rgba(120, 120, 128, 0.12);
+	--text: #111114;
+	--text-2: #55555c;
+	--separator: rgba(60, 60, 67, 0.22);
+	/* What can be tapped: links, the send button, primary buttons, focus. */
+	--accent: #0a64d8;
+	--accent-text: #ffffff;
+	--accent-tint: color-mix(in srgb, var(--accent) 12%, transparent);
+	/* What things mean. Done, approved and added; a warning; an error, a failure, a removed line; needs the person;
+	   at work; delivers to GitHub; nothing in particular; the person's own words. Light and Dark keep iOS's habits
+	   where the Terminal is literal: "Needs you" reads in the warning colour, and the attention dot is a red badge. */
+	--done: #1c7c3a;
+	--warn: #9a5b00;
+	--error: #c4271d;
+	--waiting: #9a5b00;
+	--working: #0a64d8;
+	--deliver: #0a64d8;
+	--neutral: #55555c;
+	--person: #0a64d8;
+	--person-text: #ffffff;
+	--badge: #c4271d;
+	--code: #f2f2f6;
+	--add: rgba(28, 124, 58, 0.14);
+	--del: rgba(196, 39, 29, 0.12);
+	--scrim: rgba(0, 0, 0, 0.32);
+	--shadow: 0 1px 3px rgba(0, 0, 0, 0.08), 0 8px 32px rgba(0, 0, 0, 0.14);
+	--lift: 0 1px 3px rgba(0, 0, 0, 0.12);
+	/* The title bar and composer bar: the page showing through, frosted. */
+	--bar: color-mix(in srgb, var(--bg) 88%, transparent);
+	--bar-blur: saturate(180%) blur(16px);
+}
+
+:root[data-theme="light"] {
+	color-scheme: light;
+}
+
+/* Dark's colours are written twice, for System in dark mode and for the Dark theme: a selector cannot test a media
+   query. An end-to-end test checks the two stay the same. */
 @media (prefers-color-scheme: dark) {
-	:root {
+	:root:not([data-theme]) {
 		--bg: #111113;
 		--surface: #1c1c1f;
 		--surface-2: #2a2a2e;
@@ -75,11 +113,16 @@
 		--separator: rgba(235, 235, 245, 0.2);
 		--accent: #4c9bff;
 		--accent-text: #06101f;
-		--good: #4fd07a;
+		--done: #4fd07a;
 		--warn: #f2b14c;
-		--bad: #ff6b60;
-		--bubble: #2f6fd6;
-		--bubble-text: #ffffff;
+		--error: #ff6b60;
+		--waiting: #f2b14c;
+		--working: #4c9bff;
+		--deliver: #4c9bff;
+		--neutral: #a9a9b2;
+		--person: #2f6fd6;
+		--person-text: #ffffff;
+		--badge: #ff6b60;
 		--code: #232327;
 		--add: rgba(79, 208, 122, 0.16);
 		--del: rgba(255, 107, 96, 0.16);
@@ -88,10 +131,88 @@
 	}
 }
 
+:root[data-theme="dark"] {
+	color-scheme: dark;
+	--bg: #111113;
+	--surface: #1c1c1f;
+	--surface-2: #2a2a2e;
+	--raised: #333338;
+	--fill: rgba(120, 120, 128, 0.2);
+	--text: #f4f4f6;
+	--text-2: #a9a9b2;
+	--separator: rgba(235, 235, 245, 0.2);
+	--accent: #4c9bff;
+	--accent-text: #06101f;
+	--done: #4fd07a;
+	--warn: #f2b14c;
+	--error: #ff6b60;
+	--waiting: #f2b14c;
+	--working: #4c9bff;
+	--deliver: #4c9bff;
+	--neutral: #a9a9b2;
+	--person: #2f6fd6;
+	--person-text: #ffffff;
+	--badge: #ff6b60;
+	--code: #232327;
+	--add: rgba(79, 208, 122, 0.16);
+	--del: rgba(255, 107, 96, 0.16);
+	--scrim: rgba(0, 0, 0, 0.5);
+	--shadow: 0 1px 3px rgba(0, 0, 0, 0.3), 0 8px 32px rgba(0, 0, 0, 0.5);
+}
+
+/* Terminal, ANSI dark neon: light grey on near-black in a monospace font, square, outlined in one pixel, flat, and
+   each meaning in one fluorescent colour wherever it appears. Yellow is the person: their words and what they can
+   tap. Magenta needs them, cyan is at work, lime is done, orange warns, red is an error, blue goes to GitHub. Every
+   colour, as text or as a fill under near-black text, has at least 6:1 contrast. */
+:root[data-theme="terminal"] {
+	color-scheme: dark;
+	--font: var(--mono);
+	--title: 1rem;
+	--leading: 1.3;
+	--leading-tight: 1.25;
+	--leading-code: 1.25;
+	--caps-tracking: 0;
+	--radius-s: 0;
+	--radius-m: 0;
+	--radius-l: 0;
+	--radius-full: 0;
+	--hairline: 1px;
+
+	--bg: #0a0a0a;
+	--surface: #0a0a0a;
+	--surface-2: transparent;
+	--raised: #0a0a0a;
+	--fill: #1f1f1f;
+	--text: #d4d4d4;
+	--text-2: #949494;
+	--separator: #646464;
+	--accent: #ffe83b;
+	--accent-text: #0a0a0a;
+	--accent-tint: transparent;
+	--done: #a6ff2e;
+	--warn: #ff9d2e;
+	--error: #ff5252;
+	--waiting: #ff4fe0;
+	--working: #2ee6ff;
+	--deliver: #4aa3ff;
+	--neutral: #949494;
+	--person: #ffe83b;
+	--person-text: #d4d4d4;
+	--badge: #ff4fe0;
+	--code: transparent;
+	--add: transparent;
+	--del: transparent;
+	--scrim: #0a0a0a;
+	--shadow: none;
+	--lift: none;
+	--bar: #0a0a0a;
+	--bar-blur: none;
+}
+
 /* -apple-system-body follows iOS's Text Size setting; elsewhere the browser's default size applies. */
 html {
 	font: -apple-system-body;
-	font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+	font-family: var(--font);
 	-webkit-text-size-adjust: 100%;
 	text-size-adjust: 100%;
 	background: var(--bg);
@@ -104,7 +225,7 @@ body {
 	margin: 0;
 	min-height: 100dvh;
 	overflow-x: clip;
-	line-height: 1.45;
+	line-height: var(--leading);
 	-webkit-tap-highlight-color: transparent;
 }
 
@@ -125,8 +246,8 @@ html:has(.sheet) {
 	box-sizing: border-box;
 }
 
-/* When the system switches between light and dark, everything changes colour at once; without this, elements with a
-   colour transition would fade a beat behind the rest. main.tsx sets the class for the frame of the switch. */
+/* When the theme changes, by the system or by choice, everything changes colour at once; without this, elements with
+   a colour transition would fade a beat behind the rest. theme.ts sets the class for the frame of the switch. */
 .theme-changing *,
 .theme-changing *::before,
 .theme-changing *::after {
@@ -241,7 +362,7 @@ details > summary:active {
 .spinner {
 	width: 1em;
 	height: 1em;
-	border-radius: 50%;
+	border-radius: var(--radius-full);
 	border: 2px solid color-mix(in srgb, currentColor 25%, transparent);
 	border-top-color: currentColor;
 	animation: spin 0.7s linear infinite;
@@ -263,7 +384,7 @@ details > summary:active {
 	font-weight: 600;
 	color: var(--text-2);
 	text-transform: uppercase;
-	letter-spacing: 0.02em;
+	letter-spacing: var(--caps-tracking);
 }
 
 /* ---- Layout */
@@ -306,10 +427,10 @@ details > summary:active {
 	position: sticky;
 	top: 0;
 	z-index: 5;
-	background: color-mix(in srgb, var(--bg) 88%, transparent);
-	-webkit-backdrop-filter: saturate(180%) blur(16px);
-	backdrop-filter: saturate(180%) blur(16px);
-	border-bottom: 0.5px solid var(--separator);
+	background: var(--bar);
+	-webkit-backdrop-filter: var(--bar-blur);
+	backdrop-filter: var(--bar-blur);
+	border-bottom: var(--hairline) solid var(--separator);
 }
 
 .topbar {
@@ -328,14 +449,14 @@ details > summary:active {
 .title-block {
 	flex: 1;
 	min-width: 0;
-	line-height: 1.3;
+	line-height: var(--leading-tight);
 }
 
 .title {
 	margin: 0;
 	font-size: 1rem;
 	font-weight: 600;
-	line-height: 1.3;
+	line-height: var(--leading-tight);
 	overflow: hidden;
 	text-overflow: ellipsis;
 	white-space: nowrap;
@@ -389,11 +510,11 @@ details > summary:active {
 }
 
 .status-pill.attention {
-	color: var(--warn);
+	color: var(--waiting);
 }
 
 .status-pill.working {
-	color: var(--accent);
+	color: var(--working);
 }
 
 .progress {
@@ -408,7 +529,7 @@ details > summary:active {
 .progress-bar {
 	display: block;
 	height: 100%;
-	background: var(--accent);
+	background: var(--working);
 	transform-origin: left;
 	transition: transform var(--present) var(--ease-out);
 }
@@ -429,7 +550,7 @@ details > summary:active {
 	display: flex;
 	flex-direction: column;
 	padding: var(--safe-top) 0 var(--safe-bottom) var(--safe-left);
-	border-right: 0.5px solid var(--separator);
+	border-right: var(--hairline) solid var(--separator);
 	/* Sideways drags belong to the drawer's own gesture; vertical ones scroll its list. */
 	touch-action: pan-y;
 	transform: translateX(-100%);
@@ -540,7 +661,7 @@ details > summary:active {
 	gap: 12px;
 	align-items: center;
 	padding: 12px 16px;
-	line-height: 1.3;
+	line-height: var(--leading-tight);
 	color: var(--text);
 	text-decoration: none;
 	transition: background-color var(--quick) var(--ease-out);
@@ -556,7 +677,7 @@ details > summary:active {
 	left: 16px;
 	right: 0;
 	bottom: 0;
-	border-bottom: 0.5px solid var(--separator);
+	border-bottom: var(--hairline) solid var(--separator);
 }
 
 li:last-child > .row::after {
@@ -602,11 +723,11 @@ li:last-child > .row::after {
 }
 
 .row-label.attention {
-	color: var(--warn);
+	color: var(--waiting);
 }
 
 .row-label.working {
-	color: var(--accent);
+	color: var(--working);
 }
 
 .row-side {
@@ -622,8 +743,8 @@ li:last-child > .row::after {
 .dot {
 	width: 10px;
 	height: 10px;
-	border-radius: 50%;
-	background: var(--bad);
+	border-radius: var(--radius-full);
+	background: var(--badge);
 	display: inline-block;
 }
 
@@ -642,11 +763,19 @@ li:last-child > .row::after {
 	display: flex;
 	flex-direction: column;
 	align-items: flex-start;
-	border-top: 0.5px solid var(--separator);
+	border-top: var(--hairline) solid var(--separator);
 }
 
 .drawer-footer .link {
 	padding: 0;
+}
+
+.theme-choice {
+	display: flex;
+	align-items: center;
+	gap: 12px;
+	font-size: var(--footnote);
+	color: var(--text-2);
 }
 
 .connection {
@@ -718,8 +847,8 @@ details[open] > summary > .icon:first-child {
 }
 
 .bubble {
-	background: var(--bubble);
-	color: var(--bubble-text);
+	background: var(--person);
+	color: var(--person-text);
 	padding: 8px 12px;
 	border-radius: var(--radius-l);
 	white-space: pre-wrap;
@@ -775,7 +904,7 @@ details[open] > summary > .icon:first-child {
 	margin: 16px 0 8px;
 	font-size: 1rem;
 	font-weight: 600;
-	line-height: 1.3;
+	line-height: var(--leading-tight);
 }
 
 .markdown h1 {
@@ -800,7 +929,7 @@ details[open] > summary > .icon:first-child {
 
 .markdown hr {
 	border: none;
-	border-top: 0.5px solid var(--separator);
+	border-top: var(--hairline) solid var(--separator);
 	margin: 16px 0;
 }
 
@@ -840,7 +969,7 @@ details[open] > summary > .icon:first-child {
 
 .markdown th,
 .markdown td {
-	border: 0.5px solid var(--separator);
+	border: var(--hairline) solid var(--separator);
 	padding: 4px 8px;
 }
 
@@ -873,7 +1002,7 @@ details[open] > summary > .icon:first-child {
 }
 
 .failed-tag {
-	color: var(--bad);
+	color: var(--error);
 	font-weight: 600;
 	font-size: var(--footnote);
 	white-space: nowrap;
@@ -881,7 +1010,7 @@ details[open] > summary > .icon:first-child {
 
 .activity .spinner,
 .call .spinner {
-	color: var(--accent);
+	color: var(--working);
 }
 
 /* The calls in a stretch of work hang from a line under the group's chevron. */
@@ -898,7 +1027,7 @@ details[open] > summary > .icon:first-child {
 }
 
 .call.failed .call-summary {
-	color: var(--bad);
+	color: var(--error);
 }
 
 /* Lined up with the call's text, past its chevron. */
@@ -928,13 +1057,13 @@ details[open] > summary > .icon:first-child {
 }
 
 .system-note.error {
-	color: var(--bad);
+	color: var(--error);
 }
 
 .compaction .markdown {
 	font-size: var(--subhead);
 	background: var(--surface);
-	border: 0.5px solid var(--separator);
+	border: var(--hairline) solid var(--separator);
 	border-radius: var(--radius-l);
 	padding: 12px 16px;
 }
@@ -945,7 +1074,7 @@ details[open] > summary > .icon:first-child {
 	background: var(--surface);
 	border-radius: var(--radius-l);
 	padding: 16px;
-	border: 0.5px solid var(--separator);
+	border: var(--hairline) solid var(--separator);
 	min-width: 0;
 }
 
@@ -965,7 +1094,7 @@ details[open] > summary > .icon:first-child {
 .card h3 {
 	margin: 0 0 4px;
 	font-size: 1rem;
-	line-height: 1.3;
+	line-height: var(--leading-tight);
 }
 
 .status-tag {
@@ -975,11 +1104,11 @@ details[open] > summary > .icon:first-child {
 	padding: 2px 8px;
 	border-radius: var(--radius-full);
 	background: var(--fill);
-	color: var(--text-2);
+	color: var(--neutral);
 }
 
 .status-tag.good {
-	color: var(--good);
+	color: var(--done);
 }
 
 .question {
@@ -997,7 +1126,7 @@ details[open] > summary > .icon:first-child {
 	font-weight: 600;
 	margin-bottom: 8px;
 	padding: 0;
-	line-height: 1.3;
+	line-height: var(--leading-tight);
 }
 
 .option {
@@ -1009,7 +1138,7 @@ details[open] > summary > .icon:first-child {
 	border-radius: var(--radius-m);
 	background: var(--surface-2);
 	cursor: pointer;
-	line-height: 1.3;
+	line-height: var(--leading-tight);
 	transition: box-shadow var(--quick) var(--ease-out);
 }
 
@@ -1074,7 +1203,7 @@ details[open] > summary > .icon:first-child {
 	width: 100%;
 	margin-top: 8px;
 	border-radius: var(--radius-m);
-	border: 0.5px solid var(--separator);
+	border: var(--hairline) solid var(--separator);
 	background: var(--surface);
 	padding: 8px 12px;
 	resize: vertical;
@@ -1084,7 +1213,7 @@ details[open] > summary > .icon:first-child {
 
 /* A text field shows focus with its border, not a second ring around it. */
 .note:focus-visible,
-.field select:focus-visible {
+select:focus-visible {
 	outline: none;
 	border-color: var(--accent);
 	box-shadow: 0 0 0 1px var(--accent);
@@ -1137,7 +1266,7 @@ details[open] > summary > .icon:first-child {
 	display: inline-flex;
 	justify-content: flex-end;
 	align-items: center;
-	height: 1.45em;
+	height: calc(var(--leading) * 1em);
 	font-variant-numeric: tabular-nums;
 	color: var(--text-2);
 }
@@ -1147,7 +1276,7 @@ details[open] > summary > .icon:first-child {
 }
 
 .steps li.done .icon {
-	color: var(--good);
+	color: var(--done);
 }
 
 .changes {
@@ -1184,7 +1313,7 @@ details[open] > summary > .icon:first-child {
 }
 
 .error-text {
-	color: var(--bad);
+	color: var(--error);
 	overflow-wrap: anywhere;
 }
 
@@ -1201,7 +1330,7 @@ details[open] > summary > .icon:first-child {
 	padding: 12px 12px 12px 16px;
 	border-radius: var(--radius-l);
 	background: var(--surface);
-	border: 0.5px solid var(--separator);
+	border: var(--hairline) solid var(--separator);
 	display: flex;
 	align-items: center;
 	gap: 8px 12px;
@@ -1225,7 +1354,7 @@ details[open] > summary > .icon:first-child {
 }
 
 .banner.error strong {
-	color: var(--bad);
+	color: var(--error);
 }
 
 .banner.warn strong {
@@ -1248,7 +1377,7 @@ details[open] > summary > .icon:first-child {
 	gap: 8px;
 	background: var(--raised);
 	color: var(--text);
-	border: 0.5px solid var(--separator);
+	border: var(--hairline) solid var(--separator);
 	border-radius: var(--radius-l);
 	box-shadow: var(--shadow);
 	font-size: var(--subhead);
@@ -1299,9 +1428,9 @@ details[open] > summary > .icon:first-child {
 	z-index: 5;
 	padding-top: 8px;
 	padding-bottom: max(8px, var(--safe-bottom));
-	background: color-mix(in srgb, var(--bg) 88%, transparent);
-	-webkit-backdrop-filter: saturate(180%) blur(16px);
-	backdrop-filter: saturate(180%) blur(16px);
+	background: var(--bar);
+	-webkit-backdrop-filter: var(--bar-blur);
+	backdrop-filter: var(--bar-blur);
 }
 
 /* The home-indicator inset stays set while the keyboard covers it, which would leave a gap above the keyboard. */
@@ -1317,7 +1446,7 @@ details[open] > summary > .icon:first-child {
 	display: flex;
 	align-items: flex-end;
 	background: var(--surface);
-	border: 0.5px solid var(--separator);
+	border: var(--hairline) solid var(--separator);
 	border-radius: var(--radius-full);
 	padding: 2px;
 }
@@ -1365,7 +1494,7 @@ details[open] > summary > .icon:first-child {
 	position: absolute;
 	inset: 6px;
 	z-index: -1;
-	border-radius: 50%;
+	border-radius: var(--radius-full);
 	background: var(--accent);
 	transition: transform var(--press) var(--ease-out);
 }
@@ -1410,7 +1539,7 @@ details[open] > summary > .icon:first-child {
 	margin: 0;
 	padding: 4px;
 	background: var(--raised);
-	border: 0.5px solid var(--separator);
+	border: var(--hairline) solid var(--separator);
 	border-radius: var(--radius-l);
 	box-shadow: var(--shadow);
 	max-height: calc(var(--viewport-height, 100dvh) * 0.45);
@@ -1427,7 +1556,7 @@ details[open] > summary > .icon:first-child {
 	gap: 0;
 	font-weight: 400;
 	text-align: left;
-	line-height: 1.3;
+	line-height: var(--leading-tight);
 }
 
 .picker button:active {
@@ -1466,10 +1595,10 @@ details[open] > summary > .icon:first-child {
 	color: var(--text-2);
 }
 
-.field select {
+select {
 	min-height: var(--target);
 	border-radius: var(--radius-m);
-	border: 0.5px solid var(--separator);
+	border: var(--hairline) solid var(--separator);
 	background: var(--surface);
 	color: var(--text);
 	padding: 0 12px;
@@ -1495,7 +1624,7 @@ details[open] > summary > .icon:first-child {
 /* Lifted a hairline off the track, as the system control is. */
 .segmented button.selected {
 	background: var(--raised);
-	box-shadow: 0 1px 3px rgba(0, 0, 0, 0.12);
+	box-shadow: var(--lift);
 }
 
 /* ---- Sheet: rises from the bottom over a dimmed page. It closes with Done, Escape, a tap on the dimmed page, or a
@@ -1552,7 +1681,7 @@ details[open] > summary > .icon:first-child {
 	grid-template-columns: 1fr auto 1fr;
 	align-items: center;
 	padding: 12px 4px 4px;
-	border-bottom: 0.5px solid var(--separator);
+	border-bottom: var(--hairline) solid var(--separator);
 	touch-action: none;
 }
 
@@ -1628,7 +1757,7 @@ details[open] > summary > .icon:first-child {
 	background: var(--surface);
 	border-radius: var(--radius-m);
 	margin-top: 8px;
-	border: 0.5px solid var(--separator);
+	border: var(--hairline) solid var(--separator);
 	overflow: hidden;
 	min-width: 0;
 }
@@ -1652,11 +1781,11 @@ details[open] > summary > .icon:first-child {
 }
 
 .add {
-	color: var(--good);
+	color: var(--done);
 }
 
 .del {
-	color: var(--bad);
+	color: var(--error);
 }
 
 /* A count of nothing is not news. */
@@ -1671,7 +1800,7 @@ details[open] > summary > .icon:first-child {
 .diff-file .diff-note {
 	padding: 8px 12px;
 	margin: 0;
-	border-top: 0.5px solid var(--separator);
+	border-top: var(--hairline) solid var(--separator);
 }
 
 /* Lines are as wide as the longest one, so a highlight runs the full width while the patch scrolls sideways. */
@@ -1679,10 +1808,10 @@ details[open] > summary > .icon:first-child {
 	margin: 0;
 	padding: 8px 0;
 	background: var(--code);
-	border-top: 0.5px solid var(--separator);
+	border-top: var(--hairline) solid var(--separator);
 	font-size: var(--footnote);
 	font-family: var(--mono);
-	line-height: 1.5;
+	line-height: var(--leading-code);
 	white-space: pre;
 	overflow-x: auto;
 }
@@ -1817,4 +1946,154 @@ details[open] > summary > .icon:first-child {
 			transition: none;
 		}
 	}
+}
+
+/* ---- Terminal. Its tokens make it monospace, square, flat and dark; this section draws what values alone cannot:
+   an outline in place of each fill, and colour by what each thing is or does rather than by its rank. */
+
+/* What each control and status is or does, as a meaning colour; a plain button is drawn in the text's colour, as a
+   terminal draws one. Only the Terminal draws with it. */
+.primary {
+	--tone: var(--accent);
+}
+
+.secondary {
+	--tone: var(--text);
+}
+
+:is(.status-pill, .status-tag) {
+	--tone: var(--neutral);
+}
+
+:is(.status-pill.attention, .status-tag.waiting) {
+	--tone: var(--waiting);
+}
+
+:is(.status-pill.working, .resume) {
+	--tone: var(--working);
+}
+
+:is(.status-pill.done, .status-tag.good, .approve) {
+	--tone: var(--done);
+}
+
+.deliver {
+	--tone: var(--deliver);
+}
+
+.raise {
+	--tone: var(--warn);
+}
+
+[data-theme="terminal"] :is(.primary, .secondary, .status-pill, .status-tag) {
+	border: var(--hairline) solid var(--tone);
+}
+
+[data-theme="terminal"] :is(.secondary, .status-pill, .status-tag) {
+	background: none;
+	color: var(--tone);
+}
+
+/* The primary action in inverse video, as a terminal shows a selection. */
+[data-theme="terminal"] .primary {
+	background: var(--tone);
+	color: var(--bg);
+}
+
+/* Outlines where Light and Dark have fills. :where keeps this as weak as one class, so the colours below win. */
+[data-theme="terminal"] :where(.option, .chip, .bubble, .segmented, .sheet, .report-notes, .markdown pre, .io, .markdown :not(pre) > code) {
+	border: var(--hairline) solid var(--separator);
+}
+
+[data-theme="terminal"] .bubble {
+	background: none;
+	border-color: var(--person);
+}
+
+[data-theme="terminal"] .option.chosen {
+	border-color: var(--accent);
+}
+
+[data-theme="terminal"] .segmented {
+	background: none;
+}
+
+/* What waits for the person, what is finished and what went wrong, outlined in their colours. */
+[data-theme="terminal"] .card.waiting {
+	border-color: var(--waiting);
+	box-shadow: none;
+}
+
+[data-theme="terminal"] .report {
+	border-color: var(--done);
+}
+
+[data-theme="terminal"] .banner.error {
+	border-color: var(--error);
+}
+
+[data-theme="terminal"] .banner.warn {
+	border-color: var(--warn);
+}
+
+[data-theme="terminal"] .row-label.done {
+	color: var(--done);
+}
+
+/* The current item in inverse video. */
+[data-theme="terminal"] :is(.row.current, .segmented button.selected) {
+	background: var(--text);
+	color: var(--bg);
+}
+
+[data-theme="terminal"] .row.current :is(.row-meta, .row-side, .row-label) {
+	color: inherit;
+}
+
+[data-theme="terminal"] .progress {
+	height: 8px;
+	border: var(--hairline) solid var(--working);
+	background: none;
+}
+
+[data-theme="terminal"] .send:disabled::before {
+	border: var(--hairline) solid var(--separator);
+}
+
+/* Everything is monospace, so code needs no size of its own. Inline code wrapped over two lines gets a closed box on
+   each, without the padding that would make boxes on neighbouring lines touch. */
+[data-theme="terminal"] .markdown code {
+	font-size: inherit;
+}
+
+[data-theme="terminal"] .markdown :not(pre) > code {
+	padding: 0 4px;
+	-webkit-box-decoration-break: clone;
+	box-decoration-break: clone;
+}
+
+[data-theme="terminal"] .patch .add {
+	color: var(--done);
+}
+
+[data-theme="terminal"] .patch .del {
+	color: var(--error);
+}
+
+/* Square boxes, filled when chosen, in place of the system's round radio buttons and checkboxes. */
+[data-theme="terminal"] .option input {
+	appearance: none;
+	border: var(--hairline) solid currentColor;
+	padding: 4px;
+	background-clip: content-box;
+}
+
+[data-theme="terminal"] .option input:checked {
+	border-color: var(--accent);
+	background-color: var(--accent);
+}
+
+/* A terminal's block cursor. */
+[data-theme="terminal"] .agent.streaming::after {
+	content: "█";
 }

@@ -6,7 +6,7 @@ declare const self: ServiceWorkerGlobalScope;
 declare const BUILD_ID: string;
 
 const CACHE = `picloud-shell-${BUILD_ID}`;
-const SHELL = ["/", "/app.js", "/app.css", "/manifest.webmanifest", "/icons/icon-192.png", "/icons/icon-512.png", "/icons/apple-touch-icon.png"];
+const SHELL = ["/", "/boot.js", "/app.js", "/app.css", "/manifest.webmanifest", "/icons/icon-192.png", "/icons/icon-512.png", "/icons/apple-touch-icon.png"];
 
 type PushPayload = { title: string; body: string; url: string; tag: string };
 

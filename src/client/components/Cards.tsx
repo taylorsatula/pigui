@@ -140,7 +140,7 @@ export function PlanCardView(props: { card: PlanCard; answer?: CardAnswer; pendi
 		<section class={`card plan ${props.pending ? "waiting" : ""}`} aria-label={`Plan: ${card.plan.title}`}>
 			<header class="card-title">
 				Plan{card.revision > 1 ? `, revision ${card.revision}` : ""}
-				{status === undefined ? null : <span class={`status-tag ${props.answer?.kind === "approve" ? "good" : ""}`}>{status}</span>}
+				{status === undefined ? null : <span class={`status-tag ${props.answer?.kind === "approve" ? "good" : props.pending ? "waiting" : ""}`}>{status}</span>}
 			</header>
 			<h3>{card.plan.title}</h3>
 			<Markdown text={card.plan.summary} />
@@ -155,7 +155,7 @@ export function PlanCardView(props: { card: PlanCard; answer?: CardAnswer; pendi
 			{feedback === undefined ? null : <p class="given">You asked: “{feedback}”</p>}
 			{props.pending ? (
 				<div class="card-actions">
-					<button type="button" class="primary" disabled={busy} onClick={() => void approve()}>
+					<button type="button" class="primary approve" disabled={busy} onClick={() => void approve()}>
 						Approve
 					</button>
 					<button type="button" class="secondary" disabled={busy} onClick={() => props.actions.focusComposer()}>
@@ -241,20 +241,20 @@ export function ReportCard(props: { report: Report; latest: boolean; session?: S
 				<div class="card-actions">
 					{delivery?.pr === undefined ? (
 						<>
-							<button type="button" class="primary wide" disabled={props.running || busy !== undefined} onClick={() => void run("pr")}>
+							<button type="button" class="primary wide deliver" disabled={props.running || busy !== undefined} onClick={() => void run("pr")}>
 								<Busy busy={busy === "pr"} label="Open pull request" working="Opening…" />
 							</button>
 							<button type="button" class="secondary" onClick={() => props.actions.showDiff()}>
 								View changes
 							</button>
-							<button type="button" class="secondary" disabled={props.running || busy !== undefined} onClick={() => void run("push")}>
+							<button type="button" class="secondary deliver" disabled={props.running || busy !== undefined} onClick={() => void run("push")}>
 								<Busy busy={busy === "push"} label={pushed ? "Push again" : "Push branch"} working="Pushing…" />
 							</button>
 						</>
 					) : pushed && busy === undefined ? (
 						// The pull request already has this commit: the next step is to look at it.
 						<>
-							<a class="button primary wide" href={delivery.pr.url} target="_blank" rel="noopener noreferrer">
+							<a class="button primary wide deliver" href={delivery.pr.url} target="_blank" rel="noopener noreferrer">
 								View PR #{delivery.pr.number}
 							</a>
 							<button type="button" class="secondary" onClick={() => props.actions.showDiff()}>
@@ -263,13 +263,13 @@ export function ReportCard(props: { report: Report; latest: boolean; session?: S
 						</>
 					) : (
 						<>
-							<button type="button" class="primary wide" disabled={props.running || busy !== undefined} onClick={() => void run("pr")}>
+							<button type="button" class="primary wide deliver" disabled={props.running || busy !== undefined} onClick={() => void run("pr")}>
 								<Busy busy={busy === "pr"} label={`Update PR #${delivery.pr.number}`} working="Updating…" />
 							</button>
 							<button type="button" class="secondary" onClick={() => props.actions.showDiff()}>
 								View changes
 							</button>
-							<a class="button secondary" href={delivery.pr.url} target="_blank" rel="noopener noreferrer">
+							<a class="button secondary deliver" href={delivery.pr.url} target="_blank" rel="noopener noreferrer">
 								View PR #{delivery.pr.number}
 							</a>
 						</>

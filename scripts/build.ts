@@ -1,5 +1,6 @@
-// Builds the phone app into dist/public: one esbuild bundle for the app and one for the service worker, the static
-// shell, and the icons, drawn here so the repository holds no binary assets. Then the sandbox launcher into dist/bin.
+// Builds the phone app into dist/public: esbuild bundles for the app, its theme boot script and the service worker,
+// the static shell, and the icons, drawn here so the repository holds no binary assets. Then the sandbox launcher into
+// dist/bin.
 import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { copyFile, mkdir, readFile, rm, writeFile } from "node:fs/promises";
@@ -28,9 +29,25 @@ const app = await build({
 	metafile: true,
 	logLevel: "warning",
 });
+// A classic script, not a module, so it runs before the first paint (see src/client/boot.ts).
+const boot = await build({
+	entryPoints: [join(client, "boot.ts")],
+	outfile: join(out, "boot.js"),
+	bundle: true,
+	format: "iife",
+	platform: "browser",
+	target: ["safari16", "chrome110"],
+	minify: true,
+	metafile: true,
+	logLevel: "warning",
+});
 // The service worker's cache is named after everything in the shell, so any change to it replaces the cache.
 const shell = await Promise.all(["index.html", "app.css", "manifest.webmanifest"].map((file) => readFile(join(client, file))));
-const buildId = createHash("sha256").update(JSON.stringify(app.metafile.outputs)).update(Buffer.concat(shell)).digest("hex").slice(0, 12);
+const buildId = createHash("sha256")
+	.update(JSON.stringify([app.metafile.outputs, boot.metafile.outputs]))
+	.update(Buffer.concat(shell))
+	.digest("hex")
+	.slice(0, 12);
 
 await build({
 	entryPoints: [join(root, "src", "sw", "sw.ts")],
