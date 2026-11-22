@@ -23,26 +23,38 @@ test.describe("the tap flow", () => {
 		expect(errors).toEqual([]);
 	});
 
-	test("tool calls and thinking are collapsed and open on a tap", async ({ page }) => {
+	test("once the turn is over, each stretch of work is folded to one line, and opens to its thinking and calls", async ({ page }) => {
 		await startSession(page, "Add a shout() function");
 		await approveThrough(page);
 		await expect(page.getByRole("region", { name: "Report" })).toBeVisible({ timeout: 30_000 });
 
-		const thinking = page.locator("details.thinking").first();
-		await expect(thinking.locator("p")).toBeHidden();
-		await thinking.locator("summary").tap();
-		await expect(thinking.locator("p")).toBeVisible();
+		const work = page.locator("details.work");
+		const first = work.first();
+		await expect(first.locator(".thought").first()).toBeHidden();
+		await first.locator(":scope > summary").tap();
+		await expect(first.locator(".thought").first()).toBeVisible();
 
-		const activity = page.locator("details.activity").last();
-		await expect(activity.locator(":scope > summary")).toContainText("Wrote 2 files");
-		const call = activity.locator("details.call").first();
+		const last = work.last();
+		await expect(last.locator(":scope > summary")).toContainText("Wrote 2 files");
+		const call = last.locator("details.call").first();
 		await expect(call).toBeHidden();
-		await activity.locator(":scope > summary").tap();
+		await last.locator(":scope > summary").tap();
 		await expect(call).toBeVisible();
 		await expect(call.locator(".io").first()).toBeHidden();
 		await call.locator(":scope > summary").tap();
 		await expect(call.getByText("Input")).toBeVisible();
 		await expect(call.locator(".io").first()).toContainText("src/shout.ts");
+	});
+
+	test("while the agent works its calls show as they happen, and fold away when the turn ends", async ({ page }) => {
+		await startSession(page, "Keep going [spin]");
+		const work = page.locator("details.work").last();
+		await expect(work).toHaveAttribute("open", "");
+		await expect(work.locator("details.call").nth(2)).toBeVisible({ timeout: 15_000 });
+		await expect(work.locator("details.call").first()).toContainText("Ran echo turn");
+		await page.getByRole("button", { name: "Stop" }).tap();
+		await expect(work).not.toHaveAttribute("open");
+		await expect(work.locator("details.call").first()).toBeHidden();
 	});
 
 	test("a waiting card is answered by typing in the composer", async ({ page }) => {

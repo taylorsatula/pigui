@@ -1,13 +1,14 @@
-// The transcript, set as a conversation is set in print: the person's words in the semibold, the agent's in the roman,
-// and a date between them where a session runs into a new day. Detail is collapsed until asked for: thinking, tool
-// activity (one line per stretch of work, then each call, then its full input and output) and compaction checkpoints
-// all open on a tap. Failures show while collapsed.
+// The transcript, set as a conversation is set in print: the person's words in the serif, the agent's in the sans, and a
+// date between them where a session runs into a new day. While the agent works, each stretch of its work is open to
+// watch: its thinking as it comes, each tool call as a line, and the running call's latest output. When the turn ends
+// the stretch folds into one line, which opens on a tap, as each call does to its full input and output. Failures show
+// while folded.
 import type { JSX } from "preact";
-import { useLayoutEffect, useRef, useState } from "preact/hooks";
+import { useEffect, useLayoutEffect, useRef, useState } from "preact/hooks";
 import type { SessionDoc } from "../../shared/session.ts";
 import { dayHeading, describeCall, describeGroup, sameDay } from "../format.ts";
 import { live } from "../live.ts";
-import type { Block, CallView } from "../transcript.ts";
+import type { Block, CallView, WorkItem } from "../transcript.ts";
 import { followEnd, keepPosition, pinToEnd, stopFollowing } from "../viewport.ts";
 import { type CardActions, type DeliveryActions, PlanCardView, QuestionsCard, ReportCard } from "./Cards.tsx";
 import { Icon } from "./Icons.tsx";
@@ -19,46 +20,72 @@ function Cursor(): JSX.Element {
 	return <span class="cursor" role="img" aria-label="running" />;
 }
 
+/** The last lines of a running call's output, enough to see what it is doing. */
+const PEEK_LINES = 3;
+
+function peek(output: string | undefined): string {
+	return (output ?? "").trimEnd().split("\n").slice(-PEEK_LINES).join("\n");
+}
+
 function CallDetail(props: { call: CallView }): JSX.Element {
 	const { call } = props;
 	const input = call.name === "bash" ? String(call.args.command ?? "") : JSON.stringify(call.args, null, 2);
+	const latest = call.status === "running" ? peek(call.output) : "";
 	return (
-		<details class={`call ${call.status}`}>
-			<summary>
-				<Icon name="chevron" size={14} />
-				<span class="call-summary">{describeCall(call.name, call.args)}</span>
-				{call.status === "failed" ? <span class="failed-tag">failed</span> : null}
-				{call.status === "running" ? <Cursor /> : null}
-			</summary>
-			<div class="call-body">
-				<div class="io-label">Input</div>
-				<pre class="io">{input}</pre>
-				{call.output === undefined ? null : (
-					<>
-						<div class="io-label">Output</div>
-						<pre class="io">{call.output === "" ? "(no output)" : call.output}</pre>
-					</>
-				)}
-			</div>
-		</details>
+		<>
+			<details class={`call ${call.status}`}>
+				<summary>
+					<Icon name="chevron" size={14} />
+					<span class="call-summary">{describeCall(call.name, call.args)}</span>
+					{call.status === "failed" ? <span class="failed-tag">failed</span> : null}
+					{call.status === "running" ? <Cursor /> : null}
+				</summary>
+				<div class="call-body">
+					<div class="io-label">Input</div>
+					<pre class="io">{input}</pre>
+					{call.output === undefined ? null : (
+						<>
+							<div class="io-label">Output</div>
+							<pre class="io">{call.output === "" ? "(no output)" : call.output}</pre>
+						</>
+					)}
+				</div>
+			</details>
+			{/* Outside the call's own disclosure, so what a running call is doing shows without a tap. */}
+			{latest === "" ? null : <pre class="peek">{latest}</pre>}
+		</>
 	);
 }
 
-function Activity(props: { calls: CallView[] }): JSX.Element {
-	const failed = props.calls.filter((call) => call.status === "failed").length;
-	const running = props.calls.some((call) => call.status === "running");
+/**
+ * A stretch of work: open while its turn runs, folded once it ends. A tap opens or folds it at any time; the next
+ * change between running and finished sets it again.
+ */
+function Work(props: { items: WorkItem[]; live: boolean }): JSX.Element {
+	const [open, setOpen] = useState(props.live);
+	useEffect(() => setOpen(props.live), [props.live]);
+	const calls = props.items.flatMap((item) => (item.kind === "call" ? [item.call] : []));
+	const failed = calls.filter((call) => call.status === "failed").length;
+	const busy = props.items.some((item) => (item.kind === "call" ? item.call.status === "running" : item.streaming));
 	return (
-		<details class={`activity ${failed > 0 ? "has-failure" : ""}`}>
+		<details class={`work ${props.live ? "live" : ""}`} open={open} onToggle={(event) => setOpen((event.currentTarget as HTMLDetailsElement).open)}>
 			<summary>
 				<Icon name="chevron" size={14} />
-				<span class="activity-summary">{describeGroup(props.calls.map((call) => call.name))}</span>
+				<span class="work-summary">{calls.length > 0 ? describeGroup(calls.map((call) => call.name)) : busy ? "Thinking" : "Thought"}</span>
 				{failed > 0 ? <span class="failed-tag">{failed} failed</span> : null}
-				{running ? <Cursor /> : null}
+				{busy && !open ? <Cursor /> : null}
 			</summary>
-			<div class="calls">
-				{props.calls.map((call) => (
-					<CallDetail key={call.id} call={call} />
-				))}
+			<div class="timeline">
+				{props.items.map((item) =>
+					item.kind === "thinking" ? (
+						<p key={item.key} class="thought">
+							{item.text}
+							{item.streaming ? <Cursor /> : null}
+						</p>
+					) : (
+						<CallDetail key={item.key} call={item.call} />
+					),
+				)}
 			</div>
 		</details>
 	);
@@ -152,19 +179,8 @@ export function Transcript(props: {
 				return <Markdown text={block.text} class={`agent ${block.streaming ? "streaming" : ""}`} />;
 			case "speak":
 				return props.session === undefined ? null : <Speak id={block.key} session={props.session.id} markdown={block.text} />;
-			case "thinking":
-				return (
-					<details class="thinking">
-						<summary>
-							<Icon name="chevron" size={14} />
-							{block.streaming ? "Thinking" : "Thought"}
-							{block.streaming ? <Cursor /> : null}
-						</summary>
-						<p>{block.text}</p>
-					</details>
-				);
-			case "activity":
-				return <Activity calls={block.calls} />;
+			case "work":
+				return <Work items={block.items} live={block.live} />;
 			case "questions":
 				return <QuestionsCard card={block.card} pending={block.pending} actions={props.cards} {...(block.answer === undefined ? {} : { answer: block.answer })} />;
 			case "plan":

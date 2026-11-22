@@ -315,8 +315,9 @@ How the Human Interface Guidelines shaped it:
 - **Clarity:** the composer's placeholder says what sending will do now ("Answer in your own words…", "Steer Pi while
   it works…"); tool activity is one plain sentence ("Ran 2 commands, edited 1 file"); failures name the problem and
   offer the next step (Continue, Raise to $X and continue, Retry setup).
-- **Deference:** content first — status and spend are one line under the title; thinking, tool calls and handoffs are
-  collapsed until asked for; the agent's prose is set to be read, the person's words in its semibold.
+- **Deference:** content first — status and spend are one line under the title; finished work, handoffs and
+  checkpoints are folded until asked for; the agent's prose is set to be read, the person's words in the serif above
+  it.
 - **Sensible defaults:** the last repository, a new branch from its default branch, recommended options pre-selected
   so accepting them is one tap.
 - **Familiar navigation:** a ☰ drawer (and an edge swipe) on phones, a persistent sidebar on wide screens; the drawer
@@ -354,6 +355,16 @@ highlighter drawn across) read as a costume: the props announced the idea instea
 margin cost a phone fifty pixels of every line. A newspaper layout made the waiting moment loud but everything else
 too graphic for something read every day; the system sans with a stronger accent kept the hollowness, which came from
 the defaults, not the colour.
+
+**Work is watched while it happens and folded once it is done.** Everything the agent does between two pieces of its
+prose is one stretch of work: its thinking and its tool calls, in the order they happened. While the turn runs (from
+the person's last message, until the run ends or parks on a card) each stretch is open: the thinking shows as quiet
+text as it streams, each call is a line saying what it does, and the running call shows the last three lines of its
+output. When the turn ends, each stretch folds to one line ("Ran 12 commands, wrote 8 files · 1 failed") that opens on
+a tap, as each call does to its input and output. A tap opens or folds a stretch at any time; the next change between
+running and finished sets it again. *Before:* calls gathered into one group until the agent wrote prose, but thinking
+did not end a group, so a long run showed one line of calls followed by a column of separate "Thought" rows, out of
+order and with nothing to watch while it worked.
 
 **A plan and a report are reviewed part by part.** Each part sits under a small label, each item is one line, and what
 supports it (a decision's reason, a condition's evidence, a step's files, a check's output) is set smaller beneath it.
@@ -680,11 +691,11 @@ the background. Web Audio was ruled out because the silent switch mutes it. The 
 the phone does not.
 
 **What a reply is, and where the speaker goes.** A reply is the agent's text in one turn: consecutive text blocks,
-read as one with the thinking and tool activity between them left out. Any other block (the person's message, a
+read as one with the work between them left out. Any other block (the person's message, a
 card, a notice, a compaction) ends it, and the newest reply ends when the run does, so no speaker appears while text
 may still come. The speaker sits after the reply's last text. On the report card it ends the title row and reads the
-summary, changes and notes, the prose the card shows; what waits behind a tap (verification, what Pi learned) is not
-read.
+headline, summary, departures from the plan and notes, the prose a person reads first; the record under it (the end
+state, changes, checks, what Pi learned) is not read.
 
 ## Slash commands: not built
 

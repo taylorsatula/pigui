@@ -1185,9 +1185,8 @@ details[open] > summary > .icon:first-child {
 	text-transform: none;
 }
 
-/* Lines of record: what the agent thought and did, one monospace line each until opened. */
-.thinking > summary,
-.activity > summary,
+/* Lines of record: what the agent did, one monospace line each until opened. */
+.work > summary,
 .compaction > summary,
 .call > summary {
 	font-family: var(--mono);
@@ -1195,15 +1194,35 @@ details[open] > summary > .icon:first-child {
 	color: var(--text-2);
 }
 
-.thinking p {
-	margin: 0 0 8px 20px;
-	color: var(--text-2);
-	white-space: pre-wrap;
-	font-size: var(--subhead);
-	font-style: italic;
+/* While its turn runs, a stretch's summary says what has been done so far, in ink, above the work as it happens. */
+.work.live > summary {
+	color: var(--text);
 }
 
-.activity-summary,
+/* The agent's thinking, as it thinks: quieter and smaller than its prose, so the two never read as one. */
+.thought {
+	margin: 6px 0 8px;
+	font-size: var(--footnote);
+	line-height: 1.45;
+	color: var(--text-2);
+	white-space: pre-wrap;
+	overflow-wrap: anywhere;
+}
+
+/* The last lines of a running call's output, under its line. */
+.peek {
+	margin: -8px 0 6px 20px;
+	font-family: var(--mono);
+	font-size: var(--label);
+	line-height: var(--leading-code);
+	color: var(--text-2);
+	white-space: pre-wrap;
+	overflow-wrap: anywhere;
+	max-height: calc(3 * var(--leading-code) * 1em);
+	overflow: hidden;
+}
+
+.work-summary,
 .call-summary {
 	min-width: 0;
 	overflow: hidden;
@@ -1217,12 +1236,8 @@ details[open] > summary > .icon:first-child {
 	white-space: nowrap;
 }
 
-.has-failure > summary .activity-summary {
-	color: var(--text);
-}
-
-/* The calls in a stretch of work hang from a line under the group's chevron. */
-.calls {
+/* A stretch's thinking and calls hang from a line under its chevron, in the order they happened. */
+.timeline {
 	display: flex;
 	flex-direction: column;
 	margin: 0 0 6px 6px;
@@ -2408,7 +2423,7 @@ select {
 	border: var(--hairline) solid var(--separator);
 }
 
-[data-theme="terminal"] :is(.thinking p, .markdown blockquote) {
+[data-theme="terminal"] .markdown blockquote {
 	font-style: normal;
 }
 

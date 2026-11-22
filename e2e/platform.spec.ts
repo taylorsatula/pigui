@@ -23,7 +23,7 @@ for (const theme of ["system", "terminal"]) {
 			await startSession(page, `Add a shout() function — ${"averyveryverylongwordwithoutanyspaces".repeat(4)}`);
 			await approveThrough(page);
 			await expect(page.getByRole("region", { name: "Report" })).toBeVisible({ timeout: 30_000 });
-			for (const summary of await page.locator("details.activity > summary, details.thinking > summary").all()) await summary.tap();
+			for (const summary of await page.locator("details.work > summary").all()) await summary.tap();
 			for (const summary of await page.locator("details.call > summary").all()) await summary.tap();
 			await noHorizontalScroll(page);
 			await page.getByRole("region", { name: "Report" }).getByRole("button", { name: "View changes" }).tap();

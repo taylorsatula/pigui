@@ -1,6 +1,6 @@
-// From Durable entries to what the session view shows: the person's messages, the agent's prose, its thinking, its
-// tool activity grouped into one collapsed line per stretch of work, cards in place of the tool calls behind them, and a
-// speaker under each finished reply.
+// From Durable entries to what the session view shows: the person's messages, the agent's prose, each stretch of work
+// between its prose (its thinking and tool calls, in the order they happened), cards in place of the tool calls behind
+// them, and a speaker under each finished reply.
 import type { AssistantMessage, ToolResultMessage } from "@earendil-works/pi-ai";
 import type { EntryRecord, LiveState, TranscriptView } from "@earendil-works/pi-durable";
 import {
@@ -24,6 +24,9 @@ import type { Gap } from "./live.ts";
 
 const CARD_TOOLS = new Set(["ask_single_choice", "ask_multiple_choice", "submit_plan", "file_report"]);
 
+/** What a stretch of work holds, in order: the agent's thinking and its tool calls. */
+export type WorkItem = { kind: "thinking"; key: string; text: string; streaming: boolean } | { kind: "call"; key: string; call: CallView };
+
 export type CallView = {
 	id: string;
 	name: string;
@@ -40,8 +43,8 @@ export type Block = (
 	| { kind: "text"; key: string; text: string; streaming: boolean }
 	/** After a finished reply: its text, to read aloud. */
 	| { kind: "speak"; key: string; text: string }
-	| { kind: "thinking"; key: string; text: string; streaming: boolean }
-	| { kind: "activity"; key: string; calls: CallView[] }
+	/** A stretch of work between two pieces of prose. `live` while the turn it belongs to is still running. */
+	| { kind: "work"; key: string; items: WorkItem[]; live: boolean }
 	| { kind: "questions"; key: string; card: QuestionCard; answer?: CardAnswer; pending: boolean }
 	| { kind: "plan"; key: string; card: PlanCard; answer?: CardAnswer; pending: boolean }
 	| { kind: "report"; key: string; report: Report; latest: boolean }
@@ -110,16 +113,17 @@ export function buildBlocks(view: TranscriptView | undefined, session: SessionDo
 	const add = (block: Block) => {
 		blocks.push(now === undefined ? block : { ...block, at: now });
 	};
-	let activity: CallView[] | undefined;
+	// Thinking and calls gather into one stretch of work until the agent writes prose or something else interrupts.
+	let work: WorkItem[] | undefined;
 	const flush = () => {
-		activity = undefined;
+		work = undefined;
 	};
-	const addCall = (key: string, call: CallView) => {
-		if (activity === undefined) {
-			activity = [];
-			add({ kind: "activity", key, calls: activity });
+	const addWork = (item: WorkItem) => {
+		if (work === undefined) {
+			work = [];
+			add({ kind: "work", key: item.key, items: work, live: false });
 		}
-		activity.push(call);
+		work.push(item);
 	};
 
 	const assistant = (key: string, message: AssistantMessage, streaming: boolean) => {
@@ -127,7 +131,7 @@ export function buildBlocks(view: TranscriptView | undefined, session: SessionDo
 		message.content.forEach((block, index) => {
 			const blockKey = `${key}:${index}`;
 			if (block.type === "thinking") {
-				if (block.thinking.trim() !== "") add({ kind: "thinking", key: blockKey, text: block.thinking, streaming });
+				if (block.thinking.trim() !== "") addWork({ kind: "thinking", key: blockKey, text: block.thinking, streaming });
 				return;
 			}
 			if (block.type === "text") {
@@ -148,7 +152,7 @@ export function buildBlocks(view: TranscriptView | undefined, session: SessionDo
 				result !== undefined ? (result.message.isError ? "failed" : "done") : slot?.status === "sleeping" || slot?.status === "waiting" ? "waiting" : "running";
 			const output = result !== undefined ? resultText(result.message) : slot?.output;
 			const call: CallView = { id: block.id, name: block.name, args: block.arguments, status };
-			addCall(blockKey, output === undefined ? call : { ...call, output });
+			addWork({ kind: "call", key: blockKey, call: output === undefined ? call : { ...call, output } });
 		});
 		if (message.stopReason === "error" || message.stopReason === "aborted") {
 			flush();
@@ -215,12 +219,21 @@ export function buildBlocks(view: TranscriptView | undefined, session: SessionDo
 	}
 	const partial = live?.generation?.message as AssistantMessage | undefined;
 	if (partial !== undefined) assistant("streaming", partial, true);
-	return withSpeakers(blocks, running);
+	return withSpeakers(withLiveWork(blocks, running && session?.card === undefined), running);
+}
+
+/**
+ * The work of the turn under way stays open to watch: everything since the person last wrote, while the agent is
+ * working rather than waiting for them. Once the turn ends, its work folds away.
+ */
+function withLiveWork(blocks: readonly Block[], working: boolean): Block[] {
+	const turnStart = blocks.findLastIndex((block) => block.kind === "person" || block.kind === "nudge");
+	return blocks.map((block, index) => (block.kind === "work" && working && index > turnStart ? { ...block, live: true } : block));
 }
 
 /**
  * A speaker after the last text of each finished reply. A reply is the agent's text in one turn, read as one, with the
- * thinking and tool activity between its parts left out. Anything else ends the turn, and the newest ends with the run.
+ * work between its parts left out. Anything else ends the turn, and the newest ends with the run.
  */
 function withSpeakers(blocks: readonly Block[], running: boolean): Block[] {
 	const result: Block[] = [];
@@ -240,7 +253,7 @@ function withSpeakers(blocks: readonly Block[], running: boolean): Block[] {
 			after = result.length;
 			continue;
 		}
-		if (block.kind !== "thinking" && block.kind !== "activity") finish();
+		if (block.kind !== "work") finish();
 		result.push(block);
 	}
 	if (!running) finish();
