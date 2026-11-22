@@ -120,15 +120,17 @@
 	/* What can be tapped is drawn in ink: filled for the main action, outlined or underlined otherwise. */
 	--accent: #1b1915;
 	--accent-text: #fcfbf8;
-	/* What things mean, the alerts near their full colour: done, approved and added; a warning; an error, a failure, a
-	   removed line; needs the person; at work; delivers to GitHub; nothing in particular; the person's own words.
-	   Each alert colour, as text on the page, has at least 4.5:1 contrast. */
+	/* What things mean, one hue each, near full colour wherever the meaning shows: green for done, approved, passed and
+	   added; orange for a warning; red for an error, a failure, a removed line; the yellow (--mark) for the person's
+	   turn; cyan for the agent at work on its own; blue for what reaches GitHub. Then nothing in particular, and the
+	   person's own words. Yellow never marks a warning, and orange never the person's turn. Each colour, as text on the
+	   page, has at least 4.5:1 contrast. */
 	--done: #008038;
 	--warn: #c45000;
 	--error: #d70015;
 	--waiting: #1b1915;
-	--working: #67625a;
-	--deliver: #1b1915;
+	--working: #00758a;
+	--deliver: #0057d9;
 	--neutral: #67625a;
 	--person: #1b1915;
 	--badge: #ffd400;
@@ -176,8 +178,8 @@
 		--warn: #ffa31a;
 		--error: #ff5a47;
 		--waiting: #ebe5d5;
-		--working: #a49e8f;
-		--deliver: #ebe5d5;
+		--working: #4fd3e0;
+		--deliver: #6ea8ff;
 		--neutral: #a49e8f;
 		--person: #ebe5d5;
 		--badge: #ffd60a;
@@ -213,8 +215,8 @@
 	--warn: #ffa31a;
 	--error: #ff5a47;
 	--waiting: #ebe5d5;
-	--working: #a49e8f;
-	--deliver: #ebe5d5;
+	--working: #4fd3e0;
+	--deliver: #6ea8ff;
 	--neutral: #a49e8f;
 	--person: #ebe5d5;
 	--badge: #ffd60a;
@@ -397,6 +399,17 @@ button:disabled {
 	color: var(--accent-text);
 }
 
+/* What reaches GitHub (push, open or update a pull request, view it) is blue, so its consequence shows before the tap. */
+.primary.deliver {
+	background: var(--deliver);
+	color: var(--bg);
+}
+
+.secondary.deliver {
+	color: var(--deliver);
+	box-shadow: inset 0 0 0 1px var(--deliver);
+}
+
 .secondary {
 	color: var(--text);
 	box-shadow: inset 0 0 0 1px var(--rule);
@@ -466,7 +479,8 @@ details > summary:active {
 	width: 0.55em;
 	height: 1.05em;
 	vertical-align: -0.15em;
-	background: currentColor;
+	/* The agent writing: in its working colour, wherever it appears. */
+	background: var(--working);
 	opacity: 0.7;
 	animation: blink 1.1s steps(1, end) infinite;
 	flex: none;
@@ -606,11 +620,32 @@ details > summary:active {
 	color: var(--text);
 }
 
-.session-status.attention {
+/* A status, in the title bar and the drawer, in its meaning's colour; the person's turn in the yellow. */
+:is(.session-status, .row-label).attention {
 	color: var(--mark-text);
 	background: var(--mark);
 	padding: 0 4px;
 	margin: 0 -4px;
+}
+
+:is(.session-status, .row-label).working {
+	color: var(--working);
+}
+
+:is(.session-status, .row-label).warn {
+	color: var(--warn);
+}
+
+:is(.session-status, .row-label).error {
+	color: var(--error);
+}
+
+:is(.session-status, .row-label).done {
+	color: var(--done);
+}
+
+:is(.session-status, .row-label).idle {
+	color: var(--text-2);
 }
 
 .session-status.working::after {
@@ -625,14 +660,19 @@ details > summary:active {
 	animation: blink 1.1s steps(1, end) infinite;
 }
 
-.session-status.done {
-	color: var(--done);
-}
-
 .spend {
 	flex: none;
 	margin-left: auto;
 	font-variant-numeric: tabular-nums;
+}
+
+/* Near the spend cap, then at it. */
+.spend.near {
+	color: var(--warn);
+}
+
+.spend.over {
+	color: var(--error);
 }
 
 /* ---- Drawer: the index of sessions. On a phone it slides over the session and follows the finger; on a wide screen
@@ -817,17 +857,6 @@ details > summary:active {
 	letter-spacing: var(--label-tracking);
 }
 
-.row-label.attention {
-	color: var(--mark-text);
-	background: var(--mark);
-	padding: 0 4px;
-	margin: 0 -4px;
-}
-
-.row-label.done {
-	color: var(--done);
-}
-
 .row-side {
 	display: flex;
 	flex-direction: column;
@@ -880,13 +909,28 @@ details > summary:active {
 }
 
 .connection {
+	display: inline-flex;
+	align-items: center;
+	gap: 6px;
 	font-family: var(--mono);
 	font-size: var(--label);
 	color: var(--text-2);
 }
 
+.connection::before {
+	content: "";
+	width: 7px;
+	height: 7px;
+	border-radius: var(--radius-full);
+	background: var(--done);
+}
+
 .connection.off {
 	color: var(--warn);
+}
+
+.connection.off::before {
+	background: var(--warn);
 }
 
 .empty {
@@ -1146,7 +1190,7 @@ details[open] > summary > .icon:first-child {
 	height: 1em;
 	margin-left: 2px;
 	vertical-align: -0.12em;
-	background: var(--text-2);
+	background: var(--working);
 	animation: blink 1.1s steps(1, end) infinite;
 }
 
@@ -1164,7 +1208,7 @@ details[open] > summary > .icon:first-child {
 }
 
 .speak.playing {
-	color: var(--text);
+	color: var(--working);
 }
 
 .speak.playing::before {
@@ -1231,6 +1275,15 @@ details[open] > summary > .icon:first-child {
 
 .live-call.failed > .call > summary {
 	color: var(--error);
+}
+
+/* The call under way, marked at its edge in the working colour; a failed one in the error colour. */
+.live-call.running {
+	box-shadow: inset 3px 0 0 var(--working);
+}
+
+.live-call.failed {
+	box-shadow: inset 3px 0 0 var(--error);
 }
 
 /* The command as typed, wrapped rather than cut, up to three lines. */
@@ -1587,6 +1640,10 @@ select:focus-visible {
 	color: var(--text-2);
 }
 
+.items.dashed.caution > li::before {
+	color: var(--warn);
+}
+
 .item-text {
 	display: flex;
 	flex-direction: column;
@@ -1704,8 +1761,16 @@ select:focus-visible {
 }
 
 .steps li.done .box {
-	background: var(--text);
+	background: var(--done);
+	border-color: var(--done);
 	color: var(--bg);
+}
+
+/* The step the agent is on. */
+.steps li.current .box {
+	border-color: var(--working);
+	color: var(--working);
+	box-shadow: 0 0 0 1px var(--working);
 }
 
 /* The report opens with its headline set a size up, as a lede. */
@@ -1743,10 +1808,12 @@ select:focus-visible {
 
 .banner.error {
 	border-left-color: var(--error);
+	background: color-mix(in srgb, var(--error) 8%, transparent);
 }
 
 .banner.warn {
 	border-left-color: var(--warn);
+	background: color-mix(in srgb, var(--warn) 8%, transparent);
 }
 
 /* The button moves under the text once the text would be narrower than this. */

@@ -3,7 +3,7 @@
 import type { JSX } from "preact";
 import type { RefObject } from "preact";
 import { useEffect, useRef, useState } from "preact/hooks";
-import { needsAttention, type SessionGroup, type SessionRow } from "../../shared/session.ts";
+import { needsAttention, type SessionGroup, type SessionRow, toneOf } from "../../shared/session.ts";
 import { describeFailure } from "../api.ts";
 import { FingerSpeed, projected } from "../motion.ts";
 import { timeAgo } from "../format.ts";
@@ -58,7 +58,7 @@ function Row(props: { row: SessionRow; current: boolean }): JSX.Element {
 				<span class="row-main">
 					<span class="row-title">{row.title}</span>
 					<span class="row-meta">
-						<span class={`row-label ${row.group}`}>{row.label}</span>
+						<span class={`row-label ${toneOf(row)}`}>{row.label}</span>
 						<span class="row-repo">{row.repo}</span>
 					</span>
 				</span>

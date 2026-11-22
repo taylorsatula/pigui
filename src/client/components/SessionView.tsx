@@ -3,7 +3,7 @@
 import type { LiveState, UsageState } from "@earendil-works/pi-durable";
 import type { JSX } from "preact";
 import { useCallback, useEffect, useMemo, useState } from "preact/hooks";
-import { type SessionDoc, sessionRow } from "../../shared/session.ts";
+import { type SessionDoc, sessionRow, toneOf } from "../../shared/session.ts";
 import { formatDollars, spentOf } from "../../shared/spend.ts";
 import { api, describeFailure } from "../api.ts";
 import { stopReading } from "../speech.ts";
@@ -25,6 +25,12 @@ function placeholderFor(doc: SessionDoc, running: boolean): string {
 	if (doc.outcome?.kind === "budget") return "Raise the budget to continue…";
 	if (doc.report !== undefined && doc.workflow === "reported") return "Ask for more changes…";
 	return "Write to Pi…";
+}
+
+/** Spend in the warning colour from 80 % of the cap, and the error colour at it. */
+function spendTone(spent: number, cap: number | undefined): string {
+	if (cap === undefined || cap <= 0) return "";
+	return spent >= cap ? "over" : spent >= cap * 0.8 ? "near" : "";
 }
 
 const FAILURES: Record<string, string> = {
@@ -198,11 +204,11 @@ export function SessionView(props: { id: number }): JSX.Element {
 						<h1 class="title">{doc.title}</h1>
 						{/* Status leads, as a word: marked when it is the person's turn. */}
 						<p class="subtitle" role="status">
-							<span class={`session-status ${row.group}`}>{row.label}</span>
+							<span class={`session-status ${toneOf(row)}`}>{row.label}</span>
 							<span class="where">
 								{doc.repo} · {doc.branch}
 							</span>
-							<span class="spend">
+							<span class={`spend ${spendTone(spent, doc.cap)}`}>
 								{formatDollars(spent)}
 								{doc.cap === undefined ? "" : ` of ${formatDollars(doc.cap)}`}
 							</span>

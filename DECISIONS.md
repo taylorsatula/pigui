@@ -345,7 +345,19 @@ and yellow over whatever waits for the person; options, plan steps and answered 
 lines. Colour is warm ink on a page just warmer than white (a paper tone was tried and read as dim), and cream on warm
 graphite in Dark rather than blue-black. The alert colours sit near their full saturation (yellow `#ffd400`, red
 `#d70015`, orange `#c45000`, green `#008038`; brighter in Dark), each still at least 4.5:1 as text on the page, so they
-read as signals against a quiet page; the yellow also marks the status word in the title bar and the drawer. The main action is filled with ink, others are outlined
+read as signals against a quiet page.
+
+**One hue per meaning, wherever that meaning shows.** Colour says what something is, never how important it is:
+cyan is the agent at work on its own (the status word and its cursor, the step it is on, the edge of the running call,
+a reply being read aloud); the yellow is the person's turn (a waiting card, "Question waiting", "Report ready", the
+badge on the menu); green is done (finished steps, met conditions, passed checks, "Pushed"); orange is a warning
+(budget near or reached, partly done, risks and departures from the plan); red is an error (a failed run or call,
+an unmet condition, a failed check); blue is what reaches GitHub (Open or Update pull request, Push branch, View PR).
+Everything else is ink or pencil. Yellow is never a warning and orange never the person's turn, since people read
+yellow as caution only where it sits beside orange and red, and here it never does. Each status carries its tone from
+one place (`StatusTone`, set where `sessionRow` labels the session), so the title bar and the drawer always agree; the
+Terminal theme already drew with the same map in its own colours. *Before:* "Working" was ink, so work under way read
+like any other status, and buttons that push to GitHub looked like buttons that only show something. The main action is filled with ink, others are outlined
 in it, links are underlined. The fonts are pinned dev dependencies (`@fontsource-variable/source-serif-4`,
 `@fontsource-variable/ibm-plex-sans`, `@fontsource/ibm-plex-mono`) whose Latin files `scripts/build.ts` copies into
 the app with their licences (about 250 KB, precached by the service worker), so they work offline and the CSP needs

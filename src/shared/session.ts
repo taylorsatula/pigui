@@ -337,6 +337,12 @@ export type SessionDoc = {
 
 export type SessionGroup = "attention" | "working" | "done";
 
+/**
+ * What a session's status means, and so its colour wherever the status shows: the agent at work, the person's turn, a
+ * warning, an error, done, or nothing in particular.
+ */
+export type StatusTone = "working" | "attention" | "warn" | "error" | "done" | "idle";
+
 /** One drawer row: a projection of a SessionDoc, recomputed whenever the document changes. */
 export type SessionRow = {
 	id: number;
@@ -345,6 +351,8 @@ export type SessionRow = {
 	branch: string;
 	group: SessionGroup;
 	label: string;
+	/** Absent on rows written before tones; `toneOf` reads those from the group. */
+	tone?: StatusTone;
 	progress?: { done: number; total: number };
 	updatedAt: number;
 	attentionAt?: number;
@@ -362,7 +370,7 @@ export type SessionIndex = {
 
 /** Derive the drawer row of a session. The one place that decides how a session is grouped and labelled. */
 export function sessionRow(doc: SessionDoc): SessionRow {
-	const { group, label } = describe(doc);
+	const { group, label, tone } = describe(doc);
 	const row: SessionRow = {
 		id: doc.id,
 		title: doc.title,
@@ -370,6 +378,7 @@ export function sessionRow(doc: SessionDoc): SessionRow {
 		branch: doc.branch,
 		group,
 		label,
+		tone,
 		updatedAt: doc.updatedAt,
 		seenAt: doc.seenAt,
 		archived: doc.archived,
@@ -379,33 +388,40 @@ export function sessionRow(doc: SessionDoc): SessionRow {
 	return row;
 }
 
-function describe(doc: SessionDoc): { group: SessionGroup; label: string } {
-	if (doc.setup.status === "preparing") return { group: "working", label: "Setting up" };
-	if (doc.setup.status === "failed") return { group: "attention", label: "Setup failed" };
-	if (doc.card?.kind === "questions") return { group: "attention", label: "Question waiting" };
-	if (doc.card?.kind === "plan") return { group: "attention", label: "Plan ready" };
+function describe(doc: SessionDoc): { group: SessionGroup; label: string; tone: StatusTone } {
+	if (doc.setup.status === "preparing") return { group: "working", label: "Setting up", tone: "working" };
+	if (doc.setup.status === "failed") return { group: "attention", label: "Setup failed", tone: "error" };
+	if (doc.card?.kind === "questions") return { group: "attention", label: "Question waiting", tone: "attention" };
+	if (doc.card?.kind === "plan") return { group: "attention", label: "Plan ready", tone: "attention" };
 	if (doc.activeRun !== undefined) {
 		const progress = doc.plan?.approved === true ? ` · ${doc.plan.done.length}/${doc.plan.steps.length}` : "";
-		return { group: "working", label: `Working${progress}` };
+		return { group: "working", label: `Working${progress}`, tone: "working" };
 	}
 	const delivered = doc.delivery.pr !== undefined ? "PR open" : doc.delivery.pushed !== undefined ? "Pushed" : undefined;
 	switch (doc.outcome?.kind) {
 		case "failed":
-			return { group: "attention", label: "Run failed" };
+			return { group: "attention", label: "Run failed", tone: "error" };
 		case "budget":
-			return { group: "attention", label: "Budget reached" };
+			return { group: "attention", label: "Budget reached", tone: "warn" };
 		case "no-report":
-			return { group: "attention", label: "Stopped without a report" };
+			return { group: "attention", label: "Stopped without a report", tone: "warn" };
 		case "stopped":
-			return { group: "attention", label: "Stopped" };
+			// The person stopped it: their turn, but nothing went wrong.
+			return { group: "attention", label: "Stopped", tone: "idle" };
 		case "replied":
-			return { group: "attention", label: "Replied" };
+			return { group: "attention", label: "Replied", tone: "attention" };
 		case "reported":
 		case undefined:
 			break;
 	}
-	if (doc.report !== undefined && delivered === undefined) return { group: "attention", label: "Report ready" };
-	return { group: "done", label: delivered ?? (doc.report !== undefined ? "Reported" : "Idle") };
+	if (doc.report !== undefined && delivered === undefined) return { group: "attention", label: "Report ready", tone: "attention" };
+	if (delivered !== undefined || doc.report !== undefined) return { group: "done", label: delivered ?? "Reported", tone: "done" };
+	return { group: "done", label: "Idle", tone: "idle" };
+}
+
+/** A row's tone; rows written before tones read as their group. */
+export function toneOf(row: SessionRow): StatusTone {
+	return row.tone ?? (row.group === "done" ? "done" : row.group);
 }
 
 /** Whether a row asks for the person's attention and they have not looked since. */

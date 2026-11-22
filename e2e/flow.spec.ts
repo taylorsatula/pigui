@@ -48,6 +48,8 @@ test.describe("the tap flow", () => {
 
 	test("while the agent works its calls show as they happen, and fold away when the turn ends", async ({ page }) => {
 		await startSession(page, "Keep going [spin]");
+		// Autonomous work reads in its own colour, never the person's yellow or a warning's orange.
+		await expect(page.locator(".session-status")).toHaveClass(/\bworking\b/);
 		// Nothing to open while it works: each call is a block with its command and what it printed last.
 		const live = page.locator(".work.live").last();
 		await expect(live.locator(".live-call").nth(2)).toBeVisible({ timeout: 15_000 });

@@ -134,10 +134,10 @@ function Paths(props: { paths: string[] }): JSX.Element | null {
 	return props.paths.length === 0 ? null : <span class="paths">{props.paths.join("  ")}</span>;
 }
 
-/** A list of one-line items, each after a dash. */
-function Lines(props: { lines: string[] }): JSX.Element {
+/** A list of one-line items, each after a dash; `caution` for what a reviewer should weigh (risks, departures). */
+function Lines(props: { lines: string[]; caution?: boolean }): JSX.Element {
 	return (
-		<ul class="items dashed">
+		<ul class={`items dashed ${props.caution === true ? "caution" : ""}`}>
 			{props.lines.map((line, index) => (
 				<li key={index}>
 					<Inline text={line} />
@@ -179,13 +179,17 @@ function Decisions(props: { plan: Plan }): JSX.Element | null {
 	);
 }
 
-/** The steps as a checklist: each box holds its step's number until the step is done, then a tick. */
-function Steps(props: { plan: Plan; done: string[] }): JSX.Element {
+/**
+ * The steps as a checklist: each box holds its step's number until the step is done, then a tick. While the agent
+ * works, the first step not yet done is the one it is on.
+ */
+function Steps(props: { plan: Plan; done: string[]; working?: boolean }): JSX.Element {
+	const current = props.working === true ? props.plan.steps.find((step) => !props.done.includes(step.id))?.id : undefined;
 	return (
 		<Part title="Steps" count={props.plan.steps.length}>
 			<ol class="steps">
 				{props.plan.steps.map((step, index) => (
-					<li key={step.id} class={props.done.includes(step.id) ? "done" : ""}>
+					<li key={step.id} class={props.done.includes(step.id) ? "done" : step.id === current ? "current" : ""} aria-current={step.id === current ? "step" : undefined}>
 						<span class="box">{props.done.includes(step.id) ? <Icon name="check" size={14} label={`Step ${index + 1}, done`} /> : index + 1}</span>
 						<span class="item-text">
 							<Inline text={step.text} />
@@ -216,7 +220,7 @@ function PlanRest(props: { plan: Plan }): JSX.Element {
 				<Lines lines={plan.outOfScope} />
 			</Part>
 			<Part title="Risks" count={plan.risks.length}>
-				<Lines lines={plan.risks} />
+				<Lines lines={plan.risks} caution />
 			</Part>
 			{plan.citations.length === 0 ? null : (
 				<details class="part sources">
@@ -244,6 +248,7 @@ export function PlanCardView(props: { card: PlanCard; answer?: CardAnswer; pendi
 	const { card } = props;
 	const plan = planOf(card.plan);
 	const [busy, setBusy] = useState(false);
+	const working = props.session?.activeRun !== undefined && props.session.card === undefined;
 	const done = props.session?.plan?.revision === card.revision && props.session.plan.approved ? props.session.plan.done : [];
 	const approve = async () => {
 		setBusy(true);
@@ -269,7 +274,7 @@ export function PlanCardView(props: { card: PlanCard; answer?: CardAnswer; pendi
 			<header class="card-title">
 				<span>Plan{card.revision > 1 ? `, revision ${card.revision}` : ""}</span>
 				{status === undefined ? null : (
-					<span class={`verdict ${props.answer?.kind === "approve" ? "good" : props.pending ? "mark" : ""}`}>{status}</span>
+					<span class={`verdict ${props.answer?.kind === "approve" ? "good" : props.pending ? "mark" : "warn"}`}>{status}</span>
 				)}
 			</header>
 			<h3>{plan.title}</h3>
@@ -286,7 +291,7 @@ export function PlanCardView(props: { card: PlanCard; answer?: CardAnswer; pendi
 			) : (
 				// Once answered, the plan is what is being carried out: its steps, ticking off. The rest opens on a tap.
 				<>
-					<Steps plan={plan} done={done} />
+					<Steps plan={plan} done={done} working={working} />
 					<details class="part more">
 						<summary>
 							<Icon name="chevron" size={14} />
@@ -420,7 +425,7 @@ export function ReportCard(props: { report: Report; latest: boolean; session?: S
 				</ul>
 			</Part>
 			<Part title="Changed from the plan" count={report.deviations.length}>
-				<Lines lines={report.deviations} />
+				<Lines lines={report.deviations} caution />
 			</Part>
 			<Part title="Notes" count={report.notes.length}>
 				<Lines lines={report.notes} />
