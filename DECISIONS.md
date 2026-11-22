@@ -296,8 +296,8 @@ How the Human Interface Guidelines shaped it:
 - **Clarity:** the composer's placeholder says what sending will do now ("Answer in your own words…", "Steer Pi while
   it works…"); tool activity is one plain sentence ("Ran 2 commands, edited 1 file"); failures name the problem and
   offer the next step (Continue, Raise to $X and continue, Retry setup).
-- **Deference:** content first — status and spend are one line of record under the title; thinking, tool calls and
-  handoffs are collapsed until asked for; the agent's prose is set to be read, the person's words in its italic.
+- **Deference:** content first — status and spend are one line under the title; thinking, tool calls and handoffs are
+  collapsed until asked for; the agent's prose is set to be read, the person's words in its semibold.
 - **Sensible defaults:** the last repository, a new branch from its default branch, recommended options pre-selected
   so accepting them is one tap.
 - **Familiar navigation:** a ☰ drawer (and an edge swipe) on phones, a persistent sidebar on wide screens; the drawer
@@ -309,24 +309,23 @@ How the Human Interface Guidelines shaped it:
   layout (`interactive-widget=resizes-content`), reduced motion respected, and roles, labels and live regions for
   screen readers.
 
-**The look: a logbook, set in a serif.** The first look followed the guidelines and nothing else, and read as every
-chat app averaged: blue bubbles, a "Message…" pill, grey pills for status, the system sans at two sizes, everything at
-one radius and one spacing. It was replaced by a point of view. A session is a log the agent keeps: each entry has its
-time in a margin ruled down the page (a time only when the minute changes, as a hand-kept log does, and a date heading
-when the day does), the agent's prose is set in Source Serif 4 at a reading size, measure and leading, and what is
-recorded (times, labels, status, tool lines, paths, sums) is in IBM Plex Mono. The person's words are the serif's
-italic, marked "you" in the margin, not a coloured bubble. Status is a word, not a pill. The plan is a ruled checklist
-whose boxes hold step numbers and fill with ticks as steps finish; the report opens under a double rule, as a ledger's
-total does, with its commit and a lede. Colour is paper and ink in both themes (Dark is warm graphite and cream, not
-blue-black), with one highlighter, kept for what needs the person: the status word in the title bar and the drawer,
-the heading of a waiting card, drawn across once as a pen would, and the margin rule beside it thickened in yellow. The
-main action is filled with ink, others are outlined in it, links are underlined; the send button is a return key
-rather than a chat app's up arrow. The input stays a text field with an attachment button and a send button, written
-on the log's next line. The fonts are pinned dev dependencies (`@fontsource-variable/source-serif-4`,
-`@fontsource/ibm-plex-mono`) whose Latin files `scripts/build.ts` copies into the app with their licences (about
-290 KB, precached by the service worker), so they work offline and the CSP needs no font host. *Alternatives:* a pure
-editorial page (serif, no log structure) read well but lost the sense of watching work happen; a newspaper layout made
-the waiting moment loud but everything else too graphic for something read every day; the system sans with a stronger
+**The look: a conversation set in a serif.** The first look followed the guidelines and nothing else, and read as
+every chat app averaged: blue bubbles, a "Message…" pill, grey pills for status, the system sans at two sizes,
+everything at one radius and one spacing. It was replaced by a point of view, borrowed from print rather than from
+apps. The agent's prose is set in Source Serif 4 at a reading size, measure (about seventy characters at most) and
+leading. What is a record (tool lines, paths, commits, status, sums, labels) is in IBM Plex Mono. The person's words
+are set as the questions in a printed interview are, in the serif's semibold where the agent's are roman, with more
+room above each turn; no bubble and no label. Status is a word, not a pill. A plan is a ruled checklist whose boxes hold
+step numbers and fill with ticks as steps finish; a report opens under a rule in ink, with its commit and its summary
+set a size up. Colour is paper and ink in both themes (Dark is warm graphite and cream, not blue-black), with one
+yellow kept for what needs the person: the status word in the title bar and the drawer, and the rule and label over a
+waiting card. The main action is filled with ink, others are outlined in it, links are underlined. The fonts are pinned
+dev dependencies (`@fontsource-variable/source-serif-4`, `@fontsource/ibm-plex-mono`) whose Latin files
+`scripts/build.ts` copies into the app with their licences (about 290 KB, precached by the service worker), so they
+work offline and the CSP needs no font host. *Alternatives:* a logbook (times in a ruled margin, date headings, a
+ledger's double rule, a highlighter drawn across) was built first and read as a costume: the props announced the idea
+instead of the type carrying it, and the margin cost a phone fifty pixels of every line. A newspaper layout made the
+waiting moment loud but everything else too graphic for something read every day; the system sans with a stronger
 accent kept the hollowness, which came from the defaults, not the colour.
 
 **One small set of values, declared once at the top of `app.css`.** Spacing comes from 2/4/8/12/16/24 px, radii from

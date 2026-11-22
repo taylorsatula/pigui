@@ -1,10 +1,11 @@
-// The transcript, kept as a log: each entry has its time in the margin, a new day starts under its date, and detail is
-// collapsed until asked for. Thinking, tool activity (one line per stretch of work, then each call, then its full
-// input and output) and compaction checkpoints all open on a tap. Failures show while collapsed.
-import type { ComponentChildren, JSX } from "preact";
+// The transcript, set as a conversation is set in print: the person's words in the semibold, the agent's in the roman,
+// and a date between them where a session runs into a new day. Detail is collapsed until asked for: thinking, tool
+// activity (one line per stretch of work, then each call, then its full input and output) and compaction checkpoints
+// all open on a tap. Failures show while collapsed.
+import type { JSX } from "preact";
 import { useLayoutEffect, useRef, useState } from "preact/hooks";
 import type { SessionDoc } from "../../shared/session.ts";
-import { clockTime, dayHeading, describeCall, describeGroup, sameDay } from "../format.ts";
+import { dayHeading, describeCall, describeGroup, sameDay } from "../format.ts";
 import { live } from "../live.ts";
 import type { Block, CallView } from "../transcript.ts";
 import { followEnd, keepPosition, pinToEnd, stopFollowing } from "../viewport.ts";
@@ -13,7 +14,7 @@ import { Icon } from "./Icons.tsx";
 import { Markdown } from "./Markdown.tsx";
 import { Speak } from "./Speak.tsx";
 
-/** While something is still being written: the log's cursor, holding its place. */
+/** While something is still being written: a cursor, holding its place. */
 function Cursor(): JSX.Element {
 	return <span class="cursor" role="img" aria-label="running" />;
 }
@@ -88,22 +89,6 @@ function Person(props: { data: Extract<Block, { kind: "person" }>["data"] }): JS
 	);
 }
 
-/** One line of the log: the margin, holding the time and who wrote it, and the entry. */
-function Entry(props: { kind: string; time?: number; who?: string; children: ComponentChildren }): JSX.Element {
-	return (
-		<div class={`entry ${props.kind}`}>
-			<div class="stamp">
-				{props.time === undefined ? null : <time dateTime={new Date(props.time).toISOString()}>{clockTime(props.time)}</time>}
-				{props.who === undefined ? null : <span class="who">{props.who}</span>}
-			</div>
-			<div class="body">{props.children}</div>
-		</div>
-	);
-}
-
-/** Entries that always show their time: the person's words and the cards, the moments someone looks for. */
-const ALWAYS_STAMPED = new Set<Block["kind"]>(["person", "questions", "plan", "report"]);
-
 export function Transcript(props: {
 	blocks: Block[];
 	session: SessionDoc | undefined;
@@ -146,13 +131,13 @@ export function Transcript(props: {
 			case "earlier":
 				return (
 					<button type="button" class="link" disabled={loading} onClick={() => void load(() => live.loadEarlier(), true)}>
-						{loading ? "Loading…" : "Load earlier entries"}
+						{loading ? "Loading…" : "Load earlier messages"}
 					</button>
 				);
 			case "gap":
 				return (
 					<button type="button" class="link" disabled={loading} onClick={() => void load(() => live.fillGap(block.gap), false)}>
-						Load missed entries
+						Load missed messages
 					</button>
 				);
 			case "person":
@@ -218,33 +203,25 @@ export function Transcript(props: {
 		}
 	};
 
-	// The margin shows a time when the minute changes, as a hand-kept log does, and a date heading starts each day.
+	// A date goes between entries where the day changes; a session that stays within one day shows none.
 	const rows: JSX.Element[] = [];
-	let shownMinute: number | undefined;
 	let day: number | undefined;
 	for (const block of props.blocks) {
 		const at = block.at;
-		if (at !== undefined && (day === undefined || !sameDay(day, at))) {
+		if (at !== undefined) {
+			if (day !== undefined && !sameDay(day, at)) {
+				rows.push(
+					<h2 key={`day:${block.key}`} class="day">
+						{dayHeading(at)}
+					</h2>,
+				);
+			}
 			day = at;
-			rows.push(
-				<h2 key={`day:${block.key}`} class="day">
-					{dayHeading(at)}
-				</h2>,
-			);
 		}
-		const minute = at === undefined ? undefined : Math.floor(at / 60_000);
-		const time = block.kind !== "speak" && (ALWAYS_STAMPED.has(block.kind) || minute !== shownMinute) ? at : undefined;
-		if (time !== undefined) shownMinute = minute;
-		const waiting = (block.kind === "questions" || block.kind === "plan") && block.pending;
 		rows.push(
-			<Entry
-				key={block.key}
-				kind={`is-${block.kind}${waiting ? " waiting" : ""}`}
-				{...(time === undefined ? {} : { time })}
-				{...(block.kind === "person" ? { who: "you" } : {})}
-			>
+			<div key={block.key} class={`entry is-${block.kind}`}>
 				{content(block)}
-			</Entry>,
+			</div>,
 		);
 	}
 

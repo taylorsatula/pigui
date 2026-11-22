@@ -1,6 +1,6 @@
 // Questions, plans and reports appear as cards, not tool calls. A waiting card is answered by tapping: recommended
 // options are already chosen, so accepting them is one tap, and free text is always there. What waits for the person
-// is marked as with a highlighter; nothing else is.
+// is marked in the highlighter's yellow; nothing else is.
 import type { JSX } from "preact";
 import { useState } from "preact/hooks";
 import type { CardAnswer, PlanCard, QuestionAnswer, QuestionCard, Report, SessionDoc } from "../../shared/session.ts";

@@ -1,6 +1,6 @@
-/* picloud is kept like a logbook in a well-set book: the agent's prose in a serif with room to read, everything
-   recorded (times, tools, paths, status, sums) in a monospace beside it, and the time of each entry in a margin ruled
-   down the page. Ink on paper, and one highlighter, kept for what needs the person.
+/* picloud is set like a well-made book: the agent's prose in a serif with room to read, and what is a record (tool
+   activity, paths, commits, status, sums) in a monospace beside it. Ink on paper, and one yellow, kept for what needs
+   the person.
 
    Apple's Human Interface Guidelines still hold underneath: the person's text size (Dynamic Type), 44 pt targets,
    readable light and dark themes, motion only where it explains.
@@ -9,11 +9,10 @@
    - type: --serif says, --mono records. Sizes are fractions of Body, so they follow Dynamic Type;
    - spacing: 2, 4, 6, 8, 12, 16 and 24 px;
    - radii: --radius-s (code, fields, buttons, the toast), --radius-l (sheets), --radius-full (discs);
-   - colour: paper and ink, a margin rule, the highlighter (--mark), plus one token per meaning (done, warn, error,
+   - colour: paper and ink, the yellow (--mark), plus one token per meaning (done, warn, error,
      waiting, working, deliver, neutral, person), which every theme defines;
    - motion: three durations and two curves. Frequent actions (send, pick, disclose) are not animated; presses give
-     feedback at once; sheets, the drawer and toasts enter with --present and leave faster with --quick. The one
-     flourish is the highlighter drawn across what waits for the person.
+     feedback at once; sheets, the drawer and toasts enter with --present and leave faster with --quick.
 
    Themes: System (no data-theme on <html>) follows the OS between Light and Dark; Light, Dark and Terminal are chosen
    in the drawer (theme.ts). A theme is a block of these values; only the Terminal also has a short section of its
@@ -77,15 +76,12 @@
 	--radius-s: 3px;
 	--radius-l: 12px;
 	--radius-full: 999px;
-	/* Separators, and the margin rule between the times and the entries. */
+	/* Separators and rules. */
 	--hairline: 1px;
 	--target: 44px;
 	/* The reading column, and the sidebar the drawer becomes on a wide screen. */
 	--column: 760px;
 	--sidebar: 340px;
-	/* The log's margin: wide enough for "14:02", and the space between the rule and an entry. */
-	--stamp: 3.25rem;
-	--stamp-gap: 12px;
 
 	--ease-out: cubic-bezier(0.23, 1, 0.32, 1);
 	/* The curve iOS sheets move on: quick to start, long to settle. */
@@ -98,14 +94,6 @@
 	--safe-bottom: env(safe-area-inset-bottom, 0px);
 	--safe-left: env(safe-area-inset-left, 0px);
 	--safe-right: env(safe-area-inset-right, 0px);
-}
-
-/* On a phone the margin narrows and the page edge comes in, so the prose keeps about forty characters a line. */
-@media (max-width: 520px) {
-	:root {
-		--stamp: 2.875rem;
-		--stamp-gap: 10px;
-	}
 }
 
 /* ---- Colour themes. Light's colours are :root's own, so they serve System in light mode and the Light theme. */
@@ -124,9 +112,7 @@
 	--separator: rgba(44, 38, 26, 0.16);
 	/* A rule drawn on purpose: the outline of a secondary button, the double rule over a report. */
 	--rule: rgba(44, 38, 26, 0.55);
-	/* The margin, ruled in red as a notebook's is, faint enough to be paper rather than signal. */
-	--margin: rgba(176, 64, 48, 0.36);
-	/* The highlighter, and the ink over it. */
+	/* The yellow that marks what needs the person, and the ink over it. */
 	--mark: #f2d85c;
 	--mark-text: #1b1915;
 	/* What can be tapped is drawn in ink: filled for the main action, outlined or underlined otherwise. */
@@ -159,7 +145,7 @@
 
 /* Dark's colours are written twice, for System in dark mode and for the Dark theme: a selector cannot test a media
    query. An end-to-end test checks the two stay the same. Dark is the same book read by lamplight: warm graphite
-   paper, cream ink, the highlighter as bright as it is on paper. */
+   paper, cream ink, the yellow as bright as it is on paper. */
 @media (prefers-color-scheme: dark) {
 	:root:not([data-theme]) {
 		--bg: #181714;
@@ -171,7 +157,6 @@
 		--text-2: #a49e8f;
 		--separator: rgba(235, 225, 200, 0.15);
 		--rule: rgba(235, 225, 200, 0.5);
-		--margin: rgba(222, 112, 92, 0.42);
 		--mark: #e3c84c;
 		--mark-text: #181714;
 		--accent: #ebe5d5;
@@ -204,7 +189,6 @@
 	--text-2: #a49e8f;
 	--separator: rgba(235, 225, 200, 0.15);
 	--rule: rgba(235, 225, 200, 0.5);
-	--margin: rgba(222, 112, 92, 0.42);
 	--mark: #e3c84c;
 	--mark-text: #181714;
 	--accent: #ebe5d5;
@@ -227,7 +211,7 @@
 
 /* Terminal, ANSI dark neon: light grey on near-black, everything in the monospace, square, outlined in one pixel,
    flat, and each meaning in one fluorescent colour wherever it appears. Yellow is the person: their words and what they
-   can tap. Magenta needs them (the Terminal's highlighter), cyan is at work, lime is done, orange warns, red is an
+   can tap. Magenta needs them (the Terminal's yellow), cyan is at work, lime is done, orange warns, red is an
    error, blue goes to GitHub. Every colour, as text or as a fill under near-black text, has at least 6:1 contrast. */
 :root[data-theme="terminal"] {
 	color-scheme: dark;
@@ -252,7 +236,6 @@
 	--text-2: #949494;
 	--separator: #646464;
 	--rule: #949494;
-	--margin: #3a3a3a;
 	--mark: #ff4fe0;
 	--mark-text: #0a0a0a;
 	--accent: #ffe83b;
@@ -480,21 +463,14 @@ details > summary:active {
 	line-height: var(--leading-tight);
 }
 
-/* The highlighter, drawn once across what waits for the person, left to right, as a pen would. */
+/* What waits for the person, in the yellow. */
 .mark {
 	color: var(--mark-text);
-	background: linear-gradient(var(--mark), var(--mark)) no-repeat 0 0 / 100% 100%;
+	background: var(--mark);
 	padding: 2px 6px;
 	margin: 0 -2px;
 	-webkit-box-decoration-break: clone;
 	box-decoration-break: clone;
-	animation: highlight 520ms var(--ease-out) 120ms backwards;
-}
-
-@keyframes highlight {
-	from {
-		background-size: 0% 100%;
-	}
 }
 
 /* ---- Layout */
@@ -845,7 +821,7 @@ li:last-child > .row::after {
 	font-variant-numeric: tabular-nums;
 }
 
-/* The highlighter's colour, ringed in ink so it reads on paper. */
+/* The yellow, ringed in ink so it reads on paper. */
 .dot {
 	width: 10px;
 	height: 10px;
@@ -931,90 +907,46 @@ details[open] > summary > .icon:first-child {
 	transform: rotate(90deg);
 }
 
-/* ---- Transcript: the log. Each entry is a row of two columns, its time in the margin and the entry beside it; the
-   entries' left borders join into the margin rule running down the page. */
+/* ---- Transcript */
 
 .transcript {
 	--inset: 16px;
-	--inset-left: 8px;
 	flex: 1;
 	display: flex;
 	flex-direction: column;
-	padding-top: 4px;
-	padding-bottom: 12px;
+	gap: 10px;
+	padding-top: 8px;
+	padding-bottom: 16px;
 	min-width: 0;
 	/* Loading earlier messages keeps the reading position by hand, the same way in every browser. */
 	overflow-anchor: none;
-	/* The height of an entry's first line, which the time beside it centres on. */
-	--first-line: calc(var(--prose) * var(--leading));
 }
 
 .entry {
-	display: grid;
-	grid-template-columns: var(--stamp) minmax(0, 1fr);
 	min-width: 0;
 }
 
-.stamp {
-	display: flex;
-	flex-direction: column;
-	align-items: flex-end;
-	padding: 8px 8px 0 0;
-	font-family: var(--mono);
-	font-size: var(--label);
-	line-height: var(--first-line);
-	color: var(--text-2);
-	font-variant-numeric: tabular-nums;
-	white-space: nowrap;
+/* The speaker sits close under the reply it reads. */
+.entry.is-speak {
+	margin-top: -8px;
 }
 
-.stamp .who {
-	line-height: var(--leading-tight);
-	color: var(--text);
-	font-weight: 500;
+/* A new turn from the person opens with more room above it, as a new question does in a printed interview. */
+.entry.is-person:not(:first-child) {
+	margin-top: 14px;
 }
 
-.entry > .body {
-	min-width: 0;
-	padding: 8px 0 8px var(--stamp-gap);
-	border-left: var(--hairline) solid var(--margin);
-}
-
-/* Entries that are one line of record: a disclosure or a note, 44 pt tall, with the time on their middle. */
-.entry:is(.is-activity, .is-thinking, .is-compaction, .is-nudge, .is-notice, .is-earlier, .is-gap) {
-	--first-line: var(--target);
-}
-
-.entry:is(.is-activity, .is-thinking, .is-compaction, .is-nudge, .is-notice, .is-earlier, .is-gap) > .body {
-	padding-top: 0;
-	padding-bottom: 0;
-}
-
-.entry:is(.is-activity, .is-thinking, .is-compaction, .is-nudge, .is-notice, .is-earlier, .is-gap) > .stamp {
-	padding-top: 0;
-}
-
-/* The speaker belongs to the reply above it and has no time of its own. */
-.entry.is-speak > .body {
-	padding-top: 0;
-	padding-bottom: 0;
-}
-
-/* What waits for the person: the margin flagged with the highlighter beside it, the rule thickened in place. */
-.entry.waiting > .body {
-	border-left: 3px solid var(--mark);
-	padding-left: calc(var(--stamp-gap) - 2px);
-}
-
-/* A new day in the log: its date, set across the page. */
+/* Where a session runs into a new day: its date, between rules. */
 .day {
 	display: flex;
 	align-items: center;
 	gap: 12px;
-	margin: 16px 0 8px;
-	font-size: var(--subhead);
+	margin: 16px 0 6px;
+	font-family: var(--mono);
+	font-size: var(--label);
 	font-weight: 400;
-	font-style: italic;
+	text-transform: uppercase;
+	letter-spacing: var(--label-tracking);
 	color: var(--text-2);
 	line-height: var(--leading-tight);
 }
@@ -1026,15 +958,11 @@ details[open] > summary > .icon:first-child {
 	border-top: var(--hairline) solid var(--separator);
 }
 
-.day::before {
-	flex: 0 0 calc(var(--stamp) - 4px);
-}
-
-/* The person's words: in the serif's italic, the other hand in the book. */
+/* The person's words, set as the questions are in a printed interview: in the semibold, where the agent's are roman. */
 .said {
 	margin: 0;
 	font-size: var(--prose);
-	font-style: italic;
+	font-weight: 600;
 	color: var(--person);
 	white-space: pre-wrap;
 	overflow-wrap: anywhere;
@@ -1339,17 +1267,21 @@ details[open] > summary > .icon:first-child {
 	font-size: var(--record);
 }
 
-/* ---- Cards: questions, plans and reports, set as parts of the page rather than boxes on it. A question or plan
-   opens under a rule; a report under a double rule, as a ledger's total does. */
+/* ---- Cards: questions, plans and reports, set as parts of the page rather than boxes on it, each under a rule: a
+   hairline, a rule in ink for the report, and the yellow while one waits for the person. */
 
 .card {
 	min-width: 0;
 	border-top: var(--hairline) solid var(--separator);
-	padding-top: 8px;
+	padding-top: 10px;
 }
 
 .card.report {
-	border-top: 3px double var(--rule);
+	border-top: 1.5px solid var(--text);
+}
+
+.card.waiting {
+	border-top: 3px solid var(--mark);
 }
 
 .card-title {
@@ -1715,7 +1647,7 @@ select:focus-visible {
 	text-decoration-thickness: 2px;
 }
 
-/* ---- Composer: the log's next line, the attachment button in the margin and the margin rule running on beside it. */
+/* ---- Composer: a field written on a ruled line, between the attachment and send buttons. */
 
 .composer-dock {
 	--inset: 12px;
@@ -1741,31 +1673,27 @@ select:focus-visible {
 }
 
 .composer .attachments {
-	margin: 0 0 6px calc(var(--stamp) + var(--stamp-gap));
+	margin: 0 0 6px 44px;
 }
 
-.next-line {
-	display: grid;
-	grid-template-columns: var(--stamp) minmax(0, 1fr) auto;
-	align-items: end;
+.field-line {
+	display: flex;
+	align-items: flex-end;
 }
 
-/* The attachment button sits in the margin, against the rule. */
-.next-line > .icon-button:first-child {
-	justify-self: end;
-	margin-right: -2px;
+.field-line > .icon-button:first-child {
 	color: var(--text-2);
 }
 
-.next-line textarea {
+.field-line textarea {
+	flex: 1;
 	min-width: 0;
 	border: none;
-	border-left: var(--hairline) solid var(--margin);
 	border-radius: 0;
 	background: none;
 	resize: none;
 	/* One line sits centred in the 44 pt row. */
-	padding: calc((var(--target) - 1.35em) / 2) 8px calc((var(--target) - 1.35em) / 2) var(--stamp-gap);
+	padding: calc((var(--target) - 1.35em) / 2) 4px;
 	min-height: var(--target);
 	line-height: 1.35;
 	outline: none;
@@ -1774,15 +1702,15 @@ select:focus-visible {
 	/* The line it is written on, inked in while it has the caret. */
 	background-image: linear-gradient(var(--separator), var(--separator));
 	background-repeat: no-repeat;
-	background-position: var(--stamp-gap) calc(100% - 6px);
-	background-size: calc(100% - var(--stamp-gap) - 4px) 1px;
+	background-position: 0 calc(100% - 6px);
+	background-size: 100% 1px;
 }
 
-.next-line textarea:focus-visible {
+.field-line textarea:focus-visible {
 	background-image: linear-gradient(var(--text), var(--text));
 }
 
-.next-line textarea::placeholder {
+.field-line textarea::placeholder {
 	color: var(--text-2);
 	font-style: italic;
 }
@@ -1837,7 +1765,7 @@ select:focus-visible {
 /* Sized to the visible viewport, so it fits above the keyboard. */
 .picker {
 	position: absolute;
-	left: calc(var(--stamp) + var(--stamp-gap) - 8px);
+	left: 0;
 	right: 0;
 	bottom: calc(100% + 8px);
 	list-style: none;
@@ -2217,7 +2145,6 @@ select {
 		transition: none;
 	}
 
-	.mark,
 	.cursor,
 	.session-status.working::after,
 	.agent.streaming > :last-child::after {
@@ -2362,7 +2289,7 @@ select {
 	border: var(--hairline) solid var(--separator);
 }
 
-[data-theme="terminal"] :is(.day, .intro, .empty, .given, .thinking p, .markdown blockquote, .next-line textarea::placeholder) {
+[data-theme="terminal"] :is(.day, .intro, .empty, .given, .thinking p, .markdown blockquote, .field-line textarea::placeholder) {
 	font-style: normal;
 }
 

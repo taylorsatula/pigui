@@ -47,7 +47,7 @@ export type Block = (
 	| { kind: "compaction"; key: string; summary: string; retained?: number }
 	| { kind: "notice"; key: string; text: string; tone: "info" | "error" }
 ) & {
-	/** When it was written, for the log's margin: its message's time, or the latest time before it. */
+	/** When it was written, to date the transcript by: its message's time, or the latest time before it. */
 	at?: number;
 };
 
@@ -103,7 +103,7 @@ export function buildBlocks(view: TranscriptView | undefined, session: SessionDo
 	const lastReport = [...results.values()].filter((result) => result.message.toolName === "file_report" && !result.message.isError).at(-1);
 
 	const blocks: Block[] = [];
-	// The log's clock: each block takes the latest time seen, so an entry without one sits under the one before it.
+	// Each block takes the latest time seen, so an entry without one is dated with the one before it.
 	let now: number | undefined;
 	const add = (block: Block) => {
 		blocks.push(now === undefined ? block : { ...block, at: now });

@@ -119,7 +119,7 @@ test("the serif and the monospace are served with the app and used", async ({ pa
 		return [...document.fonts].filter((face) => face.status === "loaded").map((face) => `${face.family} ${face.style} ${face.weight}`);
 	});
 	expect(loaded).toEqual(expect.arrayContaining(["Source Serif 4 normal 200 900", "Source Serif 4 italic 200 900", "IBM Plex Mono normal 400", "IBM Plex Mono normal 500"]));
-	const fonts = await page.evaluate(() => [getComputedStyle(document.querySelector(".said") as Element).fontFamily, getComputedStyle(document.querySelector(".stamp") as Element).fontFamily]);
+	const fonts = await page.evaluate(() => [getComputedStyle(document.querySelector(".said") as Element).fontFamily, getComputedStyle(document.querySelector(".session-status") as Element).fontFamily]);
 	expect(fonts[0]).toMatch(/^"Source Serif 4"/);
 	expect(fonts[1]).toMatch(/^"IBM Plex Mono"/);
 });

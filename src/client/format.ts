@@ -65,12 +65,7 @@ export function timeAgo(at: number, now = Date.now()): string {
 	return `${Math.round(hours / 24)}d`;
 }
 
-/** A log time, on the 24-hour clock so it stays five characters wide: "14:02". */
-export function clockTime(at: number): string {
-	return new Date(at).toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit", hourCycle: "h23" });
-}
-
-/** The heading over a day's entries: "Sunday, November 22". */
+/** The date set between a session's entries where it runs into a new day: "Sunday, November 22". */
 export function dayHeading(at: number): string {
 	return new Date(at).toLocaleDateString(undefined, { weekday: "long", month: "long", day: "numeric" });
 }

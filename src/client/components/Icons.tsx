@@ -5,8 +5,7 @@ import type { JSX } from "preact";
 const paths = {
 	menu: "M4 7h16M4 12h16M4 17h16",
 	plus: "M12 5v14M5 12h14",
-	/* Enter, as a log entry is entered: a return arrow, not a chat app's send arrow. */
-	send: "M19 5v6a3 3 0 0 1-3 3H6M10 10l-4 4 4 4",
+	send: "M5 12h14M13 6l6 6-6 6",
 	stop: "M8 8h8v8H8z",
 	clip: "M21 11.5l-8.6 8.6a5 5 0 0 1-7.1-7.1l8.6-8.6a3.3 3.3 0 0 1 4.7 4.7l-8.6 8.6a1.7 1.7 0 0 1-2.4-2.4l7.9-7.9",
 	chevron: "M9 6l6 6-6 6",
