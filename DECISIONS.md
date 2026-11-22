@@ -358,13 +358,15 @@ the defaults, not the colour.
 
 **Work is watched while it happens and folded once it is done.** Everything the agent does between two pieces of its
 prose is one stretch of work: its thinking and its tool calls, in the order they happened. While the turn runs (from
-the person's last message, until the run ends or parks on a card) each stretch is open: the thinking shows as quiet
-text as it streams, each call is a line saying what it does, and the running call shows the last three lines of its
-output. When the turn ends, each stretch folds to one line ("Ran 12 commands, wrote 8 files · 1 failed") that opens on
-a tap, as each call does to its input and output. A tap opens or folds a stretch at any time; the next change between
-running and finished sets it again. *Before:* calls gathered into one group until the agent wrote prose, but thinking
-did not end a group, so a long run showed one line of calls followed by a column of separate "Thought" rows, out of
-order and with nothing to watch while it worked.
+the person's last message or answered card, until the run ends or parks on a card) nothing hides it, as Pi's own
+terminal shows a run: the thinking reads inline in a quiet italic as it streams, and each call is a tinted block headed
+by what it runs (`$ command`, or "Edited src/x.ts") with the last four lines of a command's output, or of any failure,
+under it and a count of the lines before them. When the turn ends, each stretch folds to one line ("Ran 12 commands,
+wrote 8 files · 1 failed") that opens on a tap to the same sequence, each call one line that opens to its full input
+and output. *Before:* calls gathered into one group until the agent wrote prose, but thinking did not end a group, so
+a long run showed one line of calls followed by a column of separate "Thought" rows, out of order and with nothing to
+watch while it worked; a first fix kept the running stretch inside an open disclosure, which only added chrome to
+read around.
 
 **A plan and a report are reviewed part by part.** Each part sits under a small label, each item is one line, and what
 supports it (a decision's reason, a condition's evidence, a step's files, a check's output) is set smaller beneath it.

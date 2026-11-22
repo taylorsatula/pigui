@@ -48,13 +48,17 @@ test.describe("the tap flow", () => {
 
 	test("while the agent works its calls show as they happen, and fold away when the turn ends", async ({ page }) => {
 		await startSession(page, "Keep going [spin]");
-		const work = page.locator("details.work").last();
-		await expect(work).toHaveAttribute("open", "");
-		await expect(work.locator("details.call").nth(2)).toBeVisible({ timeout: 15_000 });
-		await expect(work.locator("details.call").first()).toContainText("Ran echo turn");
+		// Nothing to open while it works: each call is a block with its command and what it printed last.
+		const live = page.locator(".work.live").last();
+		await expect(live.locator(".live-call").nth(2)).toBeVisible({ timeout: 15_000 });
+		await expect(live.locator(".live-call").first().locator(".call-command")).toHaveText("$ echo turn 0");
+		await expect(live.locator(".live-call").first().locator(".tail")).toHaveText("turn 0");
 		await page.getByRole("button", { name: "Stop" }).tap();
-		await expect(work).not.toHaveAttribute("open");
-		await expect(work.locator("details.call").first()).toBeHidden();
+		const folded = page.locator("details.work").last();
+		await expect(folded).toBeVisible();
+		await expect(folded).not.toHaveAttribute("open");
+		await expect(folded.locator("details.call").first()).toBeHidden();
+		await expect(page.locator(".work.live")).toHaveCount(0);
 	});
 
 	test("a waiting card is answered by typing in the composer", async ({ page }) => {

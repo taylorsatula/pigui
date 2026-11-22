@@ -222,12 +222,15 @@ export function buildBlocks(view: TranscriptView | undefined, session: SessionDo
 	return withSpeakers(withLiveWork(blocks, running && session?.card === undefined), running);
 }
 
+/** What starts a turn of work: the person writing, an automatic continuation, or a card they answered. */
+const TURN_STARTS = new Set<Block["kind"]>(["person", "nudge", "questions", "plan", "report"]);
+
 /**
- * The work of the turn under way stays open to watch: everything since the person last wrote, while the agent is
- * working rather than waiting for them. Once the turn ends, its work folds away.
+ * The work of the turn under way stays open to watch: everything since the turn started, while the agent is working
+ * rather than waiting for the person. Once the turn ends, its work folds away.
  */
 function withLiveWork(blocks: readonly Block[], working: boolean): Block[] {
-	const turnStart = blocks.findLastIndex((block) => block.kind === "person" || block.kind === "nudge");
+	const turnStart = blocks.findLastIndex((block) => TURN_STARTS.has(block.kind));
 	return blocks.map((block, index) => (block.kind === "work" && working && index > turnStart ? { ...block, live: true } : block));
 }
 

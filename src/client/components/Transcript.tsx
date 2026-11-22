@@ -1,10 +1,10 @@
 // The transcript, set as a conversation is set in print: the person's words in the serif, the agent's in the sans, and a
-// date between them where a session runs into a new day. While the agent works, each stretch of its work is open to
-// watch: its thinking as it comes, each tool call as a line, and the running call's latest output. When the turn ends
-// the stretch folds into one line, which opens on a tap, as each call does to its full input and output. Failures show
-// while folded.
+// date between them where a session runs into a new day. While the agent works, its work reads as Pi's own terminal
+// shows it: thinking inline as it comes, and each tool call as a block with the last lines it printed. When the turn
+// ends each stretch folds into one line, which opens on a tap, as each call does to its full input and output.
+// Failures show while folded.
 import type { JSX } from "preact";
-import { useEffect, useLayoutEffect, useRef, useState } from "preact/hooks";
+import { useLayoutEffect, useRef, useState } from "preact/hooks";
 import type { SessionDoc } from "../../shared/session.ts";
 import { dayHeading, describeCall, describeGroup, sameDay } from "../format.ts";
 import { live } from "../live.ts";
@@ -20,62 +20,76 @@ function Cursor(): JSX.Element {
 	return <span class="cursor" role="img" aria-label="running" />;
 }
 
-/** The last lines of a running call's output, enough to see what it is doing. */
-const PEEK_LINES = 3;
+/** How many of a call's last output lines show while its turn runs. */
+const TAIL_LINES = 4;
 
-function peek(output: string | undefined): string {
-	return (output ?? "").trimEnd().split("\n").slice(-PEEK_LINES).join("\n");
+/** A call's last lines of output, and how many came before them. */
+function tail(output: string | undefined): { lines: string; earlier: number } {
+	const all = (output ?? "").trimEnd().split("\n");
+	if (all.length === 1 && all[0] === "") return { lines: "", earlier: 0 };
+	return { lines: all.slice(-TAIL_LINES).join("\n"), earlier: Math.max(0, all.length - TAIL_LINES) };
 }
 
-function CallDetail(props: { call: CallView }): JSX.Element {
+/**
+ * One tool call. While its turn runs it is a block headed by what it runs (`$ command`, or what it edits or reads) with
+ * the last lines of a command's output, or of any failure, under it, as Pi's own terminal shows a call. Folded, it is
+ * one line. Either way it opens on a tap to its full input and output.
+ */
+function CallDetail(props: { call: CallView; live: boolean }): JSX.Element {
 	const { call } = props;
-	const input = call.name === "bash" ? String(call.args.command ?? "") : JSON.stringify(call.args, null, 2);
-	const latest = call.status === "running" ? peek(call.output) : "";
-	return (
-		<>
-			<details class={`call ${call.status}`}>
-				<summary>
-					<Icon name="chevron" size={14} />
+	const bash = call.name === "bash";
+	const input = bash ? String(call.args.command ?? "") : JSON.stringify(call.args, null, 2);
+	const shown = props.live && (bash || call.status === "failed") ? tail(call.output) : { lines: "", earlier: 0 };
+	const details = (
+		<details class={`call ${call.status}`}>
+			<summary>
+				{props.live ? null : <Icon name="chevron" size={14} />}
+				{props.live && bash ? (
+					<span class="call-command">
+						<span class="prompt">$ </span>
+						{input}
+					</span>
+				) : (
 					<span class="call-summary">{describeCall(call.name, call.args)}</span>
-					{call.status === "failed" ? <span class="failed-tag">failed</span> : null}
-					{call.status === "running" ? <Cursor /> : null}
-				</summary>
-				<div class="call-body">
-					<div class="io-label">Input</div>
-					<pre class="io">{input}</pre>
-					{call.output === undefined ? null : (
-						<>
-							<div class="io-label">Output</div>
-							<pre class="io">{call.output === "" ? "(no output)" : call.output}</pre>
-						</>
-					)}
-				</div>
-			</details>
-			{/* Outside the call's own disclosure, so what a running call is doing shows without a tap. */}
-			{latest === "" ? null : <pre class="peek">{latest}</pre>}
-		</>
+				)}
+				{call.status === "failed" ? <span class="failed-tag">failed</span> : null}
+				{call.status === "running" ? <Cursor /> : null}
+			</summary>
+			<div class="call-body">
+				<div class="io-label">Input</div>
+				<pre class="io">{input}</pre>
+				{call.output === undefined ? null : (
+					<>
+						<div class="io-label">Output</div>
+						<pre class="io">{call.output === "" ? "(no output)" : call.output}</pre>
+					</>
+				)}
+			</div>
+		</details>
+	);
+	if (!props.live) return details;
+	return (
+		<div class={`live-call ${call.status}`}>
+			{details}
+			{/* Outside the call's own disclosure, so what it printed last shows without a tap. */}
+			{shown.lines === "" ? null : (
+				<pre class="tail">
+					{shown.earlier > 0 ? <span class="earlier">… {shown.earlier} earlier line{shown.earlier === 1 ? "" : "s"}{"\n"}</span> : null}
+					{shown.lines}
+				</pre>
+			)}
+		</div>
 	);
 }
 
 /**
- * A stretch of work: open while its turn runs, folded once it ends. A tap opens or folds it at any time; the next
- * change between running and finished sets it again.
+ * A stretch of work. While its turn runs, nothing hides it: the thinking reads inline as it comes and each call shows
+ * as a block, in the order they happened. Once the turn ends it folds to one line that opens on a tap.
  */
 function Work(props: { items: WorkItem[]; live: boolean }): JSX.Element {
-	const [open, setOpen] = useState(props.live);
-	useEffect(() => setOpen(props.live), [props.live]);
-	const calls = props.items.flatMap((item) => (item.kind === "call" ? [item.call] : []));
-	const failed = calls.filter((call) => call.status === "failed").length;
-	const busy = props.items.some((item) => (item.kind === "call" ? item.call.status === "running" : item.streaming));
-	return (
-		<details class={`work ${props.live ? "live" : ""}`} open={open} onToggle={(event) => setOpen((event.currentTarget as HTMLDetailsElement).open)}>
-			<summary>
-				<Icon name="chevron" size={14} />
-				<span class="work-summary">{calls.length > 0 ? describeGroup(calls.map((call) => call.name)) : busy ? "Thinking" : "Thought"}</span>
-				{failed > 0 ? <span class="failed-tag">{failed} failed</span> : null}
-				{busy && !open ? <Cursor /> : null}
-			</summary>
-			<div class="timeline">
+	if (props.live) {
+		return (
+			<div class="work live">
 				{props.items.map((item) =>
 					item.kind === "thinking" ? (
 						<p key={item.key} class="thought">
@@ -83,7 +97,29 @@ function Work(props: { items: WorkItem[]; live: boolean }): JSX.Element {
 							{item.streaming ? <Cursor /> : null}
 						</p>
 					) : (
-						<CallDetail key={item.key} call={item.call} />
+						<CallDetail key={item.key} call={item.call} live />
+					),
+				)}
+			</div>
+		);
+	}
+	const calls = props.items.flatMap((item) => (item.kind === "call" ? [item.call] : []));
+	const failed = calls.filter((call) => call.status === "failed").length;
+	return (
+		<details class="work">
+			<summary>
+				<Icon name="chevron" size={14} />
+				<span class="work-summary">{calls.length > 0 ? describeGroup(calls.map((call) => call.name)) : "Thought"}</span>
+				{failed > 0 ? <span class="failed-tag">{failed} failed</span> : null}
+			</summary>
+			<div class="timeline">
+				{props.items.map((item) =>
+					item.kind === "thinking" ? (
+						<p key={item.key} class="thought">
+							{item.text}
+						</p>
+					) : (
+						<CallDetail key={item.key} call={item.call} live={false} />
 					),
 				)}
 			</div>

@@ -58,7 +58,7 @@ Small is a result, not a goal. Never drop correct behavior, error handling or a 
   (notifications, external calls) happens once, even if code reruns after a crash.
 - **Nothing reaches GitHub without the person's tap.** The agent commits; the server delivers.
 - **The interface is a conversation set to be read:** a text field, an attachment button and a send button. Detail is
-  collapsed until asked for, except the work of a turn under way, which stays open to watch until the turn ends. Keep its look (serif for titles, buttons and the person's words, sans for reading, monospace
+  collapsed until asked for, except the work of a turn under way, which shows inline until the turn ends. Keep its look (serif for titles, buttons and the person's words, sans for reading, monospace
   for what is a record, light weights, paper and ink, one yellow for what needs the person; see DECISIONS.md) rather than drifting back to stock chat-app parts, or on into a theme. Follow Apple's Human Interface Guidelines: clarity, deference, sensible defaults, 44 pt targets,
   readable in dark mode and at large text sizes. Choose the simple control that works well over the clever one.
 
