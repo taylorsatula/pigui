@@ -1,12 +1,15 @@
-/* picloud is set like a well-made book: the agent's prose in a serif with room to read, and what is a record (tool
-   activity, paths, commits, status, sums) in a monospace beside it. Ink on paper, and one yellow, kept for what needs
-   the person.
+/* picloud is set as a well-made publication is: titles, buttons and the person's own words in a serif; the agent's
+   prose and the text around it in a sans, which keeps technical writing even beside its code; and what is a record
+   (labels, tool activity, paths, commits, sums) in the sans's monospace sibling. Ink on paper, in light weights, and one
+   yellow, kept for what needs the person.
 
    Apple's Human Interface Guidelines still hold underneath: the person's text size (Dynamic Type), 44 pt targets,
    readable light and dark themes, motion only where it explains.
 
    Everything below draws on one small set of values:
-   - type: --serif says, --mono records. Sizes are fractions of Body, so they follow Dynamic Type;
+   - type: --serif for what is at Body size or larger and names or does something, --sans for reading, --mono for
+     the record. Serif never goes below Body size. Weights are light (--w-*), lighter again on dark paper, where light
+     text spreads. Sizes are fractions of Body, so they follow Dynamic Type;
    - spacing: 2, 4, 6, 8, 12, 16 and 24 px;
    - radii: --radius-s (code, fields, buttons, the toast), --radius-l (sheets), --radius-full (discs);
    - colour: paper and ink, the yellow (--mark), plus one token per meaning (done, warn, error,
@@ -18,7 +21,7 @@
    in the drawer (theme.ts). A theme is a block of these values; only the Terminal also has a short section of its
    own, at the end, for the few things it draws differently. */
 
-/* The two faces, served with the app (scripts/build.ts copies their Latin files from the pinned Fontsource packages),
+/* The three faces, served with the app (scripts/build.ts copies their Latin files from the pinned Fontsource packages),
    so they work offline and the CSP needs no font host. Characters outside Latin fall back to the next face listed. */
 @font-face {
 	font-family: "Source Serif 4";
@@ -30,11 +33,20 @@
 }
 
 @font-face {
-	font-family: "Source Serif 4";
-	font-style: italic;
-	font-weight: 200 900;
+	font-family: "IBM Plex Sans";
+	font-style: normal;
+	font-weight: 100 700;
 	font-display: swap;
-	src: url(/fonts/source-serif-4-latin-opsz-italic.woff2) format("woff2-variations");
+	src: url(/fonts/ibm-plex-sans-latin-wght-normal.woff2) format("woff2-variations");
+	unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+
+@font-face {
+	font-family: "IBM Plex Sans";
+	font-style: italic;
+	font-weight: 100 700;
+	font-display: swap;
+	src: url(/fonts/ibm-plex-sans-latin-wght-italic.woff2) format("woff2-variations");
 	unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
 }
 
@@ -47,29 +59,19 @@
 	unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
 }
 
-@font-face {
-	font-family: "IBM Plex Mono";
-	font-style: normal;
-	font-weight: 500;
-	font-display: swap;
-	src: url(/fonts/ibm-plex-mono-latin-500-normal.woff2) format("woff2");
-	unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
-}
-
 :root {
 	--serif: "Source Serif 4", "Iowan Old Style", "Palatino Linotype", Georgia, serif;
+	--sans: "IBM Plex Sans", system-ui, -apple-system, sans-serif;
 	--mono: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, monospace;
-	--font: var(--serif);
-	/* Prose sits a step above Body: a serif reads smaller than the system sans at the same size. */
-	--prose: 1.0625rem;
+	--prose: 1rem;
 	--title: 1.375rem;
 	--subhead: 0.9375rem;
 	--footnote: 0.8125rem;
-	/* What the log records: times, labels, tool lines. Labels are capitals, opened up. */
+	/* The record: labels, tool lines, paths. Labels are capitals, opened up. */
 	--record: 0.75rem;
 	--label: 0.6875rem;
 	--label-tracking: 0.08em;
-	--leading: 1.55;
+	--leading: 1.5;
 	--leading-tight: 1.3;
 	--leading-code: 1.5;
 
@@ -134,6 +136,13 @@
 	--del: rgba(166, 47, 31, 0.12);
 	--scrim: rgba(24, 20, 12, 0.32);
 	--shadow: 0 1px 2px rgba(44, 34, 14, 0.08), 0 10px 30px rgba(44, 34, 14, 0.16);
+	/* Weights: reading text, quiet emphasis and controls, titles and buttons, strong. A faint halo in the text's own
+	   colour fills out the thin strokes without thickening them. */
+	--w-text: 380;
+	--w-ui: 460;
+	--w-display: 480;
+	--w-strong: 560;
+	--ink-shadow: 0 0 1px color-mix(in srgb, currentColor 22%, transparent);
 	/* The title bar and composer bar: the paper showing through, frosted. */
 	--bar: color-mix(in srgb, var(--bg) 90%, transparent);
 	--bar-blur: saturate(140%) blur(16px);
@@ -144,8 +153,9 @@
 }
 
 /* Dark's colours are written twice, for System in dark mode and for the Dark theme: a selector cannot test a media
-   query. An end-to-end test checks the two stay the same. Dark is the same book read by lamplight: warm graphite
-   paper, cream ink, the yellow as bright as it is on paper. */
+   query. An end-to-end test checks the two stay the same. Dark is the same pages read by lamplight: warm graphite
+   paper, cream ink, the yellow as bright as it is on paper, and every weight a step lighter, since light text on a
+   dark ground looks heavier than it is; no halo, which would only spread it further. */
 @media (prefers-color-scheme: dark) {
 	:root:not([data-theme]) {
 		--bg: #181714;
@@ -175,6 +185,11 @@
 		--del: rgba(239, 122, 102, 0.16);
 		--scrim: rgba(0, 0, 0, 0.5);
 		--shadow: 0 1px 3px rgba(0, 0, 0, 0.3), 0 10px 30px rgba(0, 0, 0, 0.5);
+		--w-text: 340;
+		--w-ui: 420;
+		--w-display: 440;
+		--w-strong: 520;
+		--ink-shadow: none;
 	}
 }
 
@@ -207,6 +222,11 @@
 	--del: rgba(239, 122, 102, 0.16);
 	--scrim: rgba(0, 0, 0, 0.5);
 	--shadow: 0 1px 3px rgba(0, 0, 0, 0.3), 0 10px 30px rgba(0, 0, 0, 0.5);
+	--w-text: 340;
+	--w-ui: 420;
+	--w-display: 440;
+	--w-strong: 520;
+	--ink-shadow: none;
 }
 
 /* Terminal, ANSI dark neon: light grey on near-black, everything in the monospace, square, outlined in one pixel,
@@ -216,7 +236,13 @@
 :root[data-theme="terminal"] {
 	color-scheme: dark;
 	--serif: var(--mono);
+	--sans: var(--mono);
 	--prose: 1rem;
+	--w-text: 400;
+	--w-ui: 400;
+	--w-display: 500;
+	--w-strong: 600;
+	--ink-shadow: none;
 	--title: 1rem;
 	--subhead: 0.875rem;
 	--leading: 1.35;
@@ -261,7 +287,8 @@
 /* -apple-system-body follows iOS's Text Size setting; elsewhere the browser's default size applies. */
 html {
 	font: -apple-system-body;
-	font-family: var(--font);
+	font-family: var(--sans);
+	font-weight: var(--w-text);
 	-webkit-text-size-adjust: 100%;
 	text-size-adjust: 100%;
 	font-optical-sizing: auto;
@@ -278,6 +305,7 @@ body {
 	line-height: var(--leading);
 	-webkit-tap-highlight-color: transparent;
 	-webkit-font-smoothing: antialiased;
+	text-shadow: var(--ink-shadow);
 }
 
 /* While a sheet or the phone drawer is open, the page under it stays put. */
@@ -305,6 +333,7 @@ html:has(.sheet) {
 	transition: none !important;
 }
 
+/* Buttons and links are things to do, so they take the serif (below); fields hold the person's typing, in the sans. */
 button,
 input,
 select,
@@ -334,6 +363,7 @@ a {
 
 button,
 .button {
+	font-family: var(--serif);
 	min-height: var(--target);
 	min-width: var(--target);
 	border-radius: var(--radius-s);
@@ -346,7 +376,7 @@ button,
 	justify-content: center;
 	gap: 8px;
 	text-decoration: none;
-	font-weight: 600;
+	font-weight: var(--w-display);
 	touch-action: manipulation;
 	-webkit-user-select: none;
 	user-select: none;
@@ -378,7 +408,7 @@ button:disabled {
 .link {
 	color: var(--accent);
 	padding: 0 8px;
-	font-weight: 400;
+	font-weight: var(--w-text);
 	text-decoration: underline;
 	text-decoration-thickness: 1px;
 	text-decoration-color: var(--rule);
@@ -456,7 +486,7 @@ details > summary:active {
 .theme-choice > span {
 	font-family: var(--mono);
 	font-size: var(--label);
-	font-weight: 500;
+	font-weight: 400;
 	color: var(--text-2);
 	text-transform: uppercase;
 	letter-spacing: var(--label-tracking);
@@ -536,13 +566,14 @@ details > summary:active {
 .title {
 	margin: 0;
 	font-size: 1.0625rem;
-	font-weight: 600;
+	font-weight: var(--w-display);
 	line-height: var(--leading-tight);
 	overflow: hidden;
 	text-overflow: ellipsis;
 	white-space: nowrap;
 	flex: 1;
 	min-width: 0;
+	font-family: var(--serif);
 }
 
 /* One line of record under the title: status first, then where the work is, then what it has cost. */
@@ -570,7 +601,7 @@ details > summary:active {
 	flex: none;
 	text-transform: uppercase;
 	letter-spacing: var(--label-tracking);
-	font-weight: 500;
+	font-weight: 400;
 	color: var(--text);
 }
 
@@ -696,8 +727,9 @@ details > summary:active {
 .drawer-header h2 {
 	margin: 0;
 	font-size: var(--title);
-	font-weight: 600;
+	font-weight: var(--w-display);
 	letter-spacing: -0.005em;
+	font-family: var(--serif);
 }
 
 .drawer-body {
@@ -708,8 +740,6 @@ details > summary:active {
 
 .group h3 {
 	margin: 16px 16px 0;
-	padding-bottom: 6px;
-	border-bottom: var(--hairline) solid var(--separator);
 }
 
 .group > summary {
@@ -737,20 +767,6 @@ details > summary:active {
 	user-select: none;
 }
 
-/* Separators start at the text, as in iOS lists. */
-.row::after {
-	content: "";
-	position: absolute;
-	left: 16px;
-	right: 0;
-	bottom: 0;
-	border-bottom: var(--hairline) solid var(--separator);
-}
-
-li:last-child > .row::after {
-	display: none;
-}
-
 .row:active {
 	background-color: var(--fill);
 	transition: none;
@@ -771,10 +787,11 @@ li:last-child > .row::after {
 }
 
 .row-title {
-	font-weight: 600;
+	font-weight: var(--w-display);
 	overflow: hidden;
 	text-overflow: ellipsis;
 	white-space: nowrap;
+	font-family: var(--serif);
 }
 
 .row-meta {
@@ -874,7 +891,6 @@ li:last-child > .row::after {
 .empty {
 	--inset: 16px;
 	color: var(--text-2);
-	font-style: italic;
 	padding: 16px;
 	margin: 0;
 }
@@ -931,12 +947,12 @@ details[open] > summary > .icon:first-child {
 	margin-top: -8px;
 }
 
-/* A new turn from the person opens with more room above it, as a new question does in a printed interview. */
+/* A new turn from the person opens with more room above it. */
 .entry.is-person:not(:first-child) {
 	margin-top: 14px;
 }
 
-/* Where a session runs into a new day: its date, between rules. */
+/* Where a session runs into a new day: its date, centred. */
 .day {
 	display: flex;
 	align-items: center;
@@ -949,23 +965,18 @@ details[open] > summary > .icon:first-child {
 	letter-spacing: var(--label-tracking);
 	color: var(--text-2);
 	line-height: var(--leading-tight);
+	justify-content: center;
 }
 
-.day::before,
-.day::after {
-	content: "";
-	flex: 1;
-	border-top: var(--hairline) solid var(--separator);
-}
-
-/* The person's words, set as the questions are in a printed interview: in the semibold, where the agent's are roman. */
+/* The person's words, in the serif where the agent's are in the sans: each instruction heads the reply under it. */
 .said {
 	margin: 0;
-	font-size: var(--prose);
-	font-weight: 600;
+	font-size: 1.0625rem;
+	font-weight: var(--w-ui);
 	color: var(--person);
 	white-space: pre-wrap;
 	overflow-wrap: anywhere;
+	font-family: var(--serif);
 }
 
 .context-chips,
@@ -1001,7 +1012,6 @@ details[open] > summary > .icon:first-child {
 	font-size: var(--prose);
 	overflow-wrap: anywhere;
 	min-width: 0;
-	font-variant-numeric: oldstyle-nums proportional-nums;
 	hanging-punctuation: first;
 }
 
@@ -1027,8 +1037,9 @@ details[open] > summary > .icon:first-child {
 .markdown :is(h1, h2, h3, h4, h5, h6) {
 	margin: 1.2em 0 0.4em;
 	font-size: 1em;
-	font-weight: 600;
+	font-weight: var(--w-display);
 	line-height: var(--leading-tight);
+	font-family: var(--serif);
 }
 
 .markdown h1 {
@@ -1071,7 +1082,7 @@ details[open] > summary > .icon:first-child {
 }
 
 .markdown strong {
-	font-weight: 650;
+	font-weight: var(--w-strong);
 }
 
 .markdown pre,
@@ -1088,11 +1099,11 @@ details[open] > summary > .icon:first-child {
 	white-space: pre;
 }
 
-/* Inline code needs no box beside a serif: the monospace already sets it apart. */
+/* Inline code needs no box: the monospace already sets it apart. */
 .markdown code {
 	font-family: var(--mono);
-	/* Monospace runs large beside the serif; this brings it back to the line's size. */
-	font-size: 0.84em;
+	/* The mono runs a little large beside its sans; this brings it back to the line's size. */
+	font-size: 0.9em;
 	font-variant-numeric: normal;
 }
 
@@ -1120,7 +1131,7 @@ details[open] > summary > .icon:first-child {
 .markdown th {
 	font-family: var(--mono);
 	font-size: var(--label);
-	font-weight: 500;
+	font-weight: 400;
 	text-transform: uppercase;
 	letter-spacing: var(--label-tracking);
 	color: var(--text-2);
@@ -1201,7 +1212,7 @@ details[open] > summary > .icon:first-child {
 
 .failed-tag {
 	color: var(--error);
-	font-weight: 500;
+	font-weight: 400;
 	white-space: nowrap;
 }
 
@@ -1267,21 +1278,22 @@ details[open] > summary > .icon:first-child {
 	font-size: var(--record);
 }
 
-/* ---- Cards: questions, plans and reports, set as parts of the page rather than boxes on it, each under a rule: a
-   hairline, a rule in ink for the report, and the yellow while one waits for the person. */
+/* ---- Cards: questions, plans and reports, set as parts of the page rather than boxes on it. Only two are ruled: the
+   report, under a rule in ink, and whatever waits for the person, under the yellow. */
 
 .card {
 	min-width: 0;
-	border-top: var(--hairline) solid var(--separator);
-	padding-top: 10px;
+	padding-top: 4px;
 }
 
 .card.report {
 	border-top: 1.5px solid var(--text);
+	padding-top: 10px;
 }
 
 .card.waiting {
 	border-top: 3px solid var(--mark);
+	padding-top: 10px;
 }
 
 .card-title {
@@ -1296,9 +1308,10 @@ details[open] > summary > .icon:first-child {
 .card h3 {
 	margin: 2px 0 6px;
 	font-size: 1.25rem;
-	font-weight: 600;
+	font-weight: var(--w-display);
 	line-height: var(--leading-tight);
 	letter-spacing: -0.005em;
+	font-family: var(--serif);
 }
 
 .verdict.good {
@@ -1324,27 +1337,23 @@ details[open] > summary > .icon:first-child {
 
 .question legend {
 	font-size: 1.125rem;
-	font-weight: 600;
+	font-weight: var(--w-display);
 	margin-bottom: 8px;
 	padding: 0;
 	line-height: var(--leading-tight);
+	font-family: var(--serif);
 }
 
-/* Options are ruled lines, the whole line a target. */
+/* Each option is a line, the whole line a target. */
 .option {
 	display: flex;
 	align-items: flex-start;
 	gap: 12px;
 	min-height: var(--target);
-	padding: 11px 0;
-	border-top: var(--hairline) solid var(--separator);
+	padding: 10px 0;
 	cursor: pointer;
 	line-height: var(--leading-tight);
 	transition: background-color var(--quick) var(--ease-out);
-}
-
-.option:last-of-type {
-	border-bottom: var(--hairline) solid var(--separator);
 }
 
 .option:active {
@@ -1353,7 +1362,7 @@ details[open] > summary > .icon:first-child {
 }
 
 .option.chosen .option-label {
-	font-weight: 600;
+	font-weight: var(--w-ui);
 }
 
 /* Once answered, what was not chosen steps back. */
@@ -1425,9 +1434,9 @@ select:focus-visible {
 
 .given {
 	color: var(--text-2);
-	font-style: italic;
 	margin: 8px 0 0;
 	overflow-wrap: anywhere;
+	font-family: var(--serif);
 }
 
 /* Buttons share a row equally and wrap when their labels no longer fit; .wide takes a row of its own. */
@@ -1448,7 +1457,7 @@ select:focus-visible {
 	flex-basis: 100%;
 }
 
-/* The plan as a checklist, ruled: each box holds its step's number until the step is done, then a tick. */
+/* The plan as a checklist: each box holds its step's number until the step is done, then a tick. */
 .steps {
 	list-style: none;
 	padding: 0;
@@ -1459,13 +1468,8 @@ select:focus-visible {
 .steps li {
 	display: flex;
 	gap: 12px;
-	padding: 8px 0;
-	border-top: var(--hairline) solid var(--separator);
+	padding: 6px 0;
 	line-height: var(--leading-tight);
-}
-
-.steps li:last-child {
-	border-bottom: var(--hairline) solid var(--separator);
 }
 
 .box {
@@ -1512,6 +1516,7 @@ select:focus-visible {
 .lede {
 	font-size: 1.1875rem;
 	line-height: 1.45;
+	font-family: var(--serif);
 }
 
 .report details > summary {
@@ -1575,7 +1580,7 @@ select:focus-visible {
 .banner strong {
 	display: block;
 	font-size: 1rem;
-	font-weight: 600;
+	font-weight: var(--w-ui);
 	color: var(--text);
 }
 
@@ -1642,7 +1647,7 @@ select:focus-visible {
 
 .toast .link {
 	color: inherit;
-	font-weight: 600;
+	font-weight: var(--w-display);
 	text-decoration-color: var(--mark);
 	text-decoration-thickness: 2px;
 }
@@ -1712,7 +1717,6 @@ select:focus-visible {
 
 .field-line textarea::placeholder {
 	color: var(--text-2);
-	font-style: italic;
 }
 
 /* Sent but not yet confirmed: the text stays, quieter, until the server has it. */
@@ -1787,9 +1791,10 @@ select:focus-visible {
 	align-items: flex-start;
 	padding: 8px 12px;
 	gap: 2px;
-	font-weight: 400;
+	font-weight: var(--w-text);
 	text-align: left;
 	line-height: var(--leading-tight);
+	font-family: var(--sans);
 }
 
 .picker button:active {
@@ -1823,7 +1828,6 @@ select:focus-visible {
 .intro {
 	margin: 0 0 4px;
 	font-size: var(--prose);
-	font-style: italic;
 	color: var(--text-2);
 	max-width: 34em;
 }
@@ -1856,7 +1860,7 @@ select {
 .segmented button {
 	flex: 1;
 	color: var(--text);
-	font-weight: 500;
+	font-weight: var(--w-display);
 	border-radius: 0;
 }
 
@@ -1943,13 +1947,14 @@ select {
 	grid-column: 2;
 	margin: 0;
 	font-size: 1.0625rem;
-	font-weight: 600;
+	font-weight: var(--w-display);
+	font-family: var(--serif);
 }
 
 .sheet-header .done {
 	grid-column: 3;
 	justify-self: end;
-	font-weight: 600;
+	font-weight: var(--w-display);
 	text-decoration: none;
 }
 
@@ -2259,10 +2264,6 @@ select {
 	border: var(--hairline) solid var(--separator);
 }
 
-[data-theme="terminal"] .said {
-	font-style: normal;
-}
-
 [data-theme="terminal"] .said::before {
 	content: "> ";
 	color: var(--text-2);
@@ -2289,7 +2290,7 @@ select {
 	border: var(--hairline) solid var(--separator);
 }
 
-[data-theme="terminal"] :is(.day, .intro, .empty, .given, .thinking p, .markdown blockquote, .field-line textarea::placeholder) {
+[data-theme="terminal"] :is(.thinking p, .markdown blockquote) {
 	font-style: normal;
 }
 

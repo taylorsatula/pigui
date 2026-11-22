@@ -309,24 +309,30 @@ How the Human Interface Guidelines shaped it:
   layout (`interactive-widget=resizes-content`), reduced motion respected, and roles, labels and live regions for
   screen readers.
 
-**The look: a conversation set in a serif.** The first look followed the guidelines and nothing else, and read as
+**The look: serif to name and act, sans to read.** The first look followed the guidelines and nothing else, and read as
 every chat app averaged: blue bubbles, a "Message…" pill, grey pills for status, the system sans at two sizes,
 everything at one radius and one spacing. It was replaced by a point of view, borrowed from print rather than from
-apps. The agent's prose is set in Source Serif 4 at a reading size, measure (about seventy characters at most) and
-leading. What is a record (tool lines, paths, commits, status, sums, labels) is in IBM Plex Mono. The person's words
-are set as the questions in a printed interview are, in the serif's semibold where the agent's are roman, with more
-room above each turn; no bubble and no label. Status is a word, not a pill. A plan is a ruled checklist whose boxes hold
-step numbers and fill with ticks as steps finish; a report opens under a rule in ink, with its commit and its summary
-set a size up. Colour is paper and ink in both themes (Dark is warm graphite and cream, not blue-black), with one
-yellow kept for what needs the person: the status word in the title bar and the drawer, and the rule and label over a
-waiting card. The main action is filled with ink, others are outlined in it, links are underlined. The fonts are pinned
-dev dependencies (`@fontsource-variable/source-serif-4`, `@fontsource/ibm-plex-mono`) whose Latin files
-`scripts/build.ts` copies into the app with their licences (about 290 KB, precached by the service worker), so they
-work offline and the CSP needs no font host. *Alternatives:* a logbook (times in a ruled margin, date headings, a
-ledger's double rule, a highlighter drawn across) was built first and read as a costume: the props announced the idea
-instead of the type carrying it, and the margin cost a phone fifty pixels of every line. A newspaper layout made the
-waiting moment loud but everything else too graphic for something read every day; the system sans with a stronger
-accent kept the hollowness, which came from the defaults, not the colour.
+apps, with three faces and one job each. Source Serif 4 sets what names or does something, at Body size or larger
+only: session titles, question text, plan titles, the report's summary, buttons and links, and the person's own
+words, so each instruction heads the reply under it. IBM Plex Sans sets what is read: the agent's prose, options,
+fields. The agent's prose is technical, full of paths and identifiers, and a sans beside its own monospace sibling
+keeps those lines even where a serif body would switch texture at every `code` span. IBM Plex Mono sets the record:
+small labels, status, tool lines, paths, commits, sums. Weights are light (380 for reading, 480 for titles and
+buttons) and a step lighter on dark paper, where light text spreads; heavier weights read as smudged. A faint halo in
+the text's own colour (`text-shadow: 0 0 1px` at 22 %) fills out the thin strokes on paper; on dark it would only
+spread them, so it is off there. Status is a word, not a pill. Only two rules cross the transcript: ink over a report
+and yellow over whatever waits for the person; options, plan steps and answered cards are separated by space, not
+lines. Colour is paper and ink in both themes (Dark is warm graphite and cream, not blue-black), with that one yellow
+also marking the status word in the title bar and the drawer. The main action is filled with ink, others are outlined
+in it, links are underlined. The fonts are pinned dev dependencies (`@fontsource-variable/source-serif-4`,
+`@fontsource-variable/ibm-plex-sans`, `@fontsource/ibm-plex-mono`) whose Latin files `scripts/build.ts` copies into
+the app with their licences (about 250 KB, precached by the service worker), so they work offline and the CSP needs
+no font host. *Alternatives:* serif prose with a sans for the interface read well but made every technical line
+switch between serif and monospace. A logbook (times in a ruled margin, date headings, a ledger's double rule, a
+highlighter drawn across) read as a costume: the props announced the idea instead of the type carrying it, and the
+margin cost a phone fifty pixels of every line. A newspaper layout made the waiting moment loud but everything else
+too graphic for something read every day; the system sans with a stronger accent kept the hollowness, which came from
+the defaults, not the colour.
 
 **One small set of values, declared once at the top of `app.css`.** Spacing comes from 2/4/8/12/16/24 px, radii from
 four tokens, type from Apple's text styles expressed as fractions of Body (so Dynamic Type scales all of it), colour
@@ -674,5 +680,5 @@ Pinned exactly, with the lockfile committed: the five `@earendil-works/*` packag
 Chromium) for building and testing. Apart from the `@earendil-works/*` versions the runbook fixes, each version was at
 least two weeks old when it was chosen. Reading aloud adds two optional dependencies, `kokoro-js` 1.2.1 and
 `@huggingface/transformers` 3.8.1 (the version kokoro-js's range resolved to), which a build can leave out. The two
-faces are dev dependencies, `@fontsource-variable/source-serif-4` 5.3.1 and `@fontsource/ibm-plex-mono` 5.3.0: the
-build copies their files, so nothing of them is needed at runtime.
+faces are dev dependencies, `@fontsource-variable/source-serif-4` 5.3.1, `@fontsource-variable/ibm-plex-sans` 5.3.0
+and `@fontsource/ibm-plex-mono` 5.3.0: the build copies their files, so nothing of them is needed at runtime.

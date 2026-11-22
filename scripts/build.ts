@@ -19,8 +19,9 @@ await mkdir(join(out, "fonts"), { recursive: true });
 // The Latin files app.css's @font-face rules name, and each family's licence (the SIL Open Font License asks that it
 // travel with the fonts).
 const FONTS = [
-	{ dir: "@fontsource-variable/source-serif-4", files: ["source-serif-4-latin-opsz-normal.woff2", "source-serif-4-latin-opsz-italic.woff2"], licence: "LICENSE-source-serif-4.txt" },
-	{ dir: "@fontsource/ibm-plex-mono", files: ["ibm-plex-mono-latin-400-normal.woff2", "ibm-plex-mono-latin-500-normal.woff2"], licence: "LICENSE-ibm-plex-mono.txt" },
+	{ dir: "@fontsource-variable/source-serif-4", files: ["source-serif-4-latin-opsz-normal.woff2"], licence: "LICENSE-source-serif-4.txt" },
+	{ dir: "@fontsource-variable/ibm-plex-sans", files: ["ibm-plex-sans-latin-wght-normal.woff2", "ibm-plex-sans-latin-wght-italic.woff2"], licence: "LICENSE-ibm-plex-sans.txt" },
+	{ dir: "@fontsource/ibm-plex-mono", files: ["ibm-plex-mono-latin-400-normal.woff2"], licence: "LICENSE-ibm-plex-mono.txt" },
 ];
 const fontBytes: Buffer[] = [];
 for (const font of FONTS) {
