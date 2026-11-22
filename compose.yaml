@@ -58,6 +58,8 @@ services:
       - tailscale
     environment:
       GH_TOKEN: ${GH_TOKEN:?Set GH_TOKEN in .env; see .env.example}
+      PICLOUD_AGENT_GH_TOKEN: ${AGENT_GH_TOKEN:?Set AGENT_GH_TOKEN in .env; see .env.example}
+      PICLOUD_SANDBOX: ${PICLOUD_SANDBOX:-on}
       PICLOUD_PUSH_SUBJECT: ${PICLOUD_PUSH_SUBJECT:-mailto:picloud@localhost}
       PICLOUD_ALLOWED_LOGINS: ${PICLOUD_ALLOWED_LOGINS:-}
       PICLOUD_SPEND_CAP: ${PICLOUD_SPEND_CAP:-}
@@ -67,7 +69,8 @@ services:
       - home:/home/picloud
     # Least privilege: picloud and the agent's commands run as an unprivileged user with no capabilities, cannot gain
     # privileges, and cannot change the system. They write only the two volumes and a scratch /tmp, which builds and
-    # tests may run programs from. A process limit stops a runaway test from exhausting the machine.
+    # tests may run programs from. A process limit stops a runaway test from exhausting the machine. Each agent command
+    # is further confined, by the host kernel's Landlock, to its own session's directories.
     cap_drop:
       - ALL
     security_opt:

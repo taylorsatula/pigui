@@ -19,12 +19,17 @@ run() {
 	fi
 }
 
-# write_file PATH MODE OWNER: content on stdin. Unchanged files are left alone.
+# write_file PATH MODE OWNER: content on stdin. Unchanged files are left alone, apart from their mode and owner.
 write_file() {
 	local path=$1 mode=$2 owner=$3 content
 	content=$(cat)
 	if [[ -f $path ]] && [[ $(cat "$path") == "$content" ]]; then
-		note "$path is up to date"
+		if [[ $(stat -c '%a %U:%G' "$path") == "${mode#0} $owner" ]]; then
+			note "$path is up to date"
+		else
+			run chmod "$mode" "$path"
+			run chown "$owner" "$path"
+		fi
 		return
 	fi
 	if [[ $DRY_RUN == 1 ]]; then

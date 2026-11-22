@@ -5,8 +5,8 @@
 #   - add a swap file, so a test run that spikes past memory slows down instead of being killed;
 #   - cap the system journal's disk use.
 # Kept on purpose: SSH, networking, DNS, time sync, cron, AppArmor, security updates, cloud-init and the provider's
-# agents (resizing, the web console, backups). For Ubuntu 24.04 and Debian 13; re-running is safe, and the end says
-# how to undo it.
+# agents (resizing, the web console, backups). For Debian 13 (recommended) and Ubuntu 24.04; re-running is safe, and
+# the end says how to undo it.
 #
 #   sudo deploy/trim.sh [options]
 #
@@ -112,6 +112,8 @@ else
 	fi
 fi
 if [[ $SWAP != 0 ]]; then
+	# A minimal system may have no /etc/sysctl.d, with its defaults in /usr/lib/sysctl.d only.
+	run install -d -m 0755 /etc/sysctl.d
 	write_file /etc/sysctl.d/90-picloud.conf 0644 root:root <<EOF
 # Swap only under memory pressure: it catches a test run's spike without slowing everyday work. From deploy/trim.sh.
 vm.swappiness=10
