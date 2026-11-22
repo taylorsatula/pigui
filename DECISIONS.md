@@ -572,18 +572,22 @@ goes into `pi.usage` through `countSpend`, the helper the summarizer's checkpoin
 and cap see it exactly as they see the summarizer's. Nothing checks the cap before the call: it is small, and a
 person asked for it. The phone keeps each complete script in memory, so hearing a reply again costs no second call.
 
-**Streamed as paragraphs, cut into segments of at most 200 characters.** The script comes back as newline-delimited
+**Streamed a sentence at a time, in segments of at most 200 characters.** The script comes back as newline-delimited
 JSON, the live stream's framing (`openLines` on the server, `lines` on the phone), a segment per line as soon as its
-paragraph is written, then `done` or `error`; the phone caches only a script that reached `done`. The limit is
+sentence is written, then `done` or `error`; the phone caches only a script that reached `done`. The limit is
 Kokoro's: kokoro-js truncates its input to the tokenizer's 512 tokens, two of them markers, and the voice has 510
 style vectors. Those tokens are phonemes, measured at 1.1 to 1.4 per character of prose and 2.5 for letters read one
-by one ("A P I"), so 200 characters always fit. A longer paragraph is packed into segments of whole sentences, and a
-sentence too long by itself is cut at its last comma, semicolon or colon that fits. *Alternative:* splitting into
-sentences always would start the audio sooner (a full segment takes about seven seconds to synthesize on two vCPU),
-but the paragraph is the unit the design asked for, and short first paragraphs already start quickly.
+by one ("A P I"), so 200 characters always fit. Each sentence is its own segment, and a sentence too long by itself is
+cut at its last comma, semicolon or colon that fits. *Alternative:* paragraphs packed into 200-character segments, as
+first built. On two vCPU a full segment takes about 7 seconds to synthesize and a sentence about 3, and the first
+paragraph had to be written in full first, so sentences start the reading several seconds sooner; the phone fetching
+three segments ahead keeps the synthesizer busy, so it pulls ahead of playback and a long sentence after a short one
+leaves no gap.
 
 **Kokoro in picloud's own process, one synthesis at a time.** `kokoroSynthesizer` loads the model on first use and
-keeps it (about 450 MB resident once loaded, about 800 MB once it has read). ONNX Runtime runs on its own threads, so
+releases it five minutes after its last synthesis. Reading takes about 650 MB more resident memory; releasing gives back
+about 400 MB of it, and loading again takes about a second, so an occasional feature does not hold memory the agent's
+builds could use. ONNX Runtime runs on its own threads, so
 the event loop stalled at most 180 ms during a synthesis; a worker process would add a protocol for no gain. Requests
 queue, since two vCPU have no room for two at once. The WAV is picloud's own 16-bit PCM encoder (`src/shared/wav.ts`,
 also used by the phone): transformers.js's `toWav` writes 32-bit float, twice the bytes.
@@ -617,8 +621,8 @@ in fake mode; `Bootstrap.speech` tells the phone, and otherwise both endpoints a
 
 **Playback that survives a locked screen.** iOS plays media only from a tap, and the audio arrives several awaits
 later, so the phone (`src/client/speech.ts`) keeps one `HTMLAudioElement`, unlocks it inside the tap by playing a
-tenth of a second of silence, and plays each segment on it from a fetched blob. The next segment is always fetched
-while one plays, so `ended` swaps the source and plays with no await in between, which is what keeps reading going in
+tenth of a second of silence, and plays each segment on it from a fetched blob. Up to three segments are fetched
+ahead of the one playing, so `ended` swaps the source and plays with no await in between, which is what keeps reading going in
 the background. Web Audio was ruled out because the silent switch mutes it. The Content Security Policy gains
 `media-src 'self' blob:`. Leaving a session stops its reading, since its stop button would be out of reach; locking
 the phone does not.

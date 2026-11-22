@@ -1,5 +1,5 @@
 // The speakable script: a reply's Markdown rewritten by the session's own model as plain text to be read aloud, streamed
-// a paragraph at a time and cut into segments Kokoro reads whole. A model call rather than rules, because the right
+// a sentence at a time, each one a segment Kokoro reads whole. A model call rather than rules, because the right
 // reading depends on context: "/" is "slash" in a path, "or" in and/or and "per" in km/h.
 import { type Api, clampThinkingLevel, type Model, type Models } from "@earendil-works/pi-ai";
 import { SPEECH_SEGMENT_CHARS } from "../../shared/api.ts";
@@ -20,8 +20,11 @@ const MAX_OUTPUT_TOKENS = 16_000;
 
 export type ScriptResult = { spend?: ModelSpend; problem?: string };
 
+/** Where a sentence ends: after its closing punctuation and any closing quote or bracket, or at the end of a paragraph. */
+const SENTENCE_END = /(?<=[.!?…]["'”’)\]]*)\s+|\n\s*\n/;
+
 /**
- * Rewrite `markdown` with `model`, giving `segment` each segment as soon as its paragraph is complete. Resolves with what
+ * Rewrite `markdown` with `model`, giving `segment` each sentence as soon as it is complete. Resolves with what
  * the call cost and, when it failed or was aborted, why; the model's failures never throw.
  */
 export async function writeScript(
@@ -30,14 +33,17 @@ export async function writeScript(
 	markdown: string,
 	options: { now: number; signal: AbortSignal; segment: (text: string) => void },
 ): Promise<ScriptResult> {
-	// A reading needs no reasoning, and thinking would hold back the first paragraph.
+	// A reading needs no reasoning, and thinking would hold back the first sentence.
 	const level = clampThinkingLevel(model, "off");
 	const maxTokens = Math.min(MAX_OUTPUT_TOKENS, model.maxTokens > 0 ? model.maxTokens : MAX_OUTPUT_TOKENS);
+	// A sentence goes out once the text after it has begun, so the reading starts as soon as its first sentence is
+	// written, and the synthesizer starts on something short: on two vCPU a sentence takes about 3 seconds to read, a
+	// full segment about 7.
 	let pending = "";
-	const paragraphs = (final: boolean) => {
-		const parts = pending.split(/\n\s*\n/);
+	const sentences = (final: boolean) => {
+		const parts = pending.split(SENTENCE_END);
 		pending = final ? "" : (parts.pop() ?? "");
-		for (const paragraph of parts) for (const text of segments(paragraph)) options.segment(text);
+		for (const sentence of parts) for (const text of pieces(sentence.replace(/\s+/g, " ").trim())) options.segment(text);
 	};
 	try {
 		const stream = models.streamSimple(
@@ -48,37 +54,16 @@ export async function writeScript(
 		for await (const event of stream) {
 			if (event.type !== "text_delta") continue;
 			pending += event.delta;
-			paragraphs(false);
+			sentences(false);
 		}
 		const reply = await stream.result();
 		const spend = modelSpend(model, reply);
 		if (reply.stopReason === "error" || reply.stopReason === "aborted") return { spend, problem: reply.errorMessage ?? reply.stopReason };
-		paragraphs(true);
+		sentences(true);
 		return { spend };
 	} catch (error) {
 		return { problem: error instanceof Error ? (error.message.split("\n")[0] ?? "the request failed") : String(error) };
 	}
-}
-
-/** A paragraph as segments of at most SPEECH_SEGMENT_CHARS, cut between sentences, so Kokoro reads each one whole. */
-function segments(paragraph: string): string[] {
-	const sentences = paragraph
-		.replace(/\s+/g, " ")
-		.trim()
-		.split(/(?<=[.!?…]["'”’)\]]*) /)
-		.filter((sentence) => sentence !== "")
-		.flatMap(pieces);
-	const result: string[] = [];
-	let current = "";
-	for (const sentence of sentences) {
-		if (current !== "" && current.length + 1 + sentence.length > SPEECH_SEGMENT_CHARS) {
-			result.push(current);
-			current = "";
-		}
-		current = current === "" ? sentence : `${current} ${sentence}`;
-	}
-	if (current !== "") result.push(current);
-	return result;
 }
 
 /** A sentence too long for one segment, cut after its last pause (a comma, semicolon or colon) that fits, else a space. */

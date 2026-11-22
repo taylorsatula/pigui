@@ -129,13 +129,14 @@ stops. Reading goes on with the phone locked.
 
 - **What happens on a tap.** The phone sends the reply's Markdown to picloud, and the session's own model rewrites it
   as a script for the ear: code described rather than read, symbols and acronyms written as they are said. The script
-  streams back a paragraph at a time, and the phone fetches each segment's audio, the next one while the current one
-  plays, so the first words come once the first paragraph is ready. The rewrite is one small model call per reply,
+  streams back a sentence at a time, and the phone fetches each sentence's audio, a few ahead of the one playing, so
+  the first words come once the first sentence is ready. The rewrite is one small model call per reply,
   counted in the session's spend; reading the same reply again reuses its script.
 - **The voice** is [Kokoro-82M](https://huggingface.co/onnx-community/Kokoro-82M-v1.0-ONNX) through `kokoro-js`, the
-  8-bit model on the CPU, in the `af_heart` voice. It loads on first use and then keeps about 800 MB of memory. On two
-  vCPU, synthesis takes about 0.6 of the speech's own length: a full 200-character segment, some 13 seconds of
-  speech, takes 7 seconds, so a long first paragraph is that long in starting. One segment is read at a time.
+  8-bit model on the CPU, in the `af_heart` voice. It loads on first use, takes about 650 MB of memory while it reads, and
+  gives about 400 MB of that back after five idle minutes; loading again takes a second. On two vCPU, synthesis takes
+  about 0.6 of the speech's own length: a sentence takes about 3 seconds, so reading starts that long after the first
+  sentence is written, and then stays ahead. One segment is read at a time.
 - **Nothing leaves the machine for speech** apart from the rewrite, which goes to the session's model provider like
   the reply itself. The model is fetched at build or install time, from a pinned Hugging Face revision with checked
   checksums (`deploy/speech-model.sh`); at run time picloud loads it from `models/` beside the sources and touches no
@@ -192,7 +193,7 @@ sudo deploy/install.sh \
   --github-token-file /root/github-token \
   --agent-github-token-file /root/agent-github-token \
   --allowed-logins you@example.com
-# --speech off leaves out reading replies aloud: about 550 MB of packages and model, and 800 MB of memory in use.
+# --speech off leaves out reading replies aloud: about 550 MB of packages and model, and 650 MB of memory while reading.
 ```
 
 - **Why Debian 13.** Its 6.12 kernel has Landlock ABI 6, so agent commands cannot signal picloud's or other

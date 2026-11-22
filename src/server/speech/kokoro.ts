@@ -6,6 +6,7 @@
 import { access } from "node:fs/promises";
 import { join } from "node:path";
 import { encodeWav } from "../../shared/wav.ts";
+import { errorKind, type Logger } from "../log.ts";
 
 export type Synthesizer = {
 	/** `text`, at most SPEECH_SEGMENT_CHARS, read aloud as a WAV file. */
@@ -43,15 +44,29 @@ async function load() {
 	return KokoroTTS.from_pretrained(MODEL, { dtype: "q8", device: "cpu" });
 }
 
+/** How long Kokoro stays loaded after it last read: releasing it gives back about 400 MB, and loading again takes a second. */
+const IDLE_MS = 5 * 60_000;
+
 /**
- * Kokoro, loaded on first use and kept loaded (about 800 MB resident once it has read), reading one text at a time: on
- * two CPUs a second synthesis would only slow the first.
+ * Kokoro, loaded on first use (about 650 MB more resident while it reads) and released after five idle minutes, reading
+ * one text at a time: on two CPUs a second synthesis would only slow the first.
  */
-export function kokoroSynthesizer(): Synthesizer {
+export function kokoroSynthesizer(log: Logger): Synthesizer {
 	let model: ReturnType<typeof load> | undefined;
 	let queue: Promise<unknown> = Promise.resolve();
+	let waiting = 0;
+	let idle: NodeJS.Timeout | undefined;
+	const release = () => {
+		const loaded = model;
+		model = undefined;
+		loaded
+			?.then((tts) => tts.model.dispose())
+			.catch((error: unknown) => log.error("speech.release", { error: errorKind(error) }));
+	};
 	return {
 		synthesize(text, signal) {
+			waiting++;
+			clearTimeout(idle);
 			const turn = queue.then(async () => {
 				// Stopped while it waited its turn: nothing is read for it.
 				signal.throwIfAborted();
@@ -62,7 +77,11 @@ export function kokoroSynthesizer(): Synthesizer {
 				const audio = await (await model).generate(text, { voice: VOICE });
 				return encodeWav(audio.audio, audio.sampling_rate);
 			});
-			queue = turn.catch(() => undefined);
+			queue = turn
+				.catch(() => undefined)
+				.finally(() => {
+					if (--waiting === 0) idle = setTimeout(release, IDLE_MS).unref();
+				});
 			return turn;
 		},
 	};

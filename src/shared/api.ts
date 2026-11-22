@@ -76,7 +76,7 @@ export const SpeechBody = obj({ text: str({ minLength: 1, maxLength: SPEECH_SEGM
 export type SpeechBody = Static<typeof SpeechBody>;
 
 /**
- * The speakable script, one line of newline-delimited JSON per message: each segment as soon as its paragraph is
+ * The speakable script, one line of newline-delimited JSON per message: each segment as soon as its sentence is
  * written, then `done`, or `error` when the model failed partway, after the response had begun.
  */
 export type ScriptLine = { t: "segment"; text: string } | { t: "done" } | ({ t: "error" } & ApiError);

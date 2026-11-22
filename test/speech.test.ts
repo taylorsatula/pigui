@@ -3,6 +3,7 @@ import { describe, test } from "node:test";
 import { type ConversationId, UsageDoc } from "@earendil-works/pi-durable";
 import { type ApiError, type Bootstrap, type ScriptLine, SPEECH_SEGMENT_CHARS } from "../src/shared/api.ts";
 import { spentOf } from "../src/shared/spend.ts";
+import { silentLogger } from "../src/server/log.ts";
 import { kokoroInstalled, kokoroSynthesizer } from "../src/server/speech/kokoro.ts";
 import { context, TestServer } from "./helpers.ts";
 
@@ -72,14 +73,18 @@ describe("reading a reply aloud", () => {
 			assert.deepEqual(lines.at(-1), { t: "done" });
 			const segments = lines.flatMap((line) => (line.t === "segment" ? [line.text] : []));
 			assert.equal(segments.length, lines.length - 1);
-			// A paragraph to a segment, in order, with the code block described rather than read; a long paragraph is cut
-			// between its sentences, and a sentence too long by itself at its last pause that fits.
+			// A sentence to a segment, in order, with the code block described rather than read, and a sentence too long by
+			// itself cut at its last pause that fits.
 			assert.deepEqual(segments, [
 				"What changed.",
-				"The parser now reads src/config.ts before it opens the socket. The design notes say why.",
+				"The parser now reads src/config.ts before it opens the socket.",
+				"The design notes say why.",
 				"A code block.",
-				"Reads the file first. Opens the socket after.",
-				"This paragraph runs long on purpose, so that it cannot be read in one go. It has several sentences, each of them short enough on its own. Together they are longer than one segment holds.",
+				"Reads the file first.",
+				"Opens the socket after.",
+				"This paragraph runs long on purpose, so that it cannot be read in one go.",
+				"It has several sentences, each of them short enough on its own.",
+				"Together they are longer than one segment holds.",
 				"So the server cuts the paragraph between its sentences, and never in the middle of one.",
 				"One sentence can run too long by itself, with clause after clause and pause after pause, going on well past what the voice reads in a single call,",
 				"so the server cuts it after the last comma that still fits, and reads the rest next.",
@@ -186,7 +191,7 @@ describe("reading a reply aloud", () => {
 	});
 
 	test("real Kokoro reads a short phrase", { skip: installed ? false : "the speech model is not installed: deploy/speech-model.sh models" }, async () => {
-		const wav = readWav(await kokoroSynthesizer().synthesize("picloud reads replies aloud.", new AbortController().signal));
+		const wav = readWav(await kokoroSynthesizer(silentLogger).synthesize("picloud reads replies aloud.", new AbortController().signal));
 		assert.equal(wav.rate, 24_000);
 		assert.ok(wav.seconds > 1 && wav.seconds < 6, `${wav.seconds} s`);
 		assert.ok(wav.peak > 0.1, "it is not silence");
