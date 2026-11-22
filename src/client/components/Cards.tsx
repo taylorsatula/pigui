@@ -47,8 +47,10 @@ export function QuestionsCard(props: { card: QuestionCard; answer?: CardAnswer; 
 	};
 
 	const chosenFor = (questionId: string): string[] => {
-		if (answered?.kind === "questions") return answered.answers.find((item) => item.questionId === questionId)?.selected ?? [];
-		return selected[questionId] ?? [];
+		if (props.pending) return selected[questionId] ?? [];
+		// Answered in the person's own words, or never answered: no option was chosen.
+		if (answered?.kind !== "questions") return [];
+		return answered.answers.find((item) => item.questionId === questionId)?.selected ?? [];
 	};
 
 	return (
@@ -143,9 +145,9 @@ export function PlanCardView(props: { card: PlanCard; answer?: CardAnswer; pendi
 			<h3>{card.plan.title}</h3>
 			<Markdown text={card.plan.summary} />
 			<ol class="steps">
-				{card.plan.steps.map((step) => (
+				{card.plan.steps.map((step, index) => (
 					<li key={step.id} class={done.includes(step.id) ? "done" : ""}>
-						{done.includes(step.id) ? <Icon name="check" size={16} label="Done" /> : null}
+						<span class="step-marker">{done.includes(step.id) ? <Icon name="check" size={16} label="Done" /> : `${index + 1}.`}</span>
 						<span>{step.text}</span>
 					</li>
 				))}

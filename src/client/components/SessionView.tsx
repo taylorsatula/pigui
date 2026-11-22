@@ -188,12 +188,13 @@ export function SessionView(props: { id: number }): JSX.Element {
 	const progress = doc.plan?.approved === true ? { done: doc.plan.done.length, total: doc.plan.steps.length } : undefined;
 	return (
 		<div class="session">
+			<div class="pinned">
 			<header class="topbar">
 				<DrawerButton />
 				<div class="title-block">
 					<h1 class="title">{doc.title}</h1>
 					<p class="subtitle">
-						<span>{doc.repo}</span>
+						<span class="repo">{doc.repo}</span>
 						<span class="branch">
 							<Icon name="branch" size={14} /> {doc.branch}
 						</span>
@@ -218,9 +219,10 @@ export function SessionView(props: { id: number }): JSX.Element {
 					{doc.cap === undefined ? "" : ` of ${formatDollars(doc.cap)}`}
 				</span>
 			</div>
-			<Banner doc={doc} spent={spent} running={running} onAction={act} />
+			</div>
 			<Transcript blocks={blocks} session={doc} running={running} cards={cards} delivery={delivery} />
 			<div class="composer-dock">
+				<Banner doc={doc} spent={spent} running={running} onAction={act} />
 				<Composer
 					draftKey={`session:${props.id}`}
 					placeholder={placeholderFor(doc, running)}

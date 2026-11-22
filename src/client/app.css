@@ -56,13 +56,14 @@ html {
 	text-size-adjust: 100%;
 	background: var(--bg);
 	color: var(--text);
-	overflow-x: hidden;
+	/* clip, not hidden: hidden would make the page a scroll container and stop the header and composer sticking. */
+	overflow-x: clip;
 }
 
 body {
 	margin: 0;
 	min-height: 100dvh;
-	overflow-x: hidden;
+	overflow-x: clip;
 	line-height: 1.45;
 	-webkit-tap-highlight-color: transparent;
 }
@@ -174,18 +175,27 @@ button:disabled {
 	padding-right: var(--safe-right);
 }
 
-.topbar {
+/* The title bar, and the status line under it when a session is open, stay in view while the transcript scrolls. */
+.pinned,
+.new-session > .topbar {
 	position: sticky;
 	top: 0;
 	z-index: 5;
-	display: flex;
-	align-items: center;
-	gap: 4px;
-	padding: calc(var(--safe-top) + 4px) 8px 4px;
 	background: color-mix(in srgb, var(--bg) 88%, transparent);
 	-webkit-backdrop-filter: saturate(180%) blur(16px);
 	backdrop-filter: saturate(180%) blur(16px);
 	border-bottom: 0.5px solid var(--separator);
+}
+
+.topbar {
+	display: flex;
+	align-items: center;
+	gap: 4px;
+	padding: calc(var(--safe-top) + 4px) 8px 4px;
+}
+
+.pinned .topbar {
+	padding-bottom: 0;
 }
 
 .title-block {
@@ -220,6 +230,10 @@ button:disabled {
 	text-overflow: ellipsis;
 }
 
+.subtitle .repo {
+	flex: none;
+}
+
 .branch {
 	display: inline-flex;
 	align-items: center;
@@ -235,7 +249,7 @@ button:disabled {
 	display: flex;
 	align-items: center;
 	gap: 10px;
-	padding: 8px 16px;
+	padding: 4px 16px 8px;
 	font-size: 0.8125rem;
 	color: var(--text-2);
 }
@@ -862,20 +876,27 @@ details[open] > summary .icon {
 }
 
 .steps {
-	padding-left: 22px;
+	list-style: none;
+	padding: 0;
 	margin: 8px 0;
 }
 
 .steps li {
+	display: flex;
+	gap: 8px;
 	margin: 4px 0;
+}
+
+.step-marker {
+	flex: none;
+	min-width: 1.5em;
+	display: inline-flex;
+	justify-content: flex-end;
+	font-variant-numeric: tabular-nums;
 }
 
 .steps li.done {
 	color: var(--text-2);
-	list-style: none;
-	margin-left: -22px;
-	display: flex;
-	gap: 6px;
 }
 
 .steps li.done .icon {
@@ -912,7 +933,7 @@ details[open] > summary .icon {
 /* ---- Banners and toasts */
 
 .banner {
-	margin: 0 16px 8px;
+	margin: 0 0 8px;
 	padding: 10px 12px 10px 14px;
 	border-radius: var(--radius);
 	background: var(--surface);
@@ -1044,7 +1065,7 @@ details[open] > summary .icon {
 .picker button {
 	width: 100%;
 	background: none;
-	justify-content: flex-start;
+	justify-content: center;
 	flex-direction: column;
 	align-items: flex-start;
 	padding: 8px 12px;

@@ -86,7 +86,6 @@ export function Transcript(props: {
 	cards: CardActions;
 	delivery: DeliveryActions;
 }): JSX.Element {
-	const end = useRef<HTMLDivElement>(null);
 	const pinned = useRef(true);
 	const [loading, setLoading] = useState(false);
 
@@ -100,7 +99,8 @@ export function Transcript(props: {
 		return () => window.removeEventListener("scroll", onScroll);
 	}, []);
 	useLayoutEffect(() => {
-		if (pinned.current) end.current?.scrollIntoView({ block: "end" });
+		// To the very bottom of the page, so the last lines sit above the composer rather than under it.
+		if (pinned.current) window.scrollTo(0, document.documentElement.scrollHeight);
 	});
 
 	const load = async (work: () => Promise<void>) => {
@@ -193,7 +193,6 @@ export function Transcript(props: {
 						);
 				}
 			})}
-			<div ref={end} />
 		</div>
 	);
 }

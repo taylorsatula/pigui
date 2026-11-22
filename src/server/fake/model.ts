@@ -154,7 +154,7 @@ function respond(context: TranscriptContext, options: SimpleStreamOptions | unde
 			fauxText("Let me look around the repository first."),
 			call("explore", "bash", {
 				// The build id is printed last, so it stays in the output the bash tool keeps.
-				command: `ls -R src test && cat AGENTS.md${directives.includes("[long]") ? ` && ${BULK}` : ""} && echo "build id: $((4000+817))"`,
+				command: `ls -R | head -40; cat AGENTS.md 2>/dev/null; ${directives.includes("[long]") ? `${BULK} && ` : ""}echo "build id: $((4000+817))"`,
 			}),
 		);
 	}

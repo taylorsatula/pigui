@@ -1,7 +1,7 @@
 // Builds the phone app into dist/public: one esbuild bundle for the app and one for the service worker, the static
 // shell, and the icons, drawn here so the repository holds no binary assets.
 import { createHash } from "node:crypto";
-import { copyFile, mkdir, rm, writeFile } from "node:fs/promises";
+import { copyFile, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { deflateSync } from "node:zlib";
 import { build } from "esbuild";
@@ -27,7 +27,9 @@ const app = await build({
 	metafile: true,
 	logLevel: "warning",
 });
-const buildId = createHash("sha256").update(JSON.stringify(app.metafile.outputs)).digest("hex").slice(0, 12);
+// The service worker's cache is named after everything in the shell, so any change to it replaces the cache.
+const shell = await Promise.all(["index.html", "app.css", "manifest.webmanifest"].map((file) => readFile(join(client, file))));
+const buildId = createHash("sha256").update(JSON.stringify(app.metafile.outputs)).update(Buffer.concat(shell)).digest("hex").slice(0, 12);
 
 await build({
 	entryPoints: [join(root, "src", "sw", "sw.ts")],
