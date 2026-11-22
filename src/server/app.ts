@@ -18,6 +18,7 @@ import { SessionIndexToken } from "./docs.ts";
 import { LocalGitHub } from "./fake/github.ts";
 import { type ScriptedModelOptions, scriptedModels } from "./fake/model.ts";
 import { GhHost, type RepoHost } from "./host.ts";
+import { callerCheck } from "./callers.ts";
 import { createHttpServer } from "./http.ts";
 import { Uploads } from "./input.ts";
 import { createLogger, type Logger } from "./log.ts";
@@ -43,6 +44,8 @@ export type AppOptions = {
 	now?: () => number;
 	/** Where the built client is; default `dist/public` beside the sources. */
 	staticDir?: string;
+	/** Refuse connections opened by picloud's own user (see callers.ts); on in real mode, where tests run as that user. */
+	refuseOwnUser?: boolean;
 };
 
 export type App = {
@@ -189,6 +192,7 @@ export async function startApp(options: AppOptions): Promise<App> {
 		fake: config.fake,
 		vapidPublicKey: vapid.publicKey,
 		allowedLogins: config.allowedLogins,
+		...((options.refuseOwnUser ?? !config.fake) ? { callerCheck: callerCheck() } : {}),
 		agentDir: options.agentDir,
 		workspace,
 		staticDir: options.staticDir ?? join(import.meta.dirname, "..", "..", "dist", "public"),

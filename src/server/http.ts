@@ -1,6 +1,7 @@
 // The HTTP boundary: every request is checked here (access, size, shape) before it reaches the session logic, and
 // every failure leaves as JSON the phone can show with a next step.
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
+import type { Socket } from "node:net";
 import { readFile, stat } from "node:fs/promises";
 import { extname, join, normalize, sep } from "node:path";
 import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
@@ -47,6 +48,8 @@ export type HttpDeps = {
 	agentDir: string;
 	workspace: (id: number) => string;
 	staticDir: string;
+	/** Real mode: refuses connections opened by picloud's own user, as the agent's commands are (see callers.ts). */
+	callerCheck?: (socket: Socket) => Promise<boolean>;
 };
 
 const MAX_JSON_BYTES = 1024 * 1024;
@@ -282,19 +285,7 @@ export function createHttpServer(deps: HttpDeps): Server {
 		throw notFound("That address");
 	}
 
-	return createServer((request, response) => {
-		const started = Date.now();
-		const url = new URL(request.url ?? "/", "http://picloud.local");
-		const done = (status: number) => {
-			// Paths and status only: no query strings, bodies or headers, which can carry content.
-			if (!url.pathname.startsWith("/api/live")) deps.log.info("http", { method: request.method, path: url.pathname, status, ms: Date.now() - started });
-		};
-		const login = String(request.headers["tailscale-user-login"] ?? "").toLowerCase();
-		if (deps.allowedLogins.length > 0 && !deps.allowedLogins.includes(login)) {
-			deps.log.warn("http.forbidden", { path: url.pathname });
-			send(response, 403, { error: "This Tailscale login is not allowed to use picloud." } satisfies ApiError);
-			return;
-		}
+	function handle(request: IncomingMessage, response: ServerResponse, url: URL, done: (status: number) => void): void {
 		route(request, response, url)
 			.then(() => done(response.statusCode))
 			.catch((error: unknown) => {
@@ -309,6 +300,33 @@ export function createHttpServer(deps: HttpDeps): Server {
 				if (response.headersSent) response.end();
 				else send(response, status, body);
 				done(status);
+			});
+	}
+
+	return createServer((request, response) => {
+		const started = Date.now();
+		const url = new URL(request.url ?? "/", "http://picloud.local");
+		const done = (status: number) => {
+			// Paths and status only: no query strings, bodies or headers, which can carry content.
+			if (!url.pathname.startsWith("/api/live")) deps.log.info("http", { method: request.method, path: url.pathname, status, ms: Date.now() - started });
+		};
+		const caller = deps.callerCheck === undefined ? Promise.resolve(true) : deps.callerCheck(request.socket);
+		caller
+			.then((allowed) => {
+				if (allowed) return true;
+				deps.log.warn("http.local_caller", { path: url.pathname });
+				send(response, 403, { error: "This connection comes from picloud's own user, as the agent's commands do. picloud is reached through Tailscale." } satisfies ApiError);
+				return false;
+			})
+			.then((allowed) => {
+				if (!allowed) return;
+				const login = String(request.headers["tailscale-user-login"] ?? "").toLowerCase();
+				if (deps.allowedLogins.length > 0 && !deps.allowedLogins.includes(login)) {
+					deps.log.warn("http.forbidden", { path: url.pathname });
+					send(response, 403, { error: "This Tailscale login is not allowed to use picloud." } satisfies ApiError);
+					return;
+				}
+				handle(request, response, url, done);
 			});
 	});
 }

@@ -506,10 +506,15 @@ is what starts. picloud's tools only ever pass command strings.
 - **Caches:** they are per session now, so each session downloads its own npm packages.
 - **`/tmp`:** a program that hard-codes it fails, since `TMPDIR` points into the scratch directory.
 
+**picloud's own API refuses its own user.** TCP is not restricted, so a command can reach picloud's HTTP API on
+loopback and send the `Tailscale-User-Login` header itself; it would approve its own plan or tap Deliver with
+picloud's write token, which defeats the token split. So in real mode, picloud looks up the client end of each
+connection in the kernel's socket table (`/proc/net/tcp`, `src/server/callers.ts`) and refuses it when it belongs to
+picloud's own user, as every agent command does. `tailscale serve` connects as root, in both deployments. A
+connection whose owner cannot be found is refused too. Fake mode leaves this off, since tests connect as picloud's own
+user.
+
 **What stays open.**
-- **The loopback API.** TCP is not restricted, so a command can call picloud's HTTP API on 127.0.0.1 and send the
-  `Tailscale-User-Login` header itself. It can approve its own plan or tap Deliver. Closing this needs Landlock's
-  TCP rules (ABI 4) or a credential on the API, and network restriction is the owner's separate decision.
 - **The tailnet and metadata.** Commands reach every host the machine reaches: other tailnet devices (limited only by
   Tailscale's access controls) and a cloud provider's metadata service. They can also reach tailscaled's local
   socket, because Landlock does not restrict connecting to a named unix socket.

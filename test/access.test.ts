@@ -4,6 +4,8 @@ import { mkdtemp, readdir } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, test } from "node:test";
+import type { ApiError } from "../src/shared/api.ts";
+import { clientOwner } from "../src/server/callers.ts";
 import { ConfigError, readConfig } from "../src/server/config.ts";
 import { TestServer } from "./helpers.ts";
 
@@ -33,6 +35,47 @@ describe("access and configuration", () => {
 		} finally {
 			await server.close();
 		}
+	});
+
+	test("a caller running as picloud's own user, as the agent's commands do, is refused even with Tailscale's header", async () => {
+		const server = await TestServer.start({ refuseOwnUser: true, env: { PICLOUD_ALLOWED_LOGINS: "owner@example.com" } });
+		try {
+			const forged = await fetch(`${server.app.url}/api/bootstrap`, { headers: { "Tailscale-User-Login": "owner@example.com" } });
+			assert.equal(forged.status, 403);
+			assert.match(((await forged.json()) as ApiError).error, /picloud's own user/);
+			// Another user, as Tailscale is, gets in. Only root can open a connection as someone else.
+			if (process.getuid?.() === 0) {
+				const script = `fetch(${JSON.stringify(`${server.app.url}/api/bootstrap`)}, { headers: { "Tailscale-User-Login": "owner@example.com" } }).then((r) => process.stdout.write(String(r.status)))`;
+				const status = await new Promise<string>((resolve, reject) => {
+					const child = spawn(process.execPath, ["-e", script], { uid: 65534, gid: 65534 });
+					let out = "";
+					child.stdout.on("data", (chunk: Buffer) => (out += chunk.toString()));
+					child.on("error", reject);
+					child.on("exit", () => resolve(out));
+				});
+				assert.equal(status, "200");
+			}
+		} finally {
+			await server.close();
+		}
+	});
+
+	test("the client end of a connection is found in the kernel's socket table, IPv4 and IPv6", () => {
+		// As a little-endian machine prints them: 127.0.0.1 is 0100007F, ::1 ends in 01000000; ports are big-endian hex.
+		const header = "  sl  local_address rem_address   st tx_queue rx_queue tr tm->when retrnsmt   uid  timeout inode";
+		const v4 = [
+			header,
+			"   0: 0100007F:2253 00000000:0000 0A 00000000:00000000 00:00000000 00000000  1001        0 11111 1",
+			"   1: 0100007F:D431 0100007F:2253 01 00000000:00000000 00:00000000 00000000     0        0 22222 1",
+			"   2: 0100007F:2253 0100007F:D431 01 00000000:00000000 00:00000000 00000000  1001        0 33333 1",
+		].join("\n");
+		const server = { address: "127.0.0.1", port: 8787 };
+		assert.equal(clientOwner(v4, { address: "127.0.0.1", port: 54321 }, server), 0);
+		assert.equal(clientOwner(v4, { address: "::ffff:127.0.0.1", port: 54321 }, { address: "::ffff:127.0.0.1", port: 8787 }), 0);
+		assert.equal(clientOwner(v4, { address: "127.0.0.1", port: 54322 }, server), undefined, "no such connection");
+		const loop6 = "00000000000000000000000001000000";
+		const v6 = [header, `   0: ${loop6}:D431 ${loop6}:2253 01 00000000:00000000 00:00000000 00000000  1001        0 44444 1`].join("\n");
+		assert.equal(clientOwner(v6, { address: "::1", port: 54321 }, { address: "::1", port: 8787 }), 1001);
 	});
 
 	test("listens on loopback only and validates the rest of its configuration", () => {
