@@ -322,8 +322,10 @@ buttons) and a step lighter on dark paper, where light text spreads; heavier wei
 the text's own colour (`text-shadow: 0 0 1px` at 22 %) fills out the thin strokes on paper; on dark it would only
 spread them, so it is off there. Status is a word, not a pill. Only two rules cross the transcript: ink over a report
 and yellow over whatever waits for the person; options, plan steps and answered cards are separated by space, not
-lines. Colour is paper and ink in both themes (Dark is warm graphite and cream, not blue-black), with that one yellow
-also marking the status word in the title bar and the drawer. The main action is filled with ink, others are outlined
+lines. Colour is warm ink on a page just warmer than white (a paper tone was tried and read as dim), and cream on warm
+graphite in Dark rather than blue-black. The alert colours sit near their full saturation (yellow `#ffd400`, red
+`#d70015`, orange `#c45000`, green `#008038`; brighter in Dark), each still at least 4.5:1 as text on the page, so they
+read as signals against a quiet page; the yellow also marks the status word in the title bar and the drawer. The main action is filled with ink, others are outlined
 in it, links are underlined. The fonts are pinned dev dependencies (`@fontsource-variable/source-serif-4`,
 `@fontsource-variable/ibm-plex-sans`, `@fontsource/ibm-plex-mono`) whose Latin files `scripts/build.ts` copies into
 the app with their licences (about 250 KB, precached by the service worker), so they work offline and the CSP needs

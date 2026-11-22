@@ -7,7 +7,7 @@ export type Theme = (typeof THEMES)[number];
 const KEY = "picloud.theme";
 
 /** Each theme's page colour (its --bg in app.css), for the browser's bars. */
-const BAR: Record<Exclude<Theme, "system">, string> = { light: "#f3f0e7", dark: "#181714", terminal: "#0a0a0a" };
+const BAR: Record<Exclude<Theme, "system">, string> = { light: "#fcfbf8", dark: "#181714", terminal: "#0a0a0a" };
 
 /** The theme chosen on this device, or System when none was or storage is unavailable (as in some private modes). */
 export function storedTheme(): Theme {

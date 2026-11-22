@@ -1,7 +1,7 @@
 /* picloud is set as a well-made publication is: titles, buttons and the person's own words in a serif; the agent's
    prose and the text around it in a sans, which keeps technical writing even beside its code; and what is a record
-   (labels, tool activity, paths, commits, sums) in the sans's monospace sibling. Ink on paper, in light weights, and one
-   yellow, kept for what needs the person.
+   (labels, tool activity, paths, commits, sums) in the sans's monospace sibling. Ink on a near-white page, in light
+   weights, and one yellow, kept for what needs the person.
 
    Apple's Human Interface Guidelines still hold underneath: the person's text size (Dynamic Type), 44 pt targets,
    readable light and dark themes, motion only where it explains.
@@ -12,7 +12,7 @@
      text spreads. Sizes are fractions of Body, so they follow Dynamic Type;
    - spacing: 2, 4, 6, 8, 12, 16 and 24 px;
    - radii: --radius-s (code, fields, buttons, the toast), --radius-l (sheets), --radius-full (discs);
-   - colour: paper and ink, the yellow (--mark), plus one token per meaning (done, warn, error,
+   - colour: page and ink, the yellow (--mark), plus one token per meaning (done, warn, error,
      waiting, working, deliver, neutral, person), which every theme defines;
    - motion: three durations and two curves. Frequent actions (send, pick, disclose) are not animated; presses give
      feedback at once; sheets, the drawer and toasts enter with --present and leave faster with --quick.
@@ -102,12 +102,12 @@
 
 :root {
 	color-scheme: light dark;
-	/* Paper, a lighter sheet for panels (the drawer, fields), and a darker one for code. */
-	--bg: #f3f0e7;
-	--surface: #f9f7f1;
-	--surface-2: #e8e4d8;
-	--raised: #fcfbf7;
-	--fill: rgba(70, 58, 34, 0.08);
+	/* A page just warmer than white, a toned sheet for panels (the drawer, fields), and a darker one for code. */
+	--bg: #fcfbf8;
+	--surface: #f6f5f1;
+	--surface-2: #ecebe6;
+	--raised: #ffffff;
+	--fill: rgba(60, 52, 36, 0.06);
 	/* Ink, and the pencil it is annotated in. */
 	--text: #1b1915;
 	--text-2: #67625a;
@@ -115,25 +115,26 @@
 	/* A rule drawn on purpose: the outline of a secondary button, the double rule over a report. */
 	--rule: rgba(44, 38, 26, 0.55);
 	/* The yellow that marks what needs the person, and the ink over it. */
-	--mark: #f2d85c;
+	--mark: #ffd400;
 	--mark-text: #1b1915;
 	/* What can be tapped is drawn in ink: filled for the main action, outlined or underlined otherwise. */
 	--accent: #1b1915;
-	--accent-text: #f3f0e7;
-	/* What things mean. Done, approved and added; a warning; an error, a failure, a removed line; needs the person;
-	   at work; delivers to GitHub; nothing in particular; the person's own words. */
-	--done: #2e6a38;
-	--warn: #8a5600;
-	--error: #a62f1f;
+	--accent-text: #fcfbf8;
+	/* What things mean, the alerts near their full colour: done, approved and added; a warning; an error, a failure, a
+	   removed line; needs the person; at work; delivers to GitHub; nothing in particular; the person's own words.
+	   Each alert colour, as text on the page, has at least 4.5:1 contrast. */
+	--done: #008038;
+	--warn: #c45000;
+	--error: #d70015;
 	--waiting: #1b1915;
 	--working: #67625a;
 	--deliver: #1b1915;
 	--neutral: #67625a;
 	--person: #1b1915;
-	--badge: #f2d85c;
+	--badge: #ffd400;
 	--code: rgba(70, 58, 34, 0.07);
-	--add: rgba(46, 106, 56, 0.14);
-	--del: rgba(166, 47, 31, 0.12);
+	--add: rgba(0, 128, 56, 0.12);
+	--del: rgba(215, 0, 21, 0.1);
 	--scrim: rgba(24, 20, 12, 0.32);
 	--shadow: 0 1px 2px rgba(44, 34, 14, 0.08), 0 10px 30px rgba(44, 34, 14, 0.16);
 	/* Weights: reading text, quiet emphasis and controls, titles and buttons, strong. A faint halo in the text's own
@@ -154,7 +155,7 @@
 
 /* Dark's colours are written twice, for System in dark mode and for the Dark theme: a selector cannot test a media
    query. An end-to-end test checks the two stay the same. Dark is the same pages read by lamplight: warm graphite
-   paper, cream ink, the yellow as bright as it is on paper, and every weight a step lighter, since light text on a
+   paper, cream ink, the alerts as vivid as by day (each at least 5.8:1 on the page), and every weight a step lighter, since light text on a
    dark ground looks heavier than it is; no halo, which would only spread it further. */
 @media (prefers-color-scheme: dark) {
 	:root:not([data-theme]) {
@@ -167,22 +168,22 @@
 		--text-2: #a49e8f;
 		--separator: rgba(235, 225, 200, 0.15);
 		--rule: rgba(235, 225, 200, 0.5);
-		--mark: #e3c84c;
+		--mark: #ffd60a;
 		--mark-text: #181714;
 		--accent: #ebe5d5;
 		--accent-text: #181714;
-		--done: #82c48c;
-		--warn: #e0a64a;
-		--error: #ef7a66;
+		--done: #3ddc84;
+		--warn: #ffa31a;
+		--error: #ff5a47;
 		--waiting: #ebe5d5;
 		--working: #a49e8f;
 		--deliver: #ebe5d5;
 		--neutral: #a49e8f;
 		--person: #ebe5d5;
-		--badge: #e3c84c;
+		--badge: #ffd60a;
 		--code: rgba(235, 225, 200, 0.06);
-		--add: rgba(130, 196, 140, 0.16);
-		--del: rgba(239, 122, 102, 0.16);
+		--add: rgba(61, 220, 132, 0.16);
+		--del: rgba(255, 90, 71, 0.18);
 		--scrim: rgba(0, 0, 0, 0.5);
 		--shadow: 0 1px 3px rgba(0, 0, 0, 0.3), 0 10px 30px rgba(0, 0, 0, 0.5);
 		--w-text: 340;
@@ -204,22 +205,22 @@
 	--text-2: #a49e8f;
 	--separator: rgba(235, 225, 200, 0.15);
 	--rule: rgba(235, 225, 200, 0.5);
-	--mark: #e3c84c;
+	--mark: #ffd60a;
 	--mark-text: #181714;
 	--accent: #ebe5d5;
 	--accent-text: #181714;
-	--done: #82c48c;
-	--warn: #e0a64a;
-	--error: #ef7a66;
+	--done: #3ddc84;
+	--warn: #ffa31a;
+	--error: #ff5a47;
 	--waiting: #ebe5d5;
 	--working: #a49e8f;
 	--deliver: #ebe5d5;
 	--neutral: #a49e8f;
 	--person: #ebe5d5;
-	--badge: #e3c84c;
+	--badge: #ffd60a;
 	--code: rgba(235, 225, 200, 0.06);
-	--add: rgba(130, 196, 140, 0.16);
-	--del: rgba(239, 122, 102, 0.16);
+	--add: rgba(61, 220, 132, 0.16);
+	--del: rgba(255, 90, 71, 0.18);
 	--scrim: rgba(0, 0, 0, 0.5);
 	--shadow: 0 1px 3px rgba(0, 0, 0, 0.3), 0 10px 30px rgba(0, 0, 0, 0.5);
 	--w-text: 340;
@@ -838,7 +839,7 @@ details > summary:active {
 	font-variant-numeric: tabular-nums;
 }
 
-/* The yellow, ringed in ink so it reads on paper. */
+/* The yellow, ringed in ink so it reads on the page. */
 .dot {
 	width: 10px;
 	height: 10px;

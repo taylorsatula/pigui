@@ -129,7 +129,7 @@ function inPi(u: number, v: number): boolean {
 }
 
 function icon(size: number, inset: number): Buffer {
-	const mark: [number, number, number] = [242, 216, 92];
+	const mark: [number, number, number] = [255, 212, 0];
 	const ink: [number, number, number] = [27, 25, 21];
 	return png(size, (x, y) => {
 		const u = (x / size - inset) / (1 - 2 * inset);
