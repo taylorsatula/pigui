@@ -1,19 +1,21 @@
 #!/usr/bin/env bash
-# picloud installer for Ubuntu 24.04. Turns a fresh machine into a running picloud, and upgrades an existing install
-# in place when run again. Every step checks before it changes anything, so re-running is safe.
+# picloud installer for Debian 13 (recommended) and Ubuntu 24.04. Turns a fresh machine into a running picloud, and
+# upgrades an existing install in place when run again. Every step checks before it changes anything, so re-running
+# is safe.
 #
 #   sudo deploy/install.sh [options]
 #
 # Options (each may also be given as the environment variable in brackets):
-#   --dry-run                     show every step without changing anything            [PICLOUD_DRY_RUN=1]
-#   --tailscale-auth-key KEY      join the tailnet without a browser login             [TS_AUTHKEY]
-#   --github-token-file FILE      sign gh in with a fine-grained token from FILE       [GITHUB_TOKEN_FILE]
-#   --push-subject URL            mailto: or https: contact for push services          [PICLOUD_PUSH_SUBJECT]
-#   --allowed-logins LIST         comma-separated Tailscale logins allowed in          [PICLOUD_ALLOWED_LOGINS]
-#   --spend-cap DOLLARS           default per-session spend cap                        [PICLOUD_SPEND_CAP]
-#   --port PORT                   loopback port picloud listens on (default 8787)      [PICLOUD_PORT]
-#   --hostname NAME               Tailscale machine name (default picloud)             [PICLOUD_TS_HOSTNAME]
-#   -h, --help                    show this help
+#   --dry-run                       show every step without changing anything        [PICLOUD_DRY_RUN=1]
+#   --tailscale-auth-key KEY        join the tailnet without a browser login         [TS_AUTHKEY]
+#   --github-token-file FILE        sign gh in with picloud's own token from FILE    [GITHUB_TOKEN_FILE]
+#   --agent-github-token-file FILE  give the agent its read-only token from FILE     [AGENT_GITHUB_TOKEN_FILE]
+#   --push-subject URL              mailto: or https: contact for push services      [PICLOUD_PUSH_SUBJECT]
+#   --allowed-logins LIST           comma-separated Tailscale logins allowed in      [PICLOUD_ALLOWED_LOGINS]
+#   --spend-cap DOLLARS             default per-session spend cap                    [PICLOUD_SPEND_CAP]
+#   --port PORT                     loopback port picloud listens on (default 8787)  [PICLOUD_PORT]
+#   --hostname NAME                 Tailscale machine name (default picloud)         [PICLOUD_TS_HOSTNAME]
+#   -h, --help                      show this help
 set -euo pipefail
 
 readonly SERVICE_USER=picloud
@@ -31,20 +33,24 @@ readonly SOURCE_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 DRY_RUN=${PICLOUD_DRY_RUN:-0}
 TS_AUTHKEY=${TS_AUTHKEY:-}
 GITHUB_TOKEN_FILE=${GITHUB_TOKEN_FILE:-}
+AGENT_GITHUB_TOKEN_FILE=${AGENT_GITHUB_TOKEN_FILE:-}
 PUSH_SUBJECT=${PICLOUD_PUSH_SUBJECT:-}
 ALLOWED_LOGINS=${PICLOUD_ALLOWED_LOGINS:-}
 SPEND_CAP=${PICLOUD_SPEND_CAP:-}
 PORT_OPTION=${PICLOUD_PORT:-}
 TS_HOSTNAME=${PICLOUD_TS_HOSTNAME:-picloud}
 HUMAN_STEPS=()
+# Tests point this at a stand-in, to see what the installer chooses on each system.
+OS_RELEASE=${PICLOUD_OS_RELEASE:-/etc/os-release}
 
-usage() { sed -n '2,20p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; }
+usage() { sed -n '2,/^#   -h/p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; }
 
 while [[ $# -gt 0 ]]; do
 	case $1 in
 		--dry-run) DRY_RUN=1 ;;
 		--tailscale-auth-key) TS_AUTHKEY=${2:?}; shift ;;
 		--github-token-file) GITHUB_TOKEN_FILE=${2:?}; shift ;;
+		--agent-github-token-file) AGENT_GITHUB_TOKEN_FILE=${2:?}; shift ;;
 		--push-subject) PUSH_SUBJECT=${2:?}; shift ;;
 		--allowed-logins) ALLOWED_LOGINS=${2:?}; shift ;;
 		--spend-cap) SPEND_CAP=${2:?}; shift ;;
@@ -60,9 +66,6 @@ done
 # shellcheck source=deploy/lib.sh
 . "$SOURCE_DIR/deploy/lib.sh"
 
-# Run as the service user, from its home, with its environment.
-as_user() { run sudo -u "$SERVICE_USER" -H --login "$@"; }
-
 human() { HUMAN_STEPS+=("$*"); }
 
 version_at_least() { [[ $(printf '%s\n%s\n' "$2" "$1" | sort -V | head -n1) == "$2" ]]; }
@@ -74,13 +77,18 @@ if [[ $DRY_RUN != 1 && $EUID -ne 0 ]]; then
 	echo "Run the installer as root (sudo deploy/install.sh), or with --dry-run to see what it would do." >&2
 	exit 1
 fi
-if [[ -r /etc/os-release ]]; then
-	# shellcheck disable=SC1091
-	. /etc/os-release
-	if [[ ${ID:-} != ubuntu || ${VERSION_ID:-} != 24.04 ]]; then
-		note "This installer targets Ubuntu 24.04; this is ${PRETTY_NAME:-unknown}. Continuing."
-	else
-		note "Ubuntu 24.04"
+# Tailscale publishes an apt source per release, debian/trixie and ubuntu/noble among them.
+tailscale_source=debian/trixie
+if [[ -r $OS_RELEASE ]]; then
+	# shellcheck disable=SC1090
+	. "$OS_RELEASE"
+	case ${ID:-}/${VERSION_CODENAME:-} in
+		debian/trixie) note "Debian 13 (trixie), the recommended system" ;;
+		ubuntu/noble) note "Ubuntu 24.04 (noble)" ;;
+		*) note "This installer targets Debian 13 (recommended) or Ubuntu 24.04; this is ${PRETTY_NAME:-unknown}. Continuing." ;;
+	esac
+	if [[ ${ID:-} == debian || ${ID:-} == ubuntu ]] && [[ -n ${VERSION_CODENAME:-} ]]; then
+		tailscale_source=$ID/$VERSION_CODENAME
 	fi
 fi
 [[ -f $SOURCE_DIR/package.json && -f $SOURCE_DIR/package-lock.json ]] || { echo "Run the installer from a picloud checkout." >&2; exit 1; }
@@ -91,6 +99,10 @@ if [[ -n $PUSH_SUBJECT && ! $PUSH_SUBJECT =~ ^(mailto:|https://) ]]; then
 fi
 if [[ -n $GITHUB_TOKEN_FILE && ! -r $GITHUB_TOKEN_FILE ]]; then
 	echo "Cannot read the GitHub token file $GITHUB_TOKEN_FILE." >&2
+	exit 2
+fi
+if [[ -n $AGENT_GITHUB_TOKEN_FILE && ! -r $AGENT_GITHUB_TOKEN_FILE ]]; then
+	echo "Cannot read the agent's GitHub token file $AGENT_GITHUB_TOKEN_FILE." >&2
 	exit 2
 fi
 note "source: $SOURCE_DIR"
@@ -141,9 +153,9 @@ if command -v tailscale >/dev/null; then
 	note "$(tailscale version | head -n1)"
 else
 	run install -d -m 0755 /usr/share/keyrings
-	run sh -c "curl -fsSL https://pkgs.tailscale.com/stable/ubuntu/noble.noarmor.gpg -o /usr/share/keyrings/tailscale-archive-keyring.gpg"
+	run sh -c "curl -fsSL https://pkgs.tailscale.com/stable/$tailscale_source.noarmor.gpg -o /usr/share/keyrings/tailscale-archive-keyring.gpg"
 	write_file /etc/apt/sources.list.d/tailscale.list 0644 root:root <<EOF
-deb [signed-by=/usr/share/keyrings/tailscale-archive-keyring.gpg] https://pkgs.tailscale.com/stable/ubuntu noble main
+deb [signed-by=/usr/share/keyrings/tailscale-archive-keyring.gpg] https://pkgs.tailscale.com/stable/${tailscale_source%/*} ${tailscale_source#*/} main
 EOF
 	run apt-get update
 	run env DEBIAN_FRONTEND=noninteractive apt-get install -y tailscale
@@ -179,13 +191,29 @@ run rsync -a --delete --exclude .git --exclude node_modules --exclude dist --exc
 run sh -c "cd '$APP_DIR' && npm ci --no-audit --no-fund"
 run sh -c "cd '$APP_DIR' && npm run build"
 run chown -R root:root "$APP_DIR"
+# The build compiled the agent sandbox's launcher; picloud refuses to start where this kernel cannot run it.
+if [[ $DRY_RUN == 1 ]]; then
+	note "dry run: the agent sandbox is checked once the app is built"
+elif abi=$("$APP_DIR/dist/bin/picloud-sandbox" --abi 2>&1); then
+	note "agent sandbox: Landlock ABI $abi"
+	[[ $abi -ge 6 ]] || note "below ABI 6, agent commands may signal other processes of the service user; Debian 13's kernel prevents it"
+else
+	note "$abi"
+	human "Sandbox: this kernel has no Landlock, so picloud will not start. Use Debian 13 (recommended), or set PICLOUD_SANDBOX=off in $ENV_FILE to run agent commands unconfined, then 'sudo systemctl restart picloud'."
+fi
 
 step "Write the configuration ($ENV_FILE)"
 # Existing values are kept; options given now replace them.
 existing() { [[ -f $ENV_FILE ]] && grep -E "^$1=" "$ENV_FILE" | tail -n1 | cut -d= -f2- || true; }
 choose() { local given=$1 key=$2 fallback=$3 value; value=$(existing "$key"); [[ -n $given ]] && value=$given; printf '%s' "${value:-$fallback}"; }
 PORT=$(choose "$PORT_OPTION" PICLOUD_PORT 8787)
-write_file "$ENV_FILE" 0640 root:$SERVICE_USER <<EOF
+agent_token_given=""
+[[ -n $AGENT_GITHUB_TOKEN_FILE ]] && agent_token_given=$(tr -d '[:space:]' <"$AGENT_GITHUB_TOKEN_FILE")
+agent_token=$(choose "$agent_token_given" PICLOUD_AGENT_GH_TOKEN "")
+shown_token=$agent_token
+[[ $DRY_RUN == 1 && -n $agent_token ]] && shown_token="(hidden)"
+# Only root reads it: systemd passes it to picloud, so neither the service user nor the agent's commands can.
+write_file "$ENV_FILE" 0600 root:root <<EOF
 # picloud configuration; see README.md. Re-running the installer keeps these values unless options change them.
 PICLOUD_DATA_DIR=$DATA_DIR
 PICLOUD_HOST=127.0.0.1
@@ -195,18 +223,25 @@ PICLOUD_ALLOWED_LOGINS=$(choose "$ALLOWED_LOGINS" PICLOUD_ALLOWED_LOGINS "")
 PICLOUD_MAX_TURNS=$(choose "" PICLOUD_MAX_TURNS 150)
 PICLOUD_SPEND_CAP=$(choose "$SPEND_CAP" PICLOUD_SPEND_CAP "")
 PICLOUD_COMPACTION_MODEL=$(choose "" PICLOUD_COMPACTION_MODEL "")
+PICLOUD_SANDBOX=$(choose "" PICLOUD_SANDBOX on)
+PICLOUD_AGENT_GH_TOKEN=$shown_token
 EOF
+[[ -n $agent_token ]] || human "GitHub: create a second fine-grained token for the agent, read-only (Contents and Metadata: read) for the same repositories, then re-run with --agent-github-token-file FILE. picloud does not start without it."
 
 step "Sign gh in for the service user"
 if [[ -n $GITHUB_TOKEN_FILE ]]; then
 	run sh -c "sudo -u $SERVICE_USER -H gh auth login --hostname github.com --git-protocol https --with-token < '$GITHUB_TOKEN_FILE'"
-	as_user gh auth setup-git
 elif sudo -u "$SERVICE_USER" -H gh auth status >/dev/null 2>&1; then
 	note "gh is signed in"
-	as_user gh auth setup-git
 else
 	note "gh is not signed in"
-	human "GitHub: create a fine-grained token for the repositories picloud may use (Contents and Pull requests: read and write; Metadata: read), then re-run with --github-token-file FILE. Turn on branch protection for their default branches."
+	human "GitHub: create a fine-grained token for picloud, for the repositories it may use (Contents and Pull requests: read and write; Metadata: read), then re-run with --github-token-file FILE. Turn on branch protection for their default branches."
+fi
+# System-wide, because agent commands have a home of their own; there gh answers with the agent's token instead.
+if [[ $(git config --system --get credential.https://github.com.helper || true) == '!gh auth git-credential' ]]; then
+	note "git uses gh's credentials"
+else
+	run git config --system credential.https://github.com.helper '!gh auth git-credential'
 fi
 
 step "Install the systemd service"
@@ -225,8 +260,9 @@ WorkingDirectory=$APP_DIR
 ExecStart=/usr/bin/env node --disable-warning=ExperimentalWarning $APP_DIR/src/server/main.ts
 Restart=on-failure
 RestartSec=5
-# 78 means Pi is not signed in: restarting cannot fix that, so wait for a person.
-RestartPreventExitStatus=78
+# 78 means Pi is not signed in, 2 that the configuration is incomplete or the sandbox cannot work on this kernel:
+# restarting cannot fix either, so wait for a person.
+RestartPreventExitStatus=78 2
 NoNewPrivileges=yes
 ProtectSystem=full
 PrivateTmp=yes

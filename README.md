@@ -13,8 +13,9 @@ Push carries notifications, and systemd keeps it running. Why each piece is buil
 ## Requirements
 
 - Node.js 22.19 or newer (the server runs its TypeScript directly with Node's type stripping).
-- git.
-- For real use: Ubuntu 24.04 with Tailscale, `gh`, and Pi signed in (see [Deploy](#deploy)).
+- git, and a C compiler (`cc`) for the agent sandbox's launcher.
+- For real use: Debian 13 (recommended) or Ubuntu 24.04, on a kernel with Landlock, with Tailscale, `gh`, Pi signed
+  in and two GitHub tokens (see [Deploy](#deploy)).
 - For the end-to-end tests: Chromium for Playwright 1.63 (`npx playwright install chromium` if it is not installed).
 
 ## Build, run and test
@@ -22,7 +23,7 @@ Push carries notifications, and systemd keeps it running. Why each piece is buil
 ```bash
 npm ci               # exact versions from the committed lockfile
 npm run typecheck    # strict TypeScript: server, client, service worker, tests, end-to-end tests
-npm run build        # bundles the phone app into dist/public (esbuild) and draws its icons
+npm run build        # bundles the phone app into dist/public, draws its icons, compiles dist/bin/picloud-sandbox
 npm test             # automated tests (node:test), real Durable storage, fake mode
 npm run e2e          # builds, then runs the Playwright tests in a phone-sized Chromium
 npm run check        # all of the above
@@ -60,6 +61,9 @@ What it runs:
   `feature/farewell`) and `demo/notes` (branches `main` and `drafts`). Pull requests are kept in
   `fake-github/pulls.json`, so they survive restarts. Notifications are recorded instead of sent.
 - `PICLOUD_FAKE_TOKENS_PER_SECOND` (only for `npm run fake`, default 60) sets how fast scripted text streams.
+- **The sandbox** wherever this machine has Landlock and `npm run build` compiled the launcher; otherwise agent
+  commands run unconfined, and the tests that need it skip. For those tests, the scripted model's `[probe]` directive
+  runs the task's `$ command`, `read PATH` and `write PATH` lines one at a time.
 
 ### How tests construct the server
 
@@ -91,6 +95,8 @@ Configuration is by environment variables. The installer writes them to `/etc/pi
 | `PICLOUD_SPEND_CAP` | none | Default spend cap per session, in US dollars. The person can raise a session's cap from the phone. |
 | `PICLOUD_COMPACTION_MODEL` | each session's model | The model that writes compaction checkpoints, as `provider/modelId` the way Pi names it (for example `anthropic/claude-sonnet-4-5`). It must be one Pi has credentials for; while it is not, picloud logs a warning and uses the session's model. Its spend counts toward the session's cap. |
 | `PICLOUD_FAKE` | `0` | `1` runs fake mode. |
+| `PICLOUD_AGENT_GH_TOKEN` | required in real mode | The agent's read-only GitHub token (Contents and Metadata: read). Agent commands get it as `GH_TOKEN` and `GITHUB_TOKEN`, never picloud's own. |
+| `PICLOUD_SANDBOX` | `on` | `on` confines every agent command and file tool with Landlock; `off` runs them unconfined, for a kernel without Landlock. |
 | `PI_CODING_AGENT_DIR` | `~/.pi/agent` | Pi's own variable: where Pi's configuration (models, sign-in, global skills, global `AGENTS.md`) is read from. |
 
 Models, sign-in and the default model come from Pi's configuration; picloud's only setting of its own for them is
@@ -98,45 +104,81 @@ which model writes compaction checkpoints (`PICLOUD_COMPACTION_MODEL`). In
 real mode, picloud exits with code 78 and instructions if Pi has no default model with credentials, before it touches
 the data directory.
 
+**Two GitHub tokens**, both fine-grained and limited to the repositories picloud may use:
+- **picloud's own** (Contents and Pull requests: read and write; Metadata: read) lists repositories and branches,
+  clones, pushes and opens pull requests, always from picloud's own process. With Docker it is `GH_TOKEN`; with the
+  installer it is the service user's `gh` login.
+- **the agent's** (Contents and Metadata: read) is `PICLOUD_AGENT_GH_TOKEN`, which agent commands get as their
+  `GH_TOKEN`. `gh` reads it, and git through gh's credential helper, so nothing the agent runs can push.
+
+With the sandbox on, real mode checks at startup that the launcher works, logs the kernel's Landlock ABI
+(`sandbox.on`), and warns below ABI 6, where signals and abstract sockets are not scoped. Where it does not work,
+picloud exits with code 2 and what to do: use a kernel with Landlock, or set `PICLOUD_SANDBOX=off`.
+
 ## Security model
 
 - **Reach is power.** Anyone who can reach picloud can make Pi run commands as the service user. The boundary is
   membership of your tailnet, plus `PICLOUD_ALLOWED_LOGINS` when set. picloud listens on loopback only and has no login
   of its own; `tailscale serve` (never `funnel`) provides access and TLS.
-- **The agent shares the service user's credentials.** Pi's model credentials and `gh`'s GitHub token belong to the
-  same user the agent's commands run as. "Never push" is an instruction to the model, not an enforced boundary.
-- **Mitigations:**
-  - a fine-grained GitHub token limited to the repositories picloud may use (Contents and Pull requests: read and
-    write; Metadata: read);
+- **Each session's agent is isolated from picloud and from other sessions.** [DECISIONS.md](DECISIONS.md), "Session
+  isolation", has the details.
+  - **Tokens:** agent commands get only the agent's read-only GitHub token. picloud's own token, which can push,
+    stays in picloud's process, so pushes and pull requests happen only when the person taps.
+  - **Environment:** commands get an allowlist of picloud's variables (path, locale, proxies and certificates), and a
+    home, tmp and `gh` configuration of the session's own. They never see the `PICLOUD_*` settings, provider keys or
+    picloud's token.
+  - **Landlock:** every command and file tool can write only the session's workspace, its home and tmp, and `/dev`,
+    and read only those, the system's directories and Pi's skills. Other sessions, the database, Pi's sign-in,
+    picloud's home and code, and the shared `/tmp` are out of reach. From Landlock ABI 6 (Debian 13's kernel),
+    commands cannot signal picloud's or other sessions' processes either.
+- **What stays open:**
+  - **The network:** commands can reach any host. That includes picloud's own API on loopback, where they could act
+    as the person, as well as the tailnet and a cloud provider's metadata service.
+  - **A race:** the file tools check a path before using it, so a command running at the same moment could swap in a
+    symlink in between.
+  - **Older kernels:** below ABI 6 (Ubuntu 24.04's 6.8 kernel), commands can signal other processes of the service
+    user.
+  - **`PICLOUD_SANDBOX=off`** gives up Landlock, though not the tokens or the environment.
+- **Mitigations that still matter:**
+  - fine-grained tokens limited to the repositories picloud may use;
   - branch protection on those repositories' default branches;
-  - a service user without sudo (the installer removes it from the `sudo` group if present);
-  - pushes and pull requests made by the server only when the person taps.
+  - a service user without sudo (the installer removes it from the `sudo` group if present).
 - Logs carry identifiers, counts, durations and fixed reasons, never message text, tool output or credentials.
 - The phone app sanitizes the agent's Markdown (DOMPurify) and is served with a restrictive Content Security Policy.
 
 ## Deploy
 
 Deployment is Part B of [RUNBOOK-OPEN.md](RUNBOOK-OPEN.md) and happens only when someone deliberately deploys. On a
-fresh Ubuntu 24.04 machine (2 vCPU, 4 GB RAM, 50 GB disk, no inbound ports), from a checkout of picloud:
+fresh Debian 13 machine (recommended; Ubuntu 24.04 works too) with 2 vCPU, 4 GB RAM, a 50 GB disk and no inbound
+ports, from a checkout of picloud:
 
 ```bash
 # See every step first; this changes nothing.
 sudo deploy/install.sh --dry-run
-# Install. Every option is optional: the auth key joins the tailnet without a browser, the token file signs gh in.
+# Install. Every option is optional: the auth key joins the tailnet without a browser, the first token file signs gh
+# in with picloud's own token, the second gives the agent its read-only one.
 sudo deploy/install.sh \
   --push-subject mailto:you@example.com \
   --tailscale-auth-key tskey-... \
   --github-token-file /root/github-token \
+  --agent-github-token-file /root/agent-github-token \
   --allowed-logins you@example.com
 ```
+
+- **Why Debian 13.** Its 6.12 kernel has Landlock ABI 6, so agent commands cannot signal picloud's or other
+  sessions' processes. Ubuntu 24.04's 6.8 kernel stops at ABI 4, which confines files but not signals.
+- **Toolchains** for your repositories (step B1.2) belong under `/usr`, from apt or in `/usr/local`. Agent commands
+  cannot reach the service user's home or `/opt`, so a per-user install such as rustup's is out of their reach.
 
 The installer is idempotent: it installs system packages, Node.js 22, `gh`, Tailscale and the `pi` CLI; creates the
 `picloud` service user (no sudo) and `/opt/picloud`, `/var/lib/picloud` and `/etc/picloud`; installs and builds the
 app; writes the configuration and the `picloud.service` unit; connects Tailscale and runs
 `tailscale serve --https=443`; then reports status and lists the steps that need a person (B2): logging Tailscale in
 and enabling MagicDNS and HTTPS certificates, signing Pi in (`sudo -u picloud -i pi`, then `/login` and `/model`),
-creating the GitHub token and branch protection, and installing the app on the phone (Safari, Share, Add to Home
-Screen, then turn on notifications from the app's menu). Re-run it after those steps, and to upgrade.
+creating the two GitHub tokens and branch protection, and installing the app on the phone (Safari, Share, Add to
+Home Screen, then turn on notifications from the app's menu). Re-run it after those steps, and to upgrade. The
+configuration file `/etc/picloud/picloud.env` is readable by root only, since it holds the agent's token; systemd
+reads it as root. The installer also reports the kernel's Landlock ABI.
 
 ### Run with Docker
 
@@ -145,7 +187,7 @@ runs in one and serves picloud over HTTPS to your tailnet only. picloud runs in 
 network and listening on its loopback. Nothing is exposed on the machine's own ports. From a checkout of picloud:
 
 ```bash
-cp .env.example .env              # fill in TS_AUTHKEY and GH_TOKEN; the rest is optional
+cp .env.example .env              # fill in TS_AUTHKEY, GH_TOKEN and AGENT_GH_TOKEN; the rest is optional
 docker compose build
 docker compose run --rm picloud pi   # once: /login, then /model, then /quit
 docker compose up -d
@@ -156,9 +198,9 @@ Then, in the Tailscale admin console, turn on MagicDNS and HTTPS certificates. O
 documents every setting.
 
 - **What lives where:**
-  - the `data` volume holds the database, workspaces and daily backups;
-  - the `home` volume holds picloud's home directory: Pi's sign-in and model choice, and the caches of tools the
-    agent runs;
+  - the `data` volume holds the database, workspaces and daily backups, and each session's own home and tmp, where
+    the tools the agent runs keep their caches;
+  - the `home` volume holds picloud's home directory: Pi's sign-in and model choice;
   - the `tailscale` volume holds the machine's tailnet identity.
 
   Back up the first two.
@@ -166,20 +208,26 @@ documents every setting.
   - **picloud** runs as an unprivileged user with no Linux capabilities, cannot gain privileges, and has no setuid
     programs to try. Its system files are read-only: it writes only its two volumes and a 512 MB scratch `/tmp`. A
     process limit stops a runaway test from exhausting the machine.
+  - **Agent commands** are confined further, by the host kernel's Landlock, to their own session's directories.
   - **Tailscale** keeps only the two capabilities a VPN interface needs, on a read-only system.
   - **Network:** no port is published on the machine, and Docker's default seccomp and AppArmor profiles stay on.
   - **Tailscale's access controls** can narrow which devices reach this machine, alongside
     `PICLOUD_ALLOWED_LOGINS`.
 - **Not signed in to Pi:** picloud exits with instructions, and Docker retries with a growing delay. Sign in with the
   `run` line above, then `docker compose restart picloud`.
-- **GitHub:** `gh` and git use `GH_TOKEN`. The agent's commands inherit it, as they inherit the service user's `gh`
-  login under the installer, so give the token only the repositories picloud should touch.
+- **GitHub:** picloud's `gh` and git use `GH_TOKEN`. Agent commands get `AGENT_GH_TOKEN` as their `GH_TOKEN` and
+  never see picloud's. Give both tokens only the repositories picloud should touch.
 - **Logs:** `docker compose logs -f picloud`. **Upgrade:** pull the checkout, then `docker compose up -d --build`.
 - **The image:**
-  - Ubuntu 24.04, the installer's target, so the agent works in the same environment either way;
+  - an Ubuntu 24.04 userland, which the installer supports too, so the agent works in the same environment either
+    way;
   - Node.js exactly as the official image ships it;
   - `git`, `gh`, a C toolchain and ripgrep;
-  - the `pi` CLI from picloud's own pinned dependencies.
+  - the `pi` CLI from picloud's own pinned dependencies;
+  - the sandbox launcher, in `/usr/local/bin`.
+
+  The sandbox is Landlock, which lives in the host's kernel, not in the image. Run it on a Debian 13 host
+  (recommended) or another whose kernel has Landlock ABI 6.
 
 ### Trim a small machine
 
@@ -221,6 +269,7 @@ src/shared/     shapes shared by server and phone: API payloads, documents, live
 src/server/     the server: app assembly, HTTP, sessions, supervisor, delivery, notifications, maintenance
 src/server/agent/  what picloud adds to Pi: tools, prompt sections, spend cap, compaction cycle and checkpoints
 src/server/fake/   fake mode: scripted model, stand-in GitHub, fixture repositories
+src/sandbox/    the agent sandbox's launcher (C), compiled by scripts/build.ts
 src/client/     the phone app (Preact), bundled by scripts/build.ts
 src/sw/         the service worker
 test/           automated tests (node:test)

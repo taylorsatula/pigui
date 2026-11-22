@@ -24,6 +24,8 @@ export type MaintenanceDeps = {
 	backupDir: string;
 	uploadsDir: string;
 	workspace: (id: number) => string;
+	/** A session's scratch directory (its commands' home and tmp), removed with its workspace. */
+	scratch: (id: number) => string;
 };
 
 export type SweepResult = { backup?: string; cleaned: number[]; kept: number[] };
@@ -102,6 +104,7 @@ export class Maintenance {
 			return false;
 		}
 		await rm(workspace, { recursive: true, force: true });
+		await rm(this.#deps.scratch(id), { recursive: true, force: true });
 		await this.#deps.harness().commit(async (tx) => {
 			await editSession(tx, id, this.#deps.now(), (doc) => {
 				doc.cleanedAt = this.#deps.now();

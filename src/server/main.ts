@@ -15,11 +15,7 @@ async function main(): Promise<void> {
 	try {
 		config = readConfig(process.env);
 	} catch (error) {
-		if (error instanceof ConfigError) {
-			process.stderr.write(`${error.message}\n`);
-			process.exit(2);
-		}
-		throw error;
+		exitOnConfigError(error);
 	}
 	let pi;
 	let agentDir: string;
@@ -40,7 +36,13 @@ async function main(): Promise<void> {
 			throw error;
 		}
 	}
-	const app = await startApp(pi === undefined ? { config, agentDir } : { config, agentDir, pi });
+	let app;
+	try {
+		app = await startApp(pi === undefined ? { config, agentDir } : { config, agentDir, pi });
+	} catch (error) {
+		// A sandbox that does not work on this machine is a configuration problem too: restarting cannot fix it.
+		exitOnConfigError(error);
+	}
 	process.stdout.write(`picloud is listening on ${app.url}${config.fake ? " (fake mode)" : ""}\n`);
 	let stopping = false;
 	const stop = (signal: string) => {
@@ -57,6 +59,15 @@ async function main(): Promise<void> {
 	};
 	process.on("SIGTERM", () => stop("SIGTERM"));
 	process.on("SIGINT", () => stop("SIGINT"));
+}
+
+/** Exit with code 2 and the message for a configuration problem; rethrow anything else. */
+function exitOnConfigError(error: unknown): never {
+	if (error instanceof ConfigError) {
+		process.stderr.write(`${error.message}\n`);
+		process.exit(2);
+	}
+	throw error;
 }
 
 main().catch((error: unknown) => {

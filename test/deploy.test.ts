@@ -43,6 +43,38 @@ test("its dry run lists every step and changes nothing", () => {
 	assert.match(result.stdout, /tailscale serve --bg --https=443 http:\/\/127\.0\.0\.1:8787/);
 	assert.match(result.stdout, /== Steps that need a person/);
 	assert.match(result.stdout, /Add to Home Screen/);
+	// Without the agent's token, picloud cannot start, so creating one is a step for the person.
+	assert.match(result.stdout, /PICLOUD_AGENT_GH_TOKEN=$/m);
+	assert.match(result.stdout, /read-only \(Contents and Metadata: read\).*--agent-github-token-file FILE/);
+	assert.match(result.stdout, /RestartPreventExitStatus=78 2/);
+});
+
+test("its dry run on Debian 13 picks Tailscale's trixie source and writes the agent's token where only root reads it", () => {
+	const dir = mkdtempSync(join(tmpdir(), "picloud-install-"));
+	const token = "github_pat_agent_read_only";
+	writeFileSync(join(dir, "os-release"), 'ID=debian\nVERSION_ID="13"\nVERSION_CODENAME=trixie\nPRETTY_NAME="Debian GNU/Linux 13 (trixie)"\n');
+	writeFileSync(join(dir, "agent-token"), `${token}\n`);
+	try {
+		const result = spawnSync("bash", [script, "--dry-run", "--agent-github-token-file", join(dir, "agent-token")], {
+			encoding: "utf8",
+			env: { ...process.env, PICLOUD_DRY_RUN: "", PICLOUD_OS_RELEASE: join(dir, "os-release") },
+		});
+		assert.equal(result.status, 0, result.stderr);
+		assert.match(result.stdout, /Debian 13 \(trixie\), the recommended system/);
+		// A machine that already has Tailscale skips its apt source.
+		if (/pkgs\.tailscale\.com/.test(result.stdout)) {
+			assert.match(result.stdout, /stable\/debian\/trixie\.noarmor\.gpg/);
+			assert.match(result.stdout, /stable\/debian trixie main/);
+		}
+		assert.match(result.stdout, /write \/etc\/picloud\/picloud\.env \(mode 0600, owner root:root\)/);
+		assert.match(result.stdout, /PICLOUD_AGENT_GH_TOKEN=\(hidden\)/);
+		assert.doesNotMatch(result.stdout, new RegExp(token), "a dry run never shows the token");
+		assert.doesNotMatch(result.stdout, /--agent-github-token-file FILE/);
+		// Agent commands have a home of their own, so git's use of gh is configured system-wide.
+		assert.match(result.stdout, /git config --system credential\.https:\/\/github\.com\.helper|git uses gh's credentials/);
+	} finally {
+		rmSync(dir, { recursive: true, force: true });
+	}
 });
 
 test("the trim script passes a syntax check", () => {

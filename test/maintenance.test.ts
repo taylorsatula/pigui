@@ -36,7 +36,9 @@ describe("maintenance", () => {
 			assert.deepEqual(result.cleaned, [delivered]);
 			assert.deepEqual(result.kept.sort(), [unpushed, dirty].sort());
 			assert.equal(existsSync(server.workspace(delivered)), false);
+			assert.equal(existsSync(server.scratch(delivered)), false, "its commands' home and tmp go with it");
 			assert.equal(existsSync(server.workspace(unpushed)), true, "unpushed commits stay");
+			assert.equal(existsSync(server.scratch(unpushed)), true);
 			assert.equal(existsSync(server.workspace(dirty)), true, "uncommitted changes stay");
 			assert.equal(existsSync(server.workspace(recent)), true, "recently archived sessions stay");
 			assert.equal(typeof (await server.session(delivered))?.cleanedAt, "number");

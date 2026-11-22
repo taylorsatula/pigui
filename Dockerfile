@@ -10,7 +10,9 @@ RUN npm ci --no-audit --no-fund
 COPY . .
 RUN npm run build && npm prune --omit=dev --no-audit --no-fund
 
-# Run: Ubuntu 24.04, the system the installer targets, so the agent works in the same environment either way.
+# Run: an Ubuntu 24.04 userland, which the installer supports too, so the agent works in the same environment either
+# way. The agent sandbox is Landlock, which lives in the host's kernel rather than in the image: what it enforces
+# depends on the host, and a Debian 13 host is the recommended one.
 FROM ubuntu:noble-20261024.1
 RUN apt-get update \
 	&& DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
@@ -23,10 +25,13 @@ COPY --from=build /usr/local/lib/node_modules/npm /usr/local/lib/node_modules/np
 RUN ln -s ../lib/node_modules/npm/bin/npm-cli.js /usr/local/bin/npm \
 	&& ln -s ../lib/node_modules/npm/bin/npx-cli.js /usr/local/bin/npx
 
-# git reaches GitHub with gh's credentials, which come from GH_TOKEN.
+# git reaches GitHub with gh's credentials, which come from GH_TOKEN: picloud's own token for picloud, and the
+# agent's read-only one for agent commands, which get it as their GH_TOKEN.
 RUN git config --system credential.https://github.com.helper '!gh auth git-credential'
 
 COPY --from=build /app /app
+# The launcher every agent command starts through, built with this stage's toolchain (the build stage has none).
+RUN cc -O2 -Wall -o /usr/local/bin/picloud-sandbox /app/src/sandbox/picloud-sandbox.c
 # No setuid or setgid programs: nothing in the container can become another user, even with privilege escalation
 # allowed, which compose.yaml also forbids.
 RUN ln -s /app/node_modules/.bin/pi /usr/local/bin/pi \
@@ -39,7 +44,8 @@ ENV PICLOUD_DATA_DIR=/data \
 	PICLOUD_PORT=8787
 USER picloud
 WORKDIR /app
-# /data holds the database, workspaces and backups; the home holds Pi's sign-in and model choice, and the caches of
-# the tools the agent runs (npm and the like). With compose.yaml's read-only root, these and /tmp are all it can write.
+# /data holds the database, workspaces and backups, and each session's own home and tmp, where the tools the agent
+# runs keep their caches; the home holds Pi's sign-in and model choice. With compose.yaml's read-only root, these and
+# /tmp are all it can write.
 VOLUME ["/data", "/home/picloud"]
 CMD ["node", "--disable-warning=ExperimentalWarning", "src/server/main.ts"]

@@ -19,6 +19,10 @@ export type Config = {
 	compactionModel: ModelRef | undefined;
 	/** Scripted model and a local GitHub stand-in: the whole product without credentials. */
 	fake: boolean;
+	/** The read-only GitHub token agent commands get as GH_TOKEN, never picloud's own; required in real mode. */
+	agentGitHubToken: string | undefined;
+	/** Landlock around every agent command and file tool (`PICLOUD_SANDBOX`, on unless `off`). */
+	sandbox: boolean;
 };
 
 export class ConfigError extends Error {}
@@ -49,6 +53,8 @@ export function readConfig(env: NodeJS.ProcessEnv): Config {
 		spendCap: dollars(env.PICLOUD_SPEND_CAP),
 		compactionModel: modelRef(env.PICLOUD_COMPACTION_MODEL),
 		fake,
+		agentGitHubToken: agentToken(env.PICLOUD_AGENT_GH_TOKEN, fake),
+		sandbox: onOff(env.PICLOUD_SANDBOX, "PICLOUD_SANDBOX"),
 	};
 }
 
@@ -92,6 +98,21 @@ function modelRef(value: string | undefined): ModelRef | undefined {
 		throw new ConfigError(`PICLOUD_COMPACTION_MODEL must be provider/modelId, as Pi names models (for example anthropic/claude-sonnet-4-5), not ${JSON.stringify(value)}.`);
 	}
 	return { provider, modelId };
+}
+
+function agentToken(value: string | undefined, fake: boolean): string | undefined {
+	const token = value?.trim() ?? "";
+	if (token !== "") return token;
+	if (fake) return undefined;
+	throw new ConfigError(
+		"PICLOUD_AGENT_GH_TOKEN is not set. Set it to a read-only fine-grained GitHub token (Contents and Metadata: read) for the agent's commands; picloud keeps GH_TOKEN for its own GitHub work.",
+	);
+}
+
+function onOff(value: string | undefined, name: string): boolean {
+	if (value === undefined || value === "" || value === "on") return true;
+	if (value === "off") return false;
+	throw new ConfigError(`${name} must be on or off, not ${JSON.stringify(value)}.`);
 }
 
 function pushSubject(value: string | undefined): string {

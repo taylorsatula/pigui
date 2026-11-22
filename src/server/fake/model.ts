@@ -53,11 +53,13 @@ type Step =
 	| "spin"
 	| "build-1"
 	| "build-2"
-	| "build-3";
+	| "build-3"
+	| "probe";
 
 const STEPS = new Set<string>([
 	"explore", "ask", "checklist", "plan", "write-src", "progress-1", "write-test", "progress-2", "commit", "progress-3",
 	"report", "fix-commit", "follow-edit", "follow-commit", "follow-report", "recall", "handoff", "spin", "build-1", "build-2", "build-3",
+	"probe",
 ]);
 
 /** Steps that do not move the scenario on: looking up history, and the handoff note picloud asks for. */
@@ -161,6 +163,7 @@ function respond(context: TranscriptContext, options: SimpleStreamOptions | unde
 
 	if (previous === undefined) {
 		const task = newest === undefined ? "" : textOf(newest);
+		if (directives.includes("[probe]")) return probe(directives, messages);
 		if (isChat(task)) return chatReply(task);
 		if (directives.includes("[spin]")) return spin(0);
 		return tools(
@@ -197,6 +200,22 @@ function spin(turn: number): AssistantMessage {
 	return tools(call("spin", "bash", { command: `echo turn ${turn}` }));
 }
 
+/**
+ * [probe] runs the task's `$ command`, `read PATH` and `write PATH` lines with bash, read and write, one call at a time
+ * so each sees what the one before did, then replies. Tests read the tool results.
+ */
+function probe(directives: string, messages: readonly Message[]): AssistantMessage {
+	const calls = directives.split("\n").flatMap((line): [string, Parameters<typeof fauxToolCall>[1]][] => {
+		if (line.startsWith("$ ")) return [["bash", { command: line.slice(2) }]];
+		if (line.startsWith("read ")) return [["read", { path: line.slice(5) }]];
+		if (line.startsWith("write ")) return [["write", { path: line.slice(6), content: "probe\n" }]];
+		return [];
+	});
+	const done = messages.filter((message) => message.role === "toolResult" && message.toolCallId.startsWith("probe:")).length;
+	const next = calls[done];
+	return next === undefined ? fauxAssistantMessage("Probed.") : tools(call("probe", ...next));
+}
+
 function next(previous: StepResult, messages: readonly Message[], directives: string, nudged: boolean): AssistantMessage {
 	const long = directives.includes("[long]");
 	const build = (step: "build-1" | "build-2" | "build-3") => {
@@ -212,6 +231,8 @@ function next(previous: StepResult, messages: readonly Message[], directives: st
 			return tools(call("progress-3", UPDATE_PROGRESS, { completed: [3] }));
 		case "spin":
 			return spin(messages.length);
+		case "probe":
+			return probe(directives, messages);
 		case "explore":
 			return tools(
 				fauxText("I have two questions before I plan."),
