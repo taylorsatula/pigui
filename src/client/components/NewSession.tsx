@@ -5,7 +5,7 @@ import { useEffect, useState } from "preact/hooks";
 import type { BranchList, RepoSummary } from "../../shared/api.ts";
 import { api, describeFailure } from "../api.ts";
 import { navigate, useStore } from "../store.ts";
-import { Composer } from "./Composer.tsx";
+import { Composer, ComposerDock } from "./Composer.tsx";
 import { DrawerButton } from "./Drawer.tsx";
 
 export function NewSession(): JSX.Element {
@@ -92,7 +92,7 @@ export function NewSession(): JSX.Element {
 					</select>
 				</label>
 			</div>
-			<div class="composer-dock">
+			<ComposerDock>
 				<Composer
 					draftKey="new"
 					placeholder="Describe the task…"
@@ -108,7 +108,7 @@ export function NewSession(): JSX.Element {
 						navigate({ kind: "session", id });
 					}}
 				/>
-			</div>
+			</ComposerDock>
 		</div>
 	);
 }

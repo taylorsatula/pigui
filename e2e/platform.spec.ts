@@ -20,7 +20,7 @@ test.describe("platform fit", () => {
 		await page.getByRole("region", { name: "Report" }).getByRole("button", { name: "View changes" }).tap();
 		await page.locator("details.diff-file > summary").first().tap();
 		await noHorizontalScroll(page);
-		await page.getByRole("button", { name: "Close" }).tap();
+		await page.getByRole("button", { name: "Done" }).tap();
 		await page.getByRole("button", { name: /^Sessions/ }).tap();
 		await noHorizontalScroll(page);
 	});

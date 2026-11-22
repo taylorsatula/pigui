@@ -6,6 +6,7 @@ import type { SessionDoc } from "../../shared/session.ts";
 import { describeCall, describeGroup } from "../format.ts";
 import { live } from "../live.ts";
 import type { Block, CallView } from "../transcript.ts";
+import { followEnd, keepPosition, pinToEnd, stopFollowing } from "../viewport.ts";
 import { type CardActions, type DeliveryActions, PlanCardView, QuestionsCard, ReportCard } from "./Cards.tsx";
 import { Icon } from "./Icons.tsx";
 import { Markdown } from "./Markdown.tsx";
@@ -16,6 +17,7 @@ function CallDetail(props: { call: CallView }): JSX.Element {
 	return (
 		<details class={`call ${call.status}`}>
 			<summary>
+				<Icon name="chevron" size={16} />
 				<span class="call-summary">{describeCall(call.name, call.args)}</span>
 				{call.status === "failed" ? <span class="failed-tag">failed</span> : null}
 				{call.status === "running" ? <span class="spinner" aria-label="running" /> : null}
@@ -86,30 +88,33 @@ export function Transcript(props: {
 	cards: CardActions;
 	delivery: DeliveryActions;
 }): JSX.Element {
-	const pinned = useRef(true);
 	const [loading, setLoading] = useState(false);
+	// While earlier messages load, what was on screen stays where it is; the first message tells when they arrived.
+	const firstKey = props.blocks.find((block) => block.kind !== "earlier" && block.kind !== "gap")?.key;
+	const anchor = useRef<{ firstKey: string | undefined; restore: () => void } | undefined>(undefined);
 
-	// Follow new content while the person is at the bottom; leave them where they are when they scrolled up.
+	useLayoutEffect(() => pinToEnd(), []);
 	useLayoutEffect(() => {
-		const onScroll = () => {
-			const scroller = document.scrollingElement;
-			if (scroller !== null) pinned.current = scroller.scrollHeight - scroller.scrollTop - window.innerHeight < 120;
-		};
-		window.addEventListener("scroll", onScroll, { passive: true });
-		return () => window.removeEventListener("scroll", onScroll);
-	}, []);
-	useLayoutEffect(() => {
-		// To the very bottom of the page, so the last lines sit above the composer rather than under it.
-		if (pinned.current) window.scrollTo(0, document.documentElement.scrollHeight);
+		const held = anchor.current;
+		if (held === undefined) followEnd();
+		else if (held.firstKey !== firstKey) {
+			held.restore();
+			anchor.current = undefined;
+		}
 	});
 
-	const load = async (work: () => Promise<void>) => {
+	const load = async (work: () => Promise<void>, keep: boolean) => {
 		setLoading(true);
-		pinned.current = false;
+		if (keep) anchor.current = { firstKey, restore: keepPosition() };
+		else stopFollowing();
 		try {
 			await work();
 		} finally {
 			setLoading(false);
+			// Nothing earlier arrived: let go of the anchor once the frame has rendered.
+			requestAnimationFrame(() => {
+				anchor.current = undefined;
+			});
 		}
 	};
 
@@ -119,13 +124,13 @@ export function Transcript(props: {
 				switch (block.kind) {
 					case "earlier":
 						return (
-							<button key={block.key} type="button" class="link center" disabled={loading} onClick={() => void load(() => live.loadEarlier())}>
+							<button key={block.key} type="button" class="link center" disabled={loading} onClick={() => void load(() => live.loadEarlier(), true)}>
 								{loading ? "Loading…" : "Load earlier messages"}
 							</button>
 						);
 					case "gap":
 						return (
-							<button key={block.key} type="button" class="link center" disabled={loading} onClick={() => void load(() => live.fillGap(block.gap))}>
+							<button key={block.key} type="button" class="link center" disabled={loading} onClick={() => void load(() => live.fillGap(block.gap), false)}>
 								Load missed messages
 							</button>
 						);

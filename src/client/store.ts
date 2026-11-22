@@ -73,9 +73,41 @@ export function navigate(route: Route): void {
 }
 
 let toastTimer: ReturnType<typeof setTimeout> | undefined;
+let toastLeft = 0;
+let toastSince = 0;
+let toastHeld = false;
+
+/** Returning to a toast that had almost run out still leaves time to read it. */
+const TOAST_AFTER_HOLD = 2000;
+
+function runToastClock(ms: number): void {
+	clearTimeout(toastTimer);
+	toastLeft = ms;
+	toastSince = Date.now();
+	toastTimer = setTimeout(dismissToast, ms);
+}
 
 export function showToast(toast: Toast, ms = 6000): void {
-	clearTimeout(toastTimer);
 	store.set({ toast });
-	toastTimer = setTimeout(() => store.set({ toast: undefined }), ms);
+	toastHeld = document.visibilityState === "hidden";
+	if (toastHeld) {
+		clearTimeout(toastTimer);
+		toastLeft = ms;
+	} else runToastClock(ms);
+}
+
+/** Stop the toast's clock while a finger is on it or the app is in the background, and restart it after. */
+export function holdToast(held: boolean): void {
+	if (held === toastHeld || store.get().toast === undefined) return;
+	toastHeld = held;
+	if (held) {
+		clearTimeout(toastTimer);
+		toastLeft -= Date.now() - toastSince;
+	} else runToastClock(Math.max(toastLeft, TOAST_AFTER_HOLD));
+}
+
+export function dismissToast(): void {
+	clearTimeout(toastTimer);
+	toastHeld = false;
+	store.set({ toast: undefined });
 }

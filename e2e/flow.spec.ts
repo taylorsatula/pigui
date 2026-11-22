@@ -68,7 +68,7 @@ test.describe("the tap flow", () => {
 		await expect(file.locator(".patch")).toBeHidden();
 		await file.locator(":scope > summary").tap();
 		await expect(file.locator(".patch .add").first()).toContainText("+import { greet }");
-		await sheet.getByRole("button", { name: "Close" }).tap();
+		await sheet.getByRole("button", { name: "Done" }).tap();
 		await expect(sheet).toBeHidden();
 	});
 });

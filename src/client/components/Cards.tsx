@@ -173,6 +173,18 @@ export type DeliveryActions = {
 	focusComposer(): void;
 };
 
+/** A button's label, or while its action runs, a spinner and what it is doing. */
+function Busy(props: { busy: boolean; label: string; working: string }): JSX.Element {
+	return props.busy ? (
+		<>
+			<span class="spinner" aria-hidden="true" />
+			{props.working}
+		</>
+	) : (
+		<>{props.label}</>
+	);
+}
+
 export function ReportCard(props: { report: Report; latest: boolean; session?: SessionDoc; running: boolean; actions: DeliveryActions }): JSX.Element {
 	const { report, session } = props;
 	const [busy, setBusy] = useState<"push" | "pr" | undefined>(undefined);
@@ -202,7 +214,10 @@ export function ReportCard(props: { report: Report; latest: boolean; session?: S
 			) : null}
 			{report.verification.trim() === "" ? null : (
 				<details>
-					<summary>How it was verified</summary>
+					<summary>
+						<Icon name="chevron" size={16} />
+						How it was verified
+					</summary>
 					<Markdown text={report.verification} />
 				</details>
 			)}
@@ -214,35 +229,52 @@ export function ReportCard(props: { report: Report; latest: boolean; session?: S
 			)}
 			{report.learned.trim() === "" ? null : (
 				<details>
-					<summary>What Pi learned about this repository</summary>
+					<summary>
+						<Icon name="chevron" size={16} />
+						What Pi learned about this repository
+					</summary>
 					<Markdown text={report.learned} />
 				</details>
 			)}
 			{props.latest && session !== undefined ? (
-				<div class="card-actions wrap">
-					<button type="button" class="secondary" onClick={() => props.actions.showDiff()}>
-						View changes
-					</button>
+				// One prominent action, the quieter ones beside each other under it, and a way back to the conversation.
+				<div class="card-actions">
 					{delivery?.pr === undefined ? (
 						<>
-							<button type="button" class="secondary" disabled={props.running || busy !== undefined} onClick={() => void run("push")}>
-								{busy === "push" ? "Pushing…" : pushed ? "Push again" : "Push branch"}
+							<button type="button" class="primary wide" disabled={props.running || busy !== undefined} onClick={() => void run("pr")}>
+								<Busy busy={busy === "pr"} label="Open pull request" working="Opening…" />
 							</button>
-							<button type="button" class="primary" disabled={props.running || busy !== undefined} onClick={() => void run("pr")}>
-								{busy === "pr" ? "Opening…" : "Open pull request"}
+							<button type="button" class="secondary" onClick={() => props.actions.showDiff()}>
+								View changes
+							</button>
+							<button type="button" class="secondary" disabled={props.running || busy !== undefined} onClick={() => void run("push")}>
+								<Busy busy={busy === "push"} label={pushed ? "Push again" : "Push branch"} working="Pushing…" />
+							</button>
+						</>
+					) : pushed && busy === undefined ? (
+						// The pull request already has this commit: the next step is to look at it.
+						<>
+							<a class="button primary wide" href={delivery.pr.url} target="_blank" rel="noopener noreferrer">
+								View PR #{delivery.pr.number}
+							</a>
+							<button type="button" class="secondary" onClick={() => props.actions.showDiff()}>
+								View changes
 							</button>
 						</>
 					) : (
 						<>
-							<button type="button" class="primary" disabled={props.running || busy !== undefined || pushed} onClick={() => void run("pr")}>
-								{busy === "pr" ? "Pushing…" : pushed ? "PR up to date" : `Update PR #${delivery.pr.number}`}
+							<button type="button" class="primary wide" disabled={props.running || busy !== undefined} onClick={() => void run("pr")}>
+								<Busy busy={busy === "pr"} label={`Update PR #${delivery.pr.number}`} working="Updating…" />
+							</button>
+							<button type="button" class="secondary" onClick={() => props.actions.showDiff()}>
+								View changes
 							</button>
 							<a class="button secondary" href={delivery.pr.url} target="_blank" rel="noopener noreferrer">
 								View PR #{delivery.pr.number}
 							</a>
 						</>
 					)}
-					<button type="button" class="link" onClick={() => props.actions.focusComposer()}>
+					<button type="button" class="link wide" onClick={() => props.actions.focusComposer()}>
 						Keep working
 					</button>
 				</div>

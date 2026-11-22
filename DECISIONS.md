@@ -229,6 +229,34 @@ How the Human Interface Guidelines shaped it:
   layout (`interactive-widget=resizes-content`), reduced motion respected, and roles, labels and live regions for
   screen readers.
 
+**One small set of values, declared once at the top of `app.css`.** Spacing comes from 2/4/8/12/16/24 px, radii from
+four tokens, type from Apple's text styles expressed as fractions of Body (so Dynamic Type scales all of it), colour
+from semantic tokens with a dark set, and motion from three durations (160 ms press, 240 ms exit, 400 ms present) and
+two curves (a strong ease-out, and the iOS sheet curve). The alternative, values chosen per element, is what the first
+pass had, and it showed as nine type sizes and eleven spacings. Motion follows frequency: sending, picking a file,
+opening a disclosure and switching the send/stop button are not animated; presses respond at once (filled buttons
+scale to 0.97, text and icon buttons dim, rows highlight); the sheet, drawer and toast enter on `--present` and leave
+on `--quick`, with CSS transitions so a gesture can interrupt them. Reduced motion keeps the fades and drops the
+movement.
+
+**Sheets, the drawer and toasts follow the finger and dismiss the ways people expect.** The diff is a bottom sheet with
+a grabber and Done; it also closes with Escape, a tap on the dimmed page, or a drag down from its bar (or from its
+content when scrolled to the top), by distance or by flick. The drawer drags open from the left edge and shut from
+anywhere, settling by flick or by position, and closes with Escape. A toast rises just above the composer, can be
+swiped down, and its clock stops while a finger is on it or the app is in the background. The gestures are one small
+hook each (`src/client/motion.ts`, `useDrawerDrag`) on touch events, which hand the remaining motion to the
+stylesheet's transitions; a gesture library would bring more than these three need.
+
+**The page follows the transcript's end, in one place.** `src/client/viewport.ts` keeps the end in view while the
+person is at the bottom (new content, a taller composer, a banner, the keyboard resizing the viewport), stops when they
+scroll up, re-pins when they send, and keeps the reading position by hand when earlier messages load, since Safari has
+no scroll anchoring. It publishes the visible viewport's height for things that must fit above the keyboard. The page
+keeps scrolling as a document rather than inside a fixed app shell: that keeps iOS's tap-the-status-bar-to-top and
+toolbar collapse, and relies on `interactive-widget=resizes-content`, which Chrome and Firefox on Android honour.
+Safari support is reported for 27.1 but not confirmed here; on older iOS the keyboard overlays the page, so the title
+bar scrolls out of view while typing. A fixed shell sized from `visualViewport` would avoid that at the cost of the two
+iOS behaviours above, and of moving every scroll path onto an inner element.
+
 ## Fake mode
 
 The scripted model is Pi's faux provider with one response factory queued per request, so it never runs dry and every

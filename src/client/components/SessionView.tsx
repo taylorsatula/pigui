@@ -8,8 +8,9 @@ import { formatDollars, spentOf } from "../../shared/spend.ts";
 import { api, describeFailure } from "../api.ts";
 import { navigate, showToast, useStore } from "../store.ts";
 import { buildBlocks } from "../transcript.ts";
+import { pinToEnd } from "../viewport.ts";
 import type { CardActions, DeliveryActions } from "./Cards.tsx";
-import { Composer } from "./Composer.tsx";
+import { Composer, ComposerDock } from "./Composer.tsx";
 import { DiffSheet } from "./Diff.tsx";
 import { DrawerButton } from "./Drawer.tsx";
 import { Icon } from "./Icons.tsx";
@@ -42,7 +43,7 @@ function Banner(props: { doc: SessionDoc; spent: number; running: boolean; onAct
 				<p>
 					<strong>Setup failed.</strong> {doc.setup.error}
 				</p>
-				<button type="button" class="primary small" onClick={() => props.onAction(() => api.retrySetup(doc.id))}>
+				<button type="button" class="primary" onClick={() => props.onAction(() => api.retrySetup(doc.id))}>
 					Retry setup
 				</button>
 			</div>
@@ -56,7 +57,7 @@ function Banner(props: { doc: SessionDoc; spent: number; running: boolean; onAct
 					<p>
 						<strong>{FAILURES[doc.outcome.reason] ?? "The run stopped"}.</strong> {doc.outcome.detail ?? ""}
 					</p>
-					<button type="button" class="primary small" onClick={() => props.onAction(() => api.continue(doc.id))}>
+					<button type="button" class="primary" onClick={() => props.onAction(() => api.continue(doc.id))}>
 						Continue
 					</button>
 				</div>
@@ -68,7 +69,7 @@ function Banner(props: { doc: SessionDoc; spent: number; running: boolean; onAct
 					<p>
 						<strong>Budget reached.</strong> {formatDollars(props.spent)} spent of {formatDollars(doc.cap ?? 0)}.
 					</p>
-					<button type="button" class="primary small" onClick={() => props.onAction(() => api.budget(doc.id, raised))}>
+					<button type="button" class="primary" onClick={() => props.onAction(() => api.budget(doc.id, raised))}>
 						Raise to {formatDollars(raised)} and continue
 					</button>
 				</div>
@@ -80,7 +81,7 @@ function Banner(props: { doc: SessionDoc; spent: number; running: boolean; onAct
 					<p>
 						<strong>Pi stopped without a report.</strong> It was continued automatically and still did not finish.
 					</p>
-					<button type="button" class="primary small" onClick={() => props.onAction(() => api.continue(doc.id))}>
+					<button type="button" class="primary" onClick={() => props.onAction(() => api.continue(doc.id))}>
 						Continue
 					</button>
 				</div>
@@ -89,7 +90,7 @@ function Banner(props: { doc: SessionDoc; spent: number; running: boolean; onAct
 			return (
 				<div class="banner" role="status">
 					<p>Stopped.</p>
-					<button type="button" class="secondary small" onClick={() => props.onAction(() => api.continue(doc.id))}>
+					<button type="button" class="secondary" onClick={() => props.onAction(() => api.continue(doc.id))}>
 						Continue
 					</button>
 				</div>
@@ -189,39 +190,39 @@ export function SessionView(props: { id: number }): JSX.Element {
 	return (
 		<div class="session">
 			<div class="pinned">
-			<header class="topbar">
-				<DrawerButton />
-				<div class="title-block">
-					<h1 class="title">{doc.title}</h1>
-					<p class="subtitle">
-						<span class="repo">{doc.repo}</span>
-						<span class="branch">
-							<Icon name="branch" size={14} /> {doc.branch}
+				<header class="topbar">
+					<DrawerButton />
+					<div class="title-block">
+						<h1 class="title">{doc.title}</h1>
+						<p class="subtitle">
+							<span class="repo">{doc.repo}</span>
+							<span class="branch">
+								<Icon name="branch" size={14} /> {doc.branch}
+							</span>
+						</p>
+					</div>
+					<button type="button" class="icon-button" aria-label="View changes" disabled={doc.setup.status !== "ready"} onClick={() => setDiff(true)}>
+						<Icon name="diff" />
+					</button>
+					<button type="button" class="icon-button" aria-label="Archive session" onClick={archive}>
+						<Icon name="archive" />
+					</button>
+				</header>
+				<div class="status-line" role="status">
+					<span class={`status-pill ${row.group}`}>{row.label}</span>
+					{progress === undefined ? null : (
+						<span class="progress" aria-label={`${progress.done} of ${progress.total} steps done`}>
+							<span class="progress-bar" style={{ transform: `scaleX(${progress.done / Math.max(1, progress.total)})` }} />
 						</span>
-					</p>
-				</div>
-				<button type="button" class="icon-button" aria-label="View changes" disabled={doc.setup.status !== "ready"} onClick={() => setDiff(true)}>
-					<span class="diff-icon" aria-hidden="true">±</span>
-				</button>
-				<button type="button" class="icon-button" aria-label="Archive session" onClick={archive}>
-					<Icon name="archive" />
-				</button>
-			</header>
-			<div class="status-line" role="status">
-				<span class={`status-pill ${row.group}`}>{row.label}</span>
-				{progress === undefined ? null : (
-					<span class="progress" aria-label={`${progress.done} of ${progress.total} steps done`}>
-						<span class="progress-bar" style={{ width: `${(100 * progress.done) / Math.max(1, progress.total)}%` }} />
+					)}
+					<span class="spend">
+						{formatDollars(spent)}
+						{doc.cap === undefined ? "" : ` of ${formatDollars(doc.cap)}`}
 					</span>
-				)}
-				<span class="spend">
-					{formatDollars(spent)}
-					{doc.cap === undefined ? "" : ` of ${formatDollars(doc.cap)}`}
-				</span>
-			</div>
+				</div>
 			</div>
 			<Transcript blocks={blocks} session={doc} running={running} cards={cards} delivery={delivery} />
-			<div class="composer-dock">
+			<ComposerDock>
 				<Banner doc={doc} spent={spent} running={running} onAction={act} />
 				<Composer
 					draftKey={`session:${props.id}`}
@@ -232,6 +233,7 @@ export function SessionView(props: { id: number }): JSX.Element {
 					files={async () => (await api.sessionFiles(props.id)).files}
 					skills={() => api.sessionSkills(props.id)}
 					onSend={async (text, attachments, requestId) => {
+						pinToEnd();
 						await api.send(props.id, requestId, text, attachments);
 					}}
 					onStop={async () => {
@@ -242,7 +244,7 @@ export function SessionView(props: { id: number }): JSX.Element {
 						}
 					}}
 				/>
-			</div>
+			</ComposerDock>
 			{diff ? <DiffSheet session={props.id} onClose={() => setDiff(false)} /> : null}
 		</div>
 	);

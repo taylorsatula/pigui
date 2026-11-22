@@ -1,6 +1,6 @@
 // The composer: an input pill with an attachment button and a send button that becomes Stop while Pi works and nothing
 // is typed. `@` opens a picker of the repository's files and `#` one of Pi's skills; both narrow as the person types.
-import type { JSX } from "preact";
+import type { ComponentChildren, JSX } from "preact";
 import { useEffect, useLayoutEffect, useRef, useState } from "preact/hooks";
 import type { SkillSummary } from "../../shared/api.ts";
 import { activeTrigger, insertReference, narrow, type Trigger } from "../../shared/references.ts";
@@ -8,6 +8,7 @@ import { api, describeFailure, newRequestId, RequestFailed } from "../api.ts";
 import { type Draft, loadDraft, saveDraft } from "../drafts.ts";
 import { shrinkPhoto } from "../images.ts";
 import { showToast } from "../store.ts";
+import { followEnd } from "../viewport.ts";
 import { Icon } from "./Icons.tsx";
 
 type ComposerProps = {
@@ -55,7 +56,8 @@ export function Composer(props: ComposerProps): JSX.Element {
 		const element = input.current;
 		if (element === null) return;
 		element.style.height = "auto";
-		element.style.height = `${Math.min(element.scrollHeight, window.innerHeight * 0.4)}px`;
+		// Measured against the visible viewport, which is all that is left above the keyboard.
+		element.style.height = `${Math.min(element.scrollHeight, (window.visualViewport?.height ?? window.innerHeight) * 0.4)}px`;
 	}, [draft.text]);
 
 	const update = (next: Draft) => {
@@ -149,6 +151,7 @@ export function Composer(props: ComposerProps): JSX.Element {
 	return (
 		<form
 			class="composer"
+			aria-busy={sending}
 			onSubmit={(event) => {
 				event.preventDefault();
 				void send();
@@ -180,11 +183,15 @@ export function Composer(props: ComposerProps): JSX.Element {
 								aria-label={`Remove ${attachment.name}`}
 								onClick={() => update({ ...draft, attachments: draft.attachments.filter((item) => item.id !== attachment.id) })}
 							>
-								<Icon name="close" size={14} />
+								<Icon name="close" size={16} />
 							</button>
 						</span>
 					))}
-					{uploading > 0 ? <span class="chip">Uploading…</span> : null}
+					{uploading > 0 ? (
+						<span class="chip">
+							<span class="spinner" aria-hidden="true" /> Uploading…
+						</span>
+					) : null}
 				</div>
 			) : null}
 			<div class="pill">
@@ -212,14 +219,41 @@ export function Composer(props: ComposerProps): JSX.Element {
 				/>
 				{showStop ? (
 					<button type="button" class="icon-button send stop" aria-label="Stop" onClick={() => void props.onStop?.()}>
-						<Icon name="stop" />
+						<Icon name="stop" size={18} />
 					</button>
 				) : (
 					<button type="submit" class="icon-button send" aria-label="Send" disabled={empty || sending || uploading > 0 || props.disabled}>
-						<Icon name="send" />
+						<Icon name="send" size={18} />
 					</button>
 				)}
 			</div>
 		</form>
+	);
+}
+
+/**
+ * The bar at the bottom that holds the composer and anything about to need the person. Its height is published as
+ * `--dock-height` so toasts rise just above it, and when it grows the transcript's end stays in view.
+ */
+export function ComposerDock(props: { children: ComponentChildren }): JSX.Element {
+	const dock = useRef<HTMLDivElement>(null);
+	useLayoutEffect(() => {
+		const element = dock.current;
+		if (element === null) return;
+		const root = document.documentElement;
+		const observer = new ResizeObserver(() => {
+			root.style.setProperty("--dock-height", `${element.offsetHeight}px`);
+			followEnd();
+		});
+		observer.observe(element);
+		return () => {
+			observer.disconnect();
+			root.style.removeProperty("--dock-height");
+		};
+	}, []);
+	return (
+		<div ref={dock} class="composer-dock">
+			{props.children}
+		</div>
 	);
 }

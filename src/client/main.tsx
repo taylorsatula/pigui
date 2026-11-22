@@ -1,6 +1,9 @@
 import { render } from "preact";
 import { App } from "./app.tsx";
 
+// iOS applies :active, the app's press feedback, only where a touch listener is present.
+document.addEventListener("touchstart", () => undefined, { passive: true });
+
 const root = document.getElementById("app");
 if (root !== null) render(<App />, root);
 
