@@ -9,6 +9,7 @@ import { FingerSpeed, projected } from "../motion.ts";
 import { timeAgo } from "../format.ts";
 import { enableNotifications, pushSupported } from "../push.ts";
 import { navigate, showToast, store, useStore } from "../store.ts";
+import { chooseTheme, storedTheme, type Theme, THEMES } from "../theme.ts";
 import { Icon } from "./Icons.tsx";
 
 const GROUPS: { group: SessionGroup; title: string }[] = [
@@ -16,6 +17,32 @@ const GROUPS: { group: SessionGroup; title: string }[] = [
 	{ group: "working", title: "Working" },
 	{ group: "done", title: "Done" },
 ];
+
+const THEME_NAMES: Record<Theme, string> = { system: "System", light: "Light", dark: "Dark", terminal: "Terminal" };
+
+function ThemeChoice(): JSX.Element {
+	const [theme, setTheme] = useState(storedTheme);
+	return (
+		<label class="theme-choice">
+			<span>Theme</span>
+			<select
+				value={theme}
+				onChange={(event) => {
+					const value = (event.target as HTMLSelectElement).value;
+					const chosen = THEMES.find((name) => name === value) ?? "system";
+					chooseTheme(chosen);
+					setTheme(chosen);
+				}}
+			>
+				{THEMES.map((name) => (
+					<option key={name} value={name}>
+						{THEME_NAMES[name]}
+					</option>
+				))}
+			</select>
+		</label>
+	);
+}
 
 function Row(props: { row: SessionRow; current: boolean }): JSX.Element {
 	const { row } = props;
@@ -203,6 +230,7 @@ export function Drawer(): JSX.Element {
 							<Icon name="bell" size={18} /> Turn on notifications
 						</button>
 					) : null}
+					<ThemeChoice />
 					<span class={`connection ${connected ? "on" : "off"}`} role="status">
 						{connected ? (bootstrap?.fake === true ? "Connected · fake mode" : "Connected") : "Reconnecting…"}
 					</span>

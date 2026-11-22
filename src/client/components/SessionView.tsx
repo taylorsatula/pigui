@@ -43,7 +43,7 @@ function Banner(props: { doc: SessionDoc; spent: number; running: boolean; onAct
 				<p>
 					<strong>Setup failed.</strong> {doc.setup.error}
 				</p>
-				<button type="button" class="primary" onClick={() => props.onAction(() => api.retrySetup(doc.id))}>
+				<button type="button" class="primary resume" onClick={() => props.onAction(() => api.retrySetup(doc.id))}>
 					Retry setup
 				</button>
 			</div>
@@ -57,7 +57,7 @@ function Banner(props: { doc: SessionDoc; spent: number; running: boolean; onAct
 					<p>
 						<strong>{FAILURES[doc.outcome.reason] ?? "The run stopped"}.</strong> {doc.outcome.detail ?? ""}
 					</p>
-					<button type="button" class="primary" onClick={() => props.onAction(() => api.continue(doc.id))}>
+					<button type="button" class="primary resume" onClick={() => props.onAction(() => api.continue(doc.id))}>
 						Continue
 					</button>
 				</div>
@@ -69,7 +69,7 @@ function Banner(props: { doc: SessionDoc; spent: number; running: boolean; onAct
 					<p>
 						<strong>Budget reached.</strong> {formatDollars(props.spent)} spent of {formatDollars(doc.cap ?? 0)}.
 					</p>
-					<button type="button" class="primary" onClick={() => props.onAction(() => api.budget(doc.id, raised))}>
+					<button type="button" class="primary raise" onClick={() => props.onAction(() => api.budget(doc.id, raised))}>
 						Raise to {formatDollars(raised)} and continue
 					</button>
 				</div>
@@ -81,7 +81,7 @@ function Banner(props: { doc: SessionDoc; spent: number; running: boolean; onAct
 					<p>
 						<strong>Pi stopped without a report.</strong> It was continued automatically and still did not finish.
 					</p>
-					<button type="button" class="primary" onClick={() => props.onAction(() => api.continue(doc.id))}>
+					<button type="button" class="primary resume" onClick={() => props.onAction(() => api.continue(doc.id))}>
 						Continue
 					</button>
 				</div>
@@ -90,7 +90,7 @@ function Banner(props: { doc: SessionDoc; spent: number; running: boolean; onAct
 			return (
 				<div class="banner" role="status">
 					<p>Stopped.</p>
-					<button type="button" class="secondary" onClick={() => props.onAction(() => api.continue(doc.id))}>
+					<button type="button" class="secondary resume" onClick={() => props.onAction(() => api.continue(doc.id))}>
 						Continue
 					</button>
 				</div>

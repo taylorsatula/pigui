@@ -319,6 +319,26 @@ scale to 0.97, text and icon buttons dim, rows highlight); the sheet, drawer and
 on `--quick`, with CSS transitions so a gesture can interrupt them. Reduced motion keeps the fades and drops the
 movement.
 
+**Three colour schemes, as tokens rather than stylesheets.** System (the default) follows the OS between Light and
+Dark; Light, Dark and Terminal ("ANSI dark neon") are chosen per device in the drawer's footer, a plain select, and
+kept in `localStorage` (private browsing falls back to System). A chosen theme is `data-theme` on `<html>`, set by
+`boot.js`, a blocking script ahead of the stylesheet: the Content Security Policy rules out an inline script, and the
+module `app.js` runs after the first paint could already show the system's theme. Every colour is a token with one per
+meaning (`--done`, `--warn`, `--error`, `--waiting`, `--working`, `--deliver`, `--neutral`, `--person`), and a theme is
+one block of values. Light and Dark keep their values exactly; Dark's are written twice, for System in dark mode and
+for Dark, because a selector cannot test a media query (`light-dark()` would avoid that but leaves Safari before 17.5
+with no colours at all), and an end-to-end test keeps the two equal. The Terminal block sets a monospace font, square
+corners, 1 px lines, terminal line heights, no shadows, blur or translucency, and one fluorescent colour per meaning:
+lime for done, approved and added lines; red for errors, failures and removed lines; orange for warnings and the
+budget raise; magenta for what needs the person (waiting cards, the attention dot, "Needs you" labels); cyan for work
+in progress (status, progress, spinners, and Continue and Retry, which start work); blue for GitHub (Open, Update and
+View PR, Push); yellow for the person (their messages, Send, links, their choices, focus); grey for the rest. A
+short section at the end of `app.css` draws what values cannot: outlines in place of fills, each control in the
+colour of what it does (`--tone`, from classes such as `approve` and `deliver` that say what a button does), the
+primary action and the current row in inverse video, and a block cursor. *Alternative:* a second stylesheet for the
+terminal would restate every component and drift from it; ASCII frames, braille spinners and a blinking cursor were
+left out as decoration.
+
 **A wide screen gets the same app, laid out for its width.** It has no extra features, only a layout for the
 space:
 - From 900 px the drawer becomes a persistent sidebar.
