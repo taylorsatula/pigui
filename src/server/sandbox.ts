@@ -53,11 +53,10 @@ export class Grants {
 			return new FileError("permission_denied", `Refused ${path}: picloud cannot tell where it leads (${error instanceof Error ? error.message : String(error)}).`, path);
 		}
 		const grants = await this.#resolved();
-		const allowed = access === "write" ? grants.writable : [...grants.writable, ...grants.readable];
-		if (allowed.some((grant) => within(real, grant))) return undefined;
+		const inside = (roots: readonly string[]) => roots.some((root) => within(real, root));
+		if (inside(grants.writable) || (access === "read" && inside(grants.readable))) return undefined;
 		const leads = real === path ? "" : ` (it leads to ${real})`;
-		const readable = [...grants.writable, ...grants.readable].some((grant) => within(real, grant));
-		const why = readable ? "is read-only for this session" : "is outside this session's sandbox";
+		const why = inside(grants.readable) ? "is read-only for this session" : "is outside this session's sandbox";
 		return new FileError(
 			"permission_denied",
 			`Refused ${path}${leads}: it ${why}. Files can be written in the working directory, $HOME and $TMPDIR, and read there and in the system's directories.`,
@@ -107,9 +106,10 @@ export function readableGrants(extra: readonly string[]): string[] {
 	const resolver = realOrUndefined("/etc/resolv.conf");
 	if (resolver !== undefined && !within(resolver, "/etc")) grants.push(dirname(resolver));
 	// The Node.js running picloud, which agent commands find on the same PATH: under /usr in both deployments, but a
-	// developer's may live anywhere.
+	// developer's may live anywhere. Its whole installation when it has the usual bin directory (npm is in its lib),
+	// else only the program, so a node placed directly in a home directory never opens up the rest of it.
 	const node = realOrUndefined(process.execPath);
-	if (node !== undefined) grants.push(dirname(dirname(node)));
+	if (node !== undefined) grants.push(basename(dirname(node)) === "bin" ? dirname(dirname(node)) : node);
 	// Agent commands get these variables, so they must be able to read the certificates they name.
 	for (const name of ["NODE_EXTRA_CA_CERTS", "SSL_CERT_FILE"]) {
 		const file = process.env[name];

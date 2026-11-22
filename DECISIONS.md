@@ -429,6 +429,10 @@ path against the same grants, without `/proc`, which there is picloud's own:
 A check-then-use race remains. A command running at the same moment could swap a checked directory for a symlink
 before the tool opens it. Closing it would need `openat2` with `RESOLVE_BENEATH`, which Node does not offer.
 
+The sandboxed environment passes Durable's own `ExecutionEnv` conformance suite but for one case: an argv `exec`
+whose program does not exist ends with the launcher's exit code 127 rather than a `spawn_error`, since the launcher
+is what starts. picloud's tools only ever pass command strings.
+
 **What it costs.**
 - **Background processes:** each command is its own Landlock domain, so from ABI 6 a command cannot signal a
   process an earlier command started. The prompt tells the agent to stop a background server in the command that

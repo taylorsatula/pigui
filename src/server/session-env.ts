@@ -9,6 +9,7 @@ import type { EnvTarget } from "@earendil-works/pi-durable";
 import {
 	type BinaryReader,
 	type DirReader,
+	type ExecutionEnv,
 	err,
 	type ExecutionError,
 	FileError,
@@ -42,7 +43,7 @@ const PASSED = new Set([
 const SCRATCH = ["home", "tmp", "gh"] as const;
 
 /** The whole environment of a session's commands. */
-export function agentEnvironment(scratch: string, gitHubToken: string | undefined): Record<string, string> {
+function agentEnvironment(scratch: string, gitHubToken: string | undefined): Record<string, string> {
 	const env: Record<string, string> = {};
 	for (const [name, value] of Object.entries(process.env)) {
 		if (value !== undefined && (PASSED.has(name) || name.startsWith("LC_"))) env[name] = value;
@@ -58,7 +59,7 @@ export function agentEnvironment(scratch: string, gitHubToken: string | undefine
 	return env;
 }
 
-export type SessionEnvOptions = {
+type SessionEnvOptions = {
 	cwd: string;
 	scratch: string;
 	environment: Record<string, string>;
@@ -66,7 +67,7 @@ export type SessionEnvOptions = {
 	sandbox?: { launcher: string; grants: Grants };
 };
 
-export class SessionEnv extends NodeExecutionEnv {
+class SessionEnv extends NodeExecutionEnv {
 	readonly #home: string;
 	readonly #tmp: string;
 	readonly #environment: Record<string, string>;
@@ -214,7 +215,7 @@ export type SessionEnvsOptions = {
 };
 
 /** Durable's `env` option: each session's environment, built at each use. */
-export function sessionEnvs(options: SessionEnvsOptions): (target: EnvTarget) => Promise<SessionEnv> {
+export function sessionEnvs(options: SessionEnvsOptions): (target: EnvTarget) => Promise<ExecutionEnv> {
 	return async ({ conversationId, cwd }) => {
 		const { workspace, scratch } = options.dirs(conversationId as number);
 		// Made here rather than at setup, so a session from before the sandbox gets them on its next command.
