@@ -166,6 +166,26 @@ documents every setting.
   - `git`, `gh`, a C toolchain and ripgrep;
   - the `pi` CLI from picloud's own pinned dependencies.
 
+### Trim a small machine
+
+On a dedicated droplet, either way of deploying, `deploy/trim.sh` leaves more memory and disk for the agent's builds
+and tests:
+
+```bash
+sudo deploy/trim.sh --dry-run   # see what it would do
+sudo deploy/trim.sh             # --swap 1G for a smaller swap file, --swap 0 for none
+```
+
+- **Services.** It masks the ones picloud never uses, such as snapd, multipathd, firmware and disk managers, crash
+  reports, rsyslog, and the login-banner and Ubuntu Pro timers. Masking means they cannot be started on demand either.
+- **Swap.** It adds a 2 GB swap file that the system uses only under memory pressure.
+- **Journal.** It caps the system journal at 200 MB.
+- **Kept on purpose:** SSH, networking, DNS, time sync, cron, AppArmor, security updates, cloud-init and
+  DigitalOcean's own agents.
+
+It is safe to re-run and prints how to undo each part. With Docker, `compose.yaml` also caps each container's logs at
+three 10 MB files.
+
 ### Operate
 
 - **Logs:** `journalctl -u picloud`.

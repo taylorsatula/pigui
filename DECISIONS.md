@@ -340,6 +340,18 @@ take that over from Pi.
 equivalent. A wrapper script that waits for a person would sit between the init process and picloud, and break the
 clean shutdown on stop. Docker's growing restart delay keeps the loop cheap, and every attempt logs the instructions.
 
+**Trimming the host is its own script, for either way of deploying.** `deploy/trim.sh` masks a fixed list of
+services that a machine running only picloud never uses, adds swap and caps the journal. It shares the installer's
+dry-run helpers, through `deploy/lib.sh`.
+- **Masked, not disabled.** Several of these services (packagekit, fwupd, udisks2, ModemManager) start on demand over
+  D-Bus, and disabling a service does not stop that.
+- **Kept on purpose:**
+  - SSH, networking, DNS and time sync;
+  - cron, AppArmor and security updates;
+  - cloud-init and the provider's agents, which resizing, the web console and backups depend on.
+- **What it buys.** The masked services hold on the order of 100 MB on a stock Ubuntu image. The swap file matters more
+  for the agent's test runs: a spike past memory slows them down instead of getting them killed.
+
 ## Slash commands: not built
 
 Pi Durable has no command concept; its extensions contribute tools, hooks, tasks, prompt sections and documents. Pi's

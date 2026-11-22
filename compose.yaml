@@ -8,6 +8,14 @@
 # README.md, "Run with Docker", has the details.
 name: picloud
 
+# Docker keeps container logs without limit by default, and picloud logs every request; three 10 MB files each is
+# plenty and keeps a small disk for workspaces.
+x-logging: &logging
+  driver: json-file
+  options:
+    max-size: 10m
+    max-file: "3"
+
 services:
   tailscale:
     image: tailscale/tailscale:v1.104.4
@@ -26,6 +34,7 @@ services:
       - /dev/net/tun:/dev/net/tun
     cap_add:
       - NET_ADMIN
+    logging: *logging
     restart: unless-stopped
 
   picloud:
@@ -48,6 +57,7 @@ services:
     # can shut down cleanly within the grace period.
     init: true
     stop_grace_period: 60s
+    logging: *logging
     restart: unless-stopped
 
 volumes:
