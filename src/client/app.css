@@ -13,13 +13,11 @@
    - spacing: 2, 4, 6, 8, 12, 16 and 24 px;
    - radii: --radius-s (code, fields, buttons, the toast), --radius-l (sheets), --radius-full (discs);
    - colour: page and ink, the yellow (--mark), plus one token per meaning (done, warn, error,
-     waiting, working, deliver, neutral, person), which every theme defines;
+     waiting, working, deliver, neutral, person), defined for light and for dark;
    - motion: three durations and two curves. Frequent actions (send, pick, disclose) are not animated; presses give
      feedback at once; sheets, the drawer and toasts enter with --present and leave faster with --quick.
 
-   Themes: System (no data-theme on <html>) follows the OS between Light and Dark; Light, Dark and Terminal are chosen
-   in the drawer (theme.ts). A theme is a block of these values; only the Terminal also has a short section of its
-   own, at the end, for the few things it draws differently. */
+   Light and dark follow the device's setting; dark is one block of these values, under its media query. */
 
 /* The three faces, served with the app (scripts/build.ts copies their Latin files from the pinned Fontsource packages),
    so they work offline and the CSP needs no font host. Characters outside Latin fall back to the next face listed. */
@@ -83,7 +81,7 @@
 	--target: 44px;
 	/* The reading column, and the sidebar the drawer becomes on a wide screen. */
 	--column: 760px;
-	--sidebar: 340px;
+	--sidebar: 288px;
 
 	--ease-out: cubic-bezier(0.23, 1, 0.32, 1);
 	/* The curve iOS sheets move on: quick to start, long to settle. */
@@ -151,16 +149,11 @@
 	--bar-blur: saturate(140%) blur(16px);
 }
 
-:root[data-theme="light"] {
-	color-scheme: light;
-}
-
-/* Dark's colours are written twice, for System in dark mode and for the Dark theme: a selector cannot test a media
-   query. An end-to-end test checks the two stay the same. Dark is the same pages read by lamplight: warm graphite
-   paper, cream ink, the alerts as vivid as by day (each at least 5.8:1 on the page), and every weight a step lighter, since light text on a
-   dark ground looks heavier than it is; no halo, which would only spread it further. */
+/* Dark is the same pages read by lamplight: warm graphite paper, cream ink, the alerts as vivid as by day (each at
+   least 5.8:1 on the page), and every weight a step lighter, since light text on a dark ground looks heavier than it
+   is; no halo, which would only spread it further. */
 @media (prefers-color-scheme: dark) {
-	:root:not([data-theme]) {
+	:root {
 		--bg: #181714;
 		--surface: #1f1e1a;
 		--surface-2: #2a2823;
@@ -194,97 +187,6 @@
 		--w-strong: 520;
 		--ink-shadow: none;
 	}
-}
-
-:root[data-theme="dark"] {
-	color-scheme: dark;
-	--bg: #181714;
-	--surface: #1f1e1a;
-	--surface-2: #2a2823;
-	--raised: #2c2a25;
-	--fill: rgba(235, 225, 200, 0.08);
-	--text: #ebe5d5;
-	--text-2: #a49e8f;
-	--separator: rgba(235, 225, 200, 0.15);
-	--rule: rgba(235, 225, 200, 0.5);
-	--mark: #ffd60a;
-	--mark-text: #181714;
-	--accent: #ebe5d5;
-	--accent-text: #181714;
-	--done: #3ddc84;
-	--warn: #ffa31a;
-	--error: #ff5a47;
-	--waiting: #ebe5d5;
-	--working: #4fd3e0;
-	--deliver: #6ea8ff;
-	--neutral: #a49e8f;
-	--person: #ebe5d5;
-	--badge: #ffd60a;
-	--code: rgba(235, 225, 200, 0.06);
-	--add: rgba(61, 220, 132, 0.16);
-	--del: rgba(255, 90, 71, 0.18);
-	--scrim: rgba(0, 0, 0, 0.5);
-	--shadow: 0 1px 3px rgba(0, 0, 0, 0.3), 0 10px 30px rgba(0, 0, 0, 0.5);
-	--w-text: 340;
-	--w-ui: 420;
-	--w-display: 440;
-	--w-strong: 520;
-	--ink-shadow: none;
-}
-
-/* Terminal, ANSI dark neon: light grey on near-black, everything in the monospace, square, outlined in one pixel,
-   flat, and each meaning in one fluorescent colour wherever it appears. Yellow is the person: their words and what they
-   can tap. Magenta needs them (the Terminal's yellow), cyan is at work, lime is done, orange warns, red is an
-   error, blue goes to GitHub. Every colour, as text or as a fill under near-black text, has at least 6:1 contrast. */
-:root[data-theme="terminal"] {
-	color-scheme: dark;
-	--serif: var(--mono);
-	--sans: var(--mono);
-	--prose: 1rem;
-	--w-text: 400;
-	--w-ui: 400;
-	--w-display: 500;
-	--w-strong: 600;
-	--ink-shadow: none;
-	--title: 1rem;
-	--subhead: 0.875rem;
-	--leading: 1.35;
-	--leading-tight: 1.25;
-	--leading-code: 1.25;
-	--label-tracking: 0;
-	--radius-s: 0;
-	--radius-l: 0;
-	--radius-full: 0;
-
-	--bg: #0a0a0a;
-	--surface: #0a0a0a;
-	--surface-2: transparent;
-	--raised: #0a0a0a;
-	--fill: #1f1f1f;
-	--text: #d4d4d4;
-	--text-2: #949494;
-	--separator: #646464;
-	--rule: #949494;
-	--mark: #ff4fe0;
-	--mark-text: #0a0a0a;
-	--accent: #ffe83b;
-	--accent-text: #0a0a0a;
-	--done: #a6ff2e;
-	--warn: #ff9d2e;
-	--error: #ff5252;
-	--waiting: #ff4fe0;
-	--working: #2ee6ff;
-	--deliver: #4aa3ff;
-	--neutral: #949494;
-	--person: #ffe83b;
-	--badge: #ff4fe0;
-	--code: transparent;
-	--add: transparent;
-	--del: transparent;
-	--scrim: #0a0a0a;
-	--shadow: none;
-	--bar: #0a0a0a;
-	--bar-blur: none;
 }
 
 /* -apple-system-body follows iOS's Text Size setting; elsewhere the browser's default size applies. */
@@ -492,13 +394,11 @@ details > summary:active {
 	}
 }
 
-/* Labels: what a card is, a drawer section, a field, a call's input and output. Recorded, so monospace capitals. */
+/* Labels: what a card is, the sidebar's folded section, a field, a call's input and output. Monospace capitals. */
 .card-title,
-.group h3,
-.group > summary,
+.inactive > summary,
 .io-label,
-.field > span,
-.theme-choice > span {
+.field > span {
 	font-family: var(--mono);
 	font-size: var(--label);
 	font-weight: 400;
@@ -620,31 +520,31 @@ details > summary:active {
 	color: var(--text);
 }
 
-/* A status, in the title bar and the drawer, in its meaning's colour; the person's turn in the yellow. */
-:is(.session-status, .row-label).attention {
+/* The session's status in its meaning's colour; the person's turn in the yellow. */
+.session-status.attention {
 	color: var(--mark-text);
 	background: var(--mark);
 	padding: 0 4px;
 	margin: 0 -4px;
 }
 
-:is(.session-status, .row-label).working {
+.session-status.working {
 	color: var(--working);
 }
 
-:is(.session-status, .row-label).warn {
+.session-status.warn {
 	color: var(--warn);
 }
 
-:is(.session-status, .row-label).error {
+.session-status.error {
 	color: var(--error);
 }
 
-:is(.session-status, .row-label).done {
+.session-status.done {
 	color: var(--done);
 }
 
-:is(.session-status, .row-label).idle {
+.session-status.idle {
 	color: var(--text-2);
 }
 
@@ -756,49 +656,68 @@ details > summary:active {
 	.topbar {
 		--inset-left: 16px;
 	}
+
+	.drawer-header .hide-sidebar {
+		display: inline-flex;
+	}
+
+	/* Put away: the session takes the whole window, and the menu button brings the sidebar back. */
+	.app.sidebar-hidden .drawer {
+		display: none;
+	}
+
+	.app.sidebar-hidden .icon-button.menu {
+		display: inline-flex;
+	}
+
+	.app.sidebar-hidden .topbar {
+		--inset-left: 4px;
+	}
 }
 
 .drawer-header {
 	display: flex;
 	align-items: center;
-	justify-content: space-between;
-	padding: 12px 4px 8px 16px;
+	gap: 4px;
+	padding: 8px 4px 4px 16px;
 }
 
 .drawer-header h2 {
+	flex: 1;
 	margin: 0;
-	font-size: var(--title);
-	font-weight: var(--w-display);
-	letter-spacing: -0.005em;
 	font-family: var(--serif);
+	font-size: 1.0625rem;
+	font-weight: var(--w-display);
+}
+
+/* Only a sidebar can be put away; the phone's drawer closes instead. */
+.hide-sidebar {
+	display: none;
+	color: var(--text-2);
 }
 
 .drawer-body {
 	flex: 1;
 	overflow-y: auto;
 	overscroll-behavior: contain;
+	padding-bottom: 8px;
 }
 
-.group h3 {
-	margin: 16px 16px 0;
-}
+/* ---- The listing: one line per session, a mark for its status, its title, how long since it changed. */
 
-.group > summary {
-	margin: 8px 16px 0;
-}
-
-.group ul {
+.listing {
 	list-style: none;
 	margin: 0;
 	padding: 0;
 }
 
 .row {
-	position: relative;
 	display: flex;
-	gap: 12px;
+	gap: 10px;
 	align-items: center;
-	padding: 10px 16px;
+	min-height: var(--target);
+	padding: 0 16px;
+	font-size: var(--subhead);
 	line-height: var(--leading-tight);
 	color: var(--text);
 	text-decoration: none;
@@ -819,53 +738,77 @@ details > summary:active {
 	box-shadow: inset 3px 0 0 var(--text);
 }
 
-.row-main {
+.row-title {
 	flex: 1;
 	min-width: 0;
-	display: flex;
-	flex-direction: column;
-	gap: 4px;
-}
-
-.row-title {
-	font-weight: var(--w-display);
-	overflow: hidden;
-	text-overflow: ellipsis;
-	white-space: nowrap;
-	font-family: var(--serif);
-}
-
-.row-meta {
-	display: flex;
-	gap: 8px;
-	font-family: var(--mono);
-	font-size: var(--label);
-	color: var(--text-2);
-	min-width: 0;
-}
-
-.row-meta span {
 	overflow: hidden;
 	text-overflow: ellipsis;
 	white-space: nowrap;
 }
 
-.row-label {
+/* Something new on a session that needs the person: its title in the strong weight until they look. */
+.row.unseen .row-title {
+	font-weight: var(--w-strong);
+}
+
+.row time {
 	flex: none;
-	max-width: 60%;
-	text-transform: uppercase;
-	letter-spacing: var(--label-tracking);
-}
-
-.row-side {
-	display: flex;
-	flex-direction: column;
-	align-items: flex-end;
-	gap: 8px;
 	font-family: var(--mono);
 	font-size: var(--label);
 	color: var(--text-2);
 	font-variant-numeric: tabular-nums;
+}
+
+/* The status mark, in the status's colour; the agent at work breathes, and a session with nothing going on is an
+   empty ring. */
+.indicator {
+	flex: none;
+	width: 8px;
+	height: 8px;
+	border-radius: var(--radius-full);
+	background: var(--text-2);
+}
+
+.indicator.working {
+	background: var(--working);
+	animation: breathe 2.4s ease-in-out infinite;
+}
+
+.indicator.attention {
+	background: var(--mark);
+	box-shadow: 0 0 0 1px color-mix(in srgb, var(--text) 45%, transparent);
+}
+
+.indicator.warn {
+	background: var(--warn);
+}
+
+.indicator.error {
+	background: var(--error);
+}
+
+.indicator.done {
+	background: var(--done);
+}
+
+.indicator.idle {
+	background: none;
+	box-shadow: inset 0 0 0 1.5px var(--text-2);
+}
+
+@keyframes breathe {
+	50% {
+		opacity: 0.35;
+	}
+}
+
+.inactive > summary {
+	padding: 0 16px;
+	margin-top: 8px;
+}
+
+.inactive .row-title {
+	color: var(--text-2);
 }
 
 /* The yellow, ringed in ink so it reads on the page. */
@@ -891,10 +834,7 @@ details > summary:active {
 }
 
 .drawer-footer {
-	padding: 8px 16px 12px;
-	display: flex;
-	flex-direction: column;
-	align-items: flex-start;
+	padding: 4px 16px 8px;
 	border-top: var(--hairline) solid var(--separator);
 }
 
@@ -902,35 +842,14 @@ details > summary:active {
 	padding: 0;
 }
 
-.theme-choice {
-	display: flex;
-	align-items: center;
-	gap: 12px;
-}
-
-.connection {
-	display: inline-flex;
-	align-items: center;
-	gap: 6px;
-	font-family: var(--mono);
-	font-size: var(--label);
-	color: var(--text-2);
-}
-
-.connection::before {
-	content: "";
-	width: 7px;
-	height: 7px;
-	border-radius: var(--radius-full);
-	background: var(--done);
-}
-
-.connection.off {
-	color: var(--warn);
-}
-
-.connection.off::before {
-	background: var(--warn);
+/* Read by screen readers, not shown. */
+.visually-hidden {
+	position: absolute;
+	width: 1px;
+	height: 1px;
+	overflow: hidden;
+	clip-path: inset(50%);
+	white-space: nowrap;
 }
 
 .empty {
@@ -1881,7 +1800,7 @@ select:focus-visible {
 
 /* Beside the wide-screen sidebar, a toast belongs to the conversation, so it centres on that rather than the window. */
 @media (min-width: 900px) {
-	.toast {
+	.app:not(.sidebar-hidden) .toast {
 		left: calc(50% + var(--sidebar) / 2);
 		width: min(calc(100vw - var(--sidebar) - 32px), 480px);
 	}
@@ -2448,117 +2367,4 @@ select {
 			transition: none;
 		}
 	}
-}
-
-/* ---- Terminal. Its tokens make it monospace, square, flat and dark; this section draws what values alone cannot:
-   an outline round each card and control, and colour by what each thing is or does rather than by its rank. */
-
-/* What each control is or does, as a meaning colour; a plain button is drawn in the text's colour, as a terminal
-   draws one. Only the Terminal draws with it. */
-.primary {
-	--tone: var(--accent);
-}
-
-.secondary {
-	--tone: var(--text);
-}
-
-.resume {
-	--tone: var(--working);
-}
-
-.approve {
-	--tone: var(--done);
-}
-
-.deliver {
-	--tone: var(--deliver);
-}
-
-.raise {
-	--tone: var(--warn);
-}
-
-[data-theme="terminal"] .secondary {
-	box-shadow: inset 0 0 0 1px var(--tone);
-	color: var(--tone);
-}
-
-/* The primary action in inverse video, as a terminal shows a selection. */
-[data-theme="terminal"] .primary {
-	background: var(--tone);
-	color: var(--bg);
-}
-
-[data-theme="terminal"] .link {
-	text-decoration: none;
-}
-
-/* Cards are boxes here, outlined in one pixel: what waits for the person in its colour, a report in done's. */
-[data-theme="terminal"] .card {
-	border: var(--hairline) solid var(--separator);
-	padding: 8px 12px 12px;
-}
-
-[data-theme="terminal"] .card.waiting {
-	border-color: var(--waiting);
-}
-
-[data-theme="terminal"] .card.report {
-	border: var(--hairline) solid var(--done);
-}
-
-[data-theme="terminal"] :where(.markdown pre, .io, .patch, .note, select, .live-call) {
-	border: var(--hairline) solid var(--separator);
-}
-
-[data-theme="terminal"] .said::before {
-	content: "> ";
-	color: var(--text-2);
-}
-
-[data-theme="terminal"] .option.chosen {
-	box-shadow: inset 2px 0 0 var(--accent);
-}
-
-/* The current item in inverse video. */
-[data-theme="terminal"] :is(.row.current, .segmented button.selected) {
-	background: var(--text);
-	color: var(--bg);
-	box-shadow: none;
-}
-
-[data-theme="terminal"] .row.current :is(.row-meta, .row-side, .row-label) {
-	color: inherit;
-}
-
-[data-theme="terminal"] .toast {
-	background: var(--bg);
-	color: var(--text);
-	border: var(--hairline) solid var(--separator);
-}
-
-[data-theme="terminal"] .markdown blockquote {
-	font-style: normal;
-}
-
-[data-theme="terminal"] .patch .add {
-	color: var(--done);
-}
-
-[data-theme="terminal"] .patch .del {
-	color: var(--error);
-}
-
-/* Square boxes, filled when chosen, in place of the system's round radio buttons and checkboxes. */
-[data-theme="terminal"] .option input {
-	appearance: none;
-	border: var(--hairline) solid currentColor;
-	padding: 4px;
-	background-clip: content-box;
-}
-
-[data-theme="terminal"] .option input:checked {
-	border-color: var(--accent);
-	background-color: var(--accent);
 }

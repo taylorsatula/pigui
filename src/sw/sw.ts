@@ -8,7 +8,7 @@ declare const BUILD_ID: string;
 declare const FONT_FILES: string[];
 
 const CACHE = `picloud-shell-${BUILD_ID}`;
-const SHELL = ["/", "/boot.js", "/app.js", "/app.css", "/manifest.webmanifest", "/icons/icon-192.png", "/icons/icon-512.png", "/icons/apple-touch-icon.png", ...FONT_FILES];
+const SHELL = ["/", "/app.js", "/app.css", "/manifest.webmanifest", "/icons/icon-192.png", "/icons/icon-512.png", "/icons/apple-touch-icon.png", ...FONT_FILES];
 
 type PushPayload = { title: string; body: string; url: string; tag: string };
 

@@ -4,11 +4,11 @@
 // ends each stretch folds into one line, which opens on a tap, as each call does to its full input and output.
 // Failures show while folded.
 import type { JSX } from "preact";
-import { useLayoutEffect, useRef, useState } from "preact/hooks";
+import { useEffect, useLayoutEffect, useRef, useState } from "preact/hooks";
 import type { SessionDoc } from "../../shared/session.ts";
 import { dayHeading, describeCall, describeGroup, sameDay } from "../format.ts";
 import { live } from "../live.ts";
-import type { Block, CallView, WorkItem } from "../transcript.ts";
+import { type Block, type CallView, turnStart, type WorkItem } from "../transcript.ts";
 import { followEnd, keepPosition, pinToEnd, stopFollowing } from "../viewport.ts";
 import { type CardActions, type DeliveryActions, PlanCardView, QuestionsCard, ReportCard } from "./Cards.tsx";
 import { Icon } from "./Icons.tsx";
@@ -174,10 +174,29 @@ export function Transcript(props: {
 		}
 	});
 
-	const load = async (work: () => Promise<void>, keep: boolean) => {
+	// The turn under way shows whole: the live window holds only the newest entries, so while the agent works, what it
+	// left out of the turn (its start, or a gap after a reconnect) loads on its own.
+	// A load that failed is not retried until something new arrives.
+	const working = props.running && props.session?.card === undefined;
+	const failedOn = useRef<Block[] | undefined>(undefined);
+	useEffect(() => {
+		if (!working || loading || failedOn.current === props.blocks) return;
+		const start = turnStart(props.blocks);
+		const gap = props.blocks.find((block, index): block is Extract<Block, { kind: "gap" }> => block.kind === "gap" && index > start);
+		const blocks = props.blocks;
+		const fail = () => {
+			failedOn.current = blocks;
+		};
+		// Filled in place rather than as a tap would: the page keeps following the end, as it does while the agent works.
+		if (gap !== undefined) load(() => live.fillGap(gap.gap), "follow").catch(fail);
+		else if (start === -1 && blocks[0]?.kind === "earlier") load(() => live.loadEarlier(), "keep").catch(fail);
+	});
+
+	/** `keep`: what is on screen stays put. `release`: the page stops following the end. `follow`: it goes on following. */
+	const load = async (work: () => Promise<void>, position: "keep" | "release" | "follow") => {
 		setLoading(true);
-		if (keep) anchor.current = { firstKey, restore: keepPosition() };
-		else stopFollowing();
+		if (position === "keep") anchor.current = { firstKey, restore: keepPosition() };
+		else if (position === "release") stopFollowing();
 		try {
 			await work();
 		} finally {
@@ -193,13 +212,13 @@ export function Transcript(props: {
 		switch (block.kind) {
 			case "earlier":
 				return (
-					<button type="button" class="link" disabled={loading} onClick={() => void load(() => live.loadEarlier(), true)}>
+					<button type="button" class="link" disabled={loading} onClick={() => void load(() => live.loadEarlier(), "keep")}>
 						{loading ? "Loading…" : "Load earlier messages"}
 					</button>
 				);
 			case "gap":
 				return (
-					<button type="button" class="link" disabled={loading} onClick={() => void load(() => live.fillGap(block.gap), false)}>
+					<button type="button" class="link" disabled={loading} onClick={() => void load(() => live.fillGap(block.gap), "release")}>
 						Load missed messages
 					</button>
 				);

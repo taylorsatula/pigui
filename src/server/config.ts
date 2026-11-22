@@ -11,8 +11,6 @@ export type Config = {
 	pushSubject: string;
 	/** Tailscale logins allowed in; empty allows everyone who can reach the server through the tailnet. */
 	allowedLogins: string[];
-	/** Tool rounds one run may take. */
-	maxTurns: number;
 	/** Default per-session spend cap in US dollars; undefined means no cap. */
 	spendCap: number | undefined;
 	/** The model that writes compaction checkpoints; undefined means each session's own model. */
@@ -49,7 +47,6 @@ export function readConfig(env: NodeJS.ProcessEnv): Config {
 			.split(",")
 			.map((login) => login.trim().toLowerCase())
 			.filter((login) => login.length > 0),
-		maxTurns: integer(env.PICLOUD_MAX_TURNS, "PICLOUD_MAX_TURNS", 150, 1, 100_000),
 		spendCap: dollars(env.PICLOUD_SPEND_CAP),
 		compactionModel: modelRef(env.PICLOUD_COMPACTION_MODEL),
 		fake,

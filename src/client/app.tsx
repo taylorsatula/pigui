@@ -51,6 +51,7 @@ function Toasts(): JSX.Element | null {
 
 export function App(): JSX.Element {
 	const route = useStore((state) => state.route);
+	const sidebarHidden = useStore((state) => state.sidebarHidden);
 
 	useEffect(() => {
 		api.bootstrap().then(
@@ -84,7 +85,7 @@ export function App(): JSX.Element {
 	}, [route.kind === "session" ? route.id : -1]);
 
 	return (
-		<div class="app">
+		<div class={`app ${sidebarHidden ? "sidebar-hidden" : ""}`}>
 			<Drawer />
 			<main class="main">{route.kind === "session" ? <SessionView key={route.id} id={route.id} /> : <NewSession />}</main>
 			<Toasts />

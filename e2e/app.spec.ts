@@ -1,7 +1,7 @@
 import { expect, startSession, test } from "./fixtures.ts";
 
 test.describe("the app around a session", () => {
-	test("the drawer navigates between sessions and signals one that needs attention", async ({ page }) => {
+	test("the sidebar lists the sessions under way, navigates between them, and signals one that needs attention", async ({ page }) => {
 		await startSession(page, "What does greet() return?");
 		await expect(page.locator(".session-status")).toHaveText("Replied");
 		const first = page.url();
@@ -19,10 +19,13 @@ test.describe("the app around a session", () => {
 
 		await page.getByRole("button", { name: /^Sessions, 1 needs you$/ }).tap();
 		const drawer = page.getByRole("navigation", { name: "Sessions" });
-		const needsYou = drawer.getByRole("region", { name: "Needs you" });
-		await expect(needsYou.getByRole("link", { name: /What does greet\(\) return\?/ })).toBeVisible();
-		await expect(needsYou.getByRole("link", { name: /Add a shout\(\) function/ })).toContainText("Question waiting");
-		await needsYou.getByRole("link", { name: /What does greet\(\) return\?/ }).tap();
+		const underWay = drawer.getByRole("list", { name: "Under way" });
+		// Newest first, one line each, with a mark in the colour of its status.
+		await expect(underWay.getByRole("link")).toHaveCount(2);
+		await expect(underWay.getByRole("link").first()).toContainText("What does greet() return?");
+		await expect(underWay.getByRole("link", { name: /Add a shout\(\) function/ })).toContainText("Question waiting");
+		await expect(underWay.getByRole("link", { name: /Add a shout\(\) function/ }).locator(".indicator")).toHaveClass(/attention/);
+		await underWay.getByRole("link", { name: /What does greet\(\) return\?/ }).tap();
 		await expect(page).toHaveURL(first);
 		await expect(drawer).not.toHaveClass(/open/);
 		await expect(page.getByTestId("attention-dot")).toBeHidden();
@@ -40,8 +43,24 @@ test.describe("the app around a session", () => {
 		await expect(page).toHaveURL(url);
 		await page.getByRole("button", { name: /^Sessions/ }).tap();
 		const drawer = page.getByRole("navigation", { name: "Sessions" });
-		await expect(drawer.getByRole("region", { name: "Needs you" }).getByRole("link", { name: /What is in src\?/ })).toBeVisible();
-		await expect(drawer.getByText(/^Archived/)).toBeHidden();
+		await expect(drawer.getByRole("list", { name: "Under way" }).getByRole("link", { name: /What is in src\?/ })).toBeVisible();
+		await expect(drawer.getByText(/^Inactive/)).toBeHidden();
+	});
+
+	test("on a wide screen the sidebar can be put away, and stays put away after a reload", async ({ page }) => {
+		await page.setViewportSize({ width: 1280, height: 800 });
+		await startSession(page, "What is in src?");
+		const sidebar = page.getByRole("navigation", { name: "Sessions" });
+		await expect(sidebar).toBeVisible();
+		await page.getByRole("button", { name: "Hide the sidebar" }).click();
+		await expect(sidebar).toBeHidden();
+		await page.reload();
+		await expect(page.getByText("Short answer:")).toBeVisible();
+		await expect(sidebar).toBeHidden();
+		await page.getByRole("button", { name: /^Sessions/ }).click();
+		await expect(sidebar).toBeVisible();
+		await page.reload();
+		await expect(sidebar).toBeVisible();
 	});
 
 	test("the @ and # pickers narrow as the person types and insert the reference", async ({ page }) => {

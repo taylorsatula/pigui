@@ -1,12 +1,16 @@
 import { render } from "preact";
 import { App } from "./app.tsx";
-import { holdTransitions } from "./theme.ts";
 
 // iOS applies :active, the app's press feedback, only where a touch listener is present.
 document.addEventListener("touchstart", () => undefined, { passive: true });
 
-// The system switching between light and dark recolours everything in one frame.
-matchMedia("(prefers-color-scheme: dark)").addEventListener("change", holdTransitions);
+// The system switching between light and dark recolours everything in one frame: for that frame nothing transitions,
+// or elements with a colour transition would fade a beat behind the rest (see .theme-changing in app.css).
+matchMedia("(prefers-color-scheme: dark)").addEventListener("change", () => {
+	const root = document.documentElement;
+	root.classList.add("theme-changing");
+	requestAnimationFrame(() => requestAnimationFrame(() => root.classList.remove("theme-changing")));
+});
 
 const root = document.getElementById("app");
 if (root !== null) render(<App />, root);

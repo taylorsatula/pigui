@@ -20,8 +20,10 @@ export type State = {
 	view?: TranscriptView;
 	/** The open session does not exist. */
 	missing: boolean;
-	connected: boolean;
+	/** The drawer, on a phone, slid over the session. */
 	drawerOpen: boolean;
+	/** The sidebar, on a wide screen, put away; kept per device across visits. */
+	sidebarHidden: boolean;
 	toast?: Toast;
 	reading?: Reading;
 };
@@ -57,7 +59,28 @@ export function routeFromHash(hash: string): Route {
 	return match === null ? { kind: "new" } : { kind: "session", id: Number(match[1]) };
 }
 
-export const store = new Store({ route: routeFromHash(location.hash), missing: false, connected: false, drawerOpen: false });
+const SIDEBAR_KEY = "picloud.sidebar";
+
+/** Whether the sidebar was put away on this device. Storage can be unavailable (private browsing): then it shows. */
+function storedSidebarHidden(): boolean {
+	try {
+		return localStorage.getItem(SIDEBAR_KEY) === "hidden";
+	} catch {
+		return false;
+	}
+}
+
+export const store = new Store({ route: routeFromHash(location.hash), missing: false, drawerOpen: false, sidebarHidden: storedSidebarHidden() });
+
+/** Put the wide-screen sidebar away or bring it back, remembered on this device. */
+export function setSidebarHidden(hidden: boolean): void {
+	store.set({ sidebarHidden: hidden });
+	try {
+		localStorage.setItem(SIDEBAR_KEY, hidden ? "hidden" : "shown");
+	} catch {
+		// Storage can be unavailable (private browsing); the choice then lasts until the page is reloaded.
+	}
+}
 
 /** Re-render when the selected part of the state changes. */
 export function useStore<T>(select: (state: State) => T): T {

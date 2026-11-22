@@ -55,7 +55,6 @@ class Live {
 		clearTimeout(this.#watchdog);
 		this.#controller?.abort();
 		this.#controller = undefined;
-		store.set({ connected: false });
 	}
 
 	async loadEarlier(): Promise<void> {
@@ -82,7 +81,6 @@ class Live {
 		}
 		void this.#read(controller, params).catch(() => undefined).finally(() => {
 			if (this.#controller !== controller) return;
-			store.set({ connected: false });
 			// Reconnect with backoff: a restarting server is back within seconds, a dead network costs nothing.
 			const delay = Math.min(15_000, 500 * 2 ** this.#retry++);
 			this.#timer = setTimeout(() => this.#connect(), delay);
@@ -98,7 +96,6 @@ class Live {
 		const response = await fetch(`/api/live?${params}`, { signal: controller.signal });
 		if (!response.ok || response.body === null) throw new Error(`Live stream failed with ${response.status}`);
 		this.#arm(controller);
-		store.set({ connected: true });
 		this.#retry = 0;
 		for await (const message of lines<LiveMessage>(response)) {
 			this.#arm(controller);

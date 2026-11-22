@@ -63,6 +63,17 @@ test.describe("the tap flow", () => {
 		await expect(page.locator(".work.live")).toHaveCount(0);
 	});
 
+	test("a turn under way shows whole after a reload, though it is longer than the live window", async ({ page }) => {
+		await startSession(page, "Keep going [spin]");
+		// Past Durable's live window of 50 entries: each call is two (the request and its result).
+		await expect.poll(() => page.locator(".work.live .live-call").count(), { timeout: 30_000 }).toBeGreaterThan(30);
+		await page.reload();
+		await expect(page.locator(".is-person .said")).toHaveText("Keep going [spin]", { timeout: 15_000 });
+		await expect(page.locator(".live-call .call-command").first()).toHaveText("$ echo turn 0");
+		await expect(page.getByRole("button", { name: "Load earlier messages" })).toHaveCount(0);
+		await page.getByRole("button", { name: "Stop" }).tap();
+	});
+
 	test("a waiting card is answered by typing in the composer", async ({ page }) => {
 		await startSession(page, "Add a shout() function");
 		await expect(page.getByRole("region", { name: "Questions waiting for your answer" })).toBeVisible();

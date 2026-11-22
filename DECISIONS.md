@@ -7,7 +7,7 @@ next; when a decision changes, change its entry.
 
 **One process, one Harness, one SQLite storage; a session is a Durable conversation.** `startApp()` opens a single Pi
 Durable Harness over `picloud.sqlite` and serves HTTP from the same process. Each session is an ownerless conversation
-with its own working directory (`workspaces/<id>`), model, turn limit and compaction settings in its `pi.agent`
+with its own working directory (`workspaces/<id>`), model and compaction settings in its `pi.agent`
 document; the root conversation is never used for chat and owns the daily maintenance task. *Alternatives:* a Harness
 (and storage) per session would isolate sessions but break "one writable process per storage" as soon as anything
 looked across them (the drawer, notifications, maintenance), and would multiply open SQLite files; a separate worker
@@ -40,7 +40,8 @@ through small typed interfaces (`AgentServices`, `SessionsDeps`, `RepoHost`, `Pu
 - `picloud.push-subscriptions` (session scope).
 
 The drawer row is a *projection* of the session document (`sessionRow()` in `src/shared/session.ts`), recomputed by
-`editSession()` in every commit that changes the session, so it cannot drift. *Alternatives:* a separate SQLite table
+`editSession()` in every commit that changes the session, and for every session when picloud starts, so it cannot
+drift and rows an earlier version wrote take the current shape. *Alternatives:* a separate SQLite table
 or JSON files would be a second store with its own consistency problems; a single session-scoped document holding all
 sessions in full would make every keystroke-sized change to one session rewrite a document every phone watches; scanning
 every conversation to build the drawer would mean watching N documents. A session-scope document is one singleton per
@@ -156,7 +157,9 @@ mechanism would be needed anyway; a monitor task per run parked on `SubmissionSe
 the submission to be made from inside the task, which makes steering (an immediate submit in the HTTP commit) awkward.
 One observer plus one idempotent reconcile covers every way a run ends.
 
-**Bounds.** The turn limit is Durable's `maxTurns` per run (`PICLOUD_MAX_TURNS`). The spend cap is an `afterTools`
+**Bounds.** A run takes as many tool rounds as its work needs: picloud sets no `maxTurns`, and Durable handles
+failed tool calls itself. A fixed count (150 at first) cut real runs short for no reason a person could act on, and
+sessions created with it lose it when picloud starts. The spend cap is an `afterTools`
 hook: once the session's spend (from `pi.usage`) reaches its cap, a task ends the run after that round, before the next
 model request, records "budget reached" and notifies. *Alternative:* aborting the conversation from outside would race
 the run and could cut a tool call in half. Raising the cap submits a `continue` that resumes from the round's tool
@@ -321,7 +324,7 @@ How the Human Interface Guidelines shaped it:
 - **Sensible defaults:** the last repository, a new branch from its default branch, recommended options pre-selected
   so accepting them is one tap.
 - **Familiar navigation:** a ☰ drawer (and an edge swipe) on phones, a persistent sidebar on wide screens; the drawer
-  groups sessions as "Needs you", "Working", "Done", and a dot on ☰ means another session needs you.
+  lists the sessions under way, and a dot on ☰ means another session needs you.
 - **Feedback and forgiveness:** archive is immediate with an Undo toast instead of a confirmation dialog; drafts are
   saved as they are typed.
 - **Accessibility:** type at the person's text size (`-apple-system-body`, which every size is a fraction of), light
@@ -329,23 +332,31 @@ How the Human Interface Guidelines shaped it:
   layout (`interactive-widget=resizes-content`), reduced motion respected, and roles, labels and live regions for
   screen readers.
 
-**The look: serif to name and act, sans to read.** The first look followed the guidelines and nothing else, and read as
-every chat app averaged: blue bubbles, a "Message…" pill, grey pills for status, the system sans at two sizes,
+**The look: serif to name and act, sans to read.** The first look followed the guidelines and nothing else, and read
+as every chat app averaged: blue bubbles, a "Message…" pill, grey pills for status, the system sans at two sizes,
 everything at one radius and one spacing. It was replaced by a point of view, borrowed from print rather than from
 apps, with three faces and one job each. Source Serif 4 sets what names or does something, at Body size or larger
-only: session titles, question text, plan titles, the report's summary, buttons and links, and the person's own
-words, so each instruction heads the reply under it. IBM Plex Sans sets what is read: the agent's prose, options,
-fields. The agent's prose is technical, full of paths and identifiers, and a sans beside its own monospace sibling
-keeps those lines even where a serif body would switch texture at every `code` span. IBM Plex Mono sets the record:
-small labels, status, tool lines, paths, commits, sums. Weights are light (380 for reading, 480 for titles and
-buttons) and a step lighter on dark paper, where light text spreads; heavier weights read as smudged. A faint halo in
-the text's own colour (`text-shadow: 0 0 1px` at 22 %) fills out the thin strokes on paper; on dark it would only
-spread them, so it is off there. Status is a word, not a pill. Only two rules cross the transcript: ink over a report
-and yellow over whatever waits for the person; options, plan steps and answered cards are separated by space, not
-lines. Colour is warm ink on a page just warmer than white (a paper tone was tried and read as dim), and cream on warm
-graphite in Dark rather than blue-black. The alert colours sit near their full saturation (yellow `#ffd400`, red
-`#d70015`, orange `#c45000`, green `#008038`; brighter in Dark), each still at least 4.5:1 as text on the page, so they
-read as signals against a quiet page.
+only: session titles, question text, plan titles, the report's summary, buttons and links, and the person's own words,
+so each instruction heads the reply under it. IBM Plex Sans sets what is read: the agent's prose, options, fields. The
+agent's prose is technical, full of paths and identifiers, and a sans beside its own monospace sibling keeps those
+lines even where a serif body would switch texture at every `code` span. IBM Plex Mono sets the record: small labels,
+status, tool lines, paths, commits, sums. Weights are light (380 for reading, 480 for titles and buttons) and a step
+lighter on dark paper, where light text spreads; heavier weights read as smudged. A faint halo in the text's own
+colour (`text-shadow: 0 0 1px` at 22 %) fills out the thin strokes on paper; on dark it would only spread them, so it
+is off there. Status is a word, not a pill. Only two rules cross the transcript: ink over a report and yellow over
+whatever waits for the person; options, plan steps and answered cards are separated by space, not lines. Colour is
+warm ink on a page just warmer than white (a paper tone was tried and read as dim), and cream on warm graphite in Dark
+rather than blue-black. The alert colours sit near their full saturation (yellow `#ffd400`, red `#d70015`, orange
+`#c45000`, green `#008038`; brighter in Dark), each still at least 4.5:1 as text on the page, so they read as signals
+against a quiet page. The main action is filled with ink, others are outlined in it, links are underlined. The fonts
+are pinned dev dependencies (`@fontsource-variable/source-serif-4`, `@fontsource-variable/ibm-plex-sans`,
+`@fontsource/ibm-plex-mono`) whose Latin files `scripts/build.ts` copies into the app with their licences (about 250
+KB, precached by the service worker), so they work offline and the CSP needs no font host. *Alternatives:* serif prose
+with a sans for the interface read well but made every technical line switch between serif and monospace. A logbook
+(times in a ruled margin, date headings, a ledger's double rule, a highlighter drawn across) read as a costume: the
+props announced the idea instead of the type carrying it, and the margin cost a phone fifty pixels of every line. A
+newspaper layout made the waiting moment loud but everything else too graphic for something read every day; the system
+sans with a stronger accent kept the hollowness, which came from the defaults, not the colour.
 
 **One hue per meaning, wherever that meaning shows.** Colour says what something is, never how important it is:
 cyan is the agent at work on its own (the status word and its cursor, the step it is on, the edge of the running call,
@@ -355,18 +366,23 @@ badge on the menu); green is done (finished steps, met conditions, passed checks
 an unmet condition, a failed check); blue is what reaches GitHub (Open or Update pull request, Push branch, View PR).
 Everything else is ink or pencil. Yellow is never a warning and orange never the person's turn, since people read
 yellow as caution only where it sits beside orange and red, and here it never does. Each status carries its tone from
-one place (`StatusTone`, set where `sessionRow` labels the session), so the title bar and the drawer always agree; the
-Terminal theme already drew with the same map in its own colours. *Before:* "Working" was ink, so work under way read
-like any other status, and buttons that push to GitHub looked like buttons that only show something. The main action is filled with ink, others are outlined
-in it, links are underlined. The fonts are pinned dev dependencies (`@fontsource-variable/source-serif-4`,
-`@fontsource-variable/ibm-plex-sans`, `@fontsource/ibm-plex-mono`) whose Latin files `scripts/build.ts` copies into
-the app with their licences (about 250 KB, precached by the service worker), so they work offline and the CSP needs
-no font host. *Alternatives:* serif prose with a sans for the interface read well but made every technical line
-switch between serif and monospace. A logbook (times in a ruled margin, date headings, a ledger's double rule, a
-highlighter drawn across) read as a costume: the props announced the idea instead of the type carrying it, and the
-margin cost a phone fifty pixels of every line. A newspaper layout made the waiting moment loud but everything else
-too graphic for something read every day; the system sans with a stronger accent kept the hollowness, which came from
-the defaults, not the colour.
+one place (`StatusTone`, set where `sessionRow` labels the session), so the title bar and the sidebar always agree.
+*Before:* "Working" was ink, so work under way read
+like any other status, and buttons that push to GitHub looked like buttons that only show something.
+
+**The sidebar is a listing of what is under way, nothing more.** In coding work it is a utility: it shows what the
+other active sessions are doing. Each session is one line: a dot in its status's colour (cyan working, yellow its
+turn, orange a warning, red an error, an empty ring for nothing going on), its title, and how long since it changed,
+newest first. The title is the plan's once there is one, a few words where the session's own title is the first line
+of its task. Sessions that are done, archived, or untouched for twelve hours fold into an Inactive section, since
+most are never returned to. *Before:* rows of two lines (title, then a status pill and the repository) grouped under
+"Needs you", "Working" and "Done", a theme picker and a connection line, which read as a chat app's history and
+showed nothing to act on.
+
+**The turn under way shows whole.** Durable's live view sends the newest 50 entries and drops older ones as a run
+grows, so opening a session in the middle of a long turn, or reconnecting, left its start behind "Load earlier
+messages". While the agent works, the phone loads what the window left out of the current turn on its own (earlier
+pages until the turn's start, and any gap inside it) and keeps following the end; older turns stay behind the button.
 
 **Work is watched while it happens and folded once it is done.** Everything the agent does between two pieces of its
 prose is one stretch of work: its thinking and its tool calls, in the order they happened. While the turn runs (from
@@ -397,29 +413,17 @@ scale to 0.97, text and icon buttons dim, rows highlight); the sheet, drawer and
 on `--quick`, with CSS transitions so a gesture can interrupt them. Reduced motion keeps the fades and drops the
 movement.
 
-**Three colour schemes, as tokens rather than stylesheets.** System (the default) follows the OS between Light and
-Dark; Light, Dark and Terminal ("ANSI dark neon") are chosen per device in the drawer's footer, a plain select, and
-kept in `localStorage` (private browsing falls back to System). A chosen theme is `data-theme` on `<html>`, set by
-`boot.js`, a blocking script ahead of the stylesheet: the Content Security Policy rules out an inline script, and the
-module `app.js` runs after the first paint could already show the system's theme. Every colour is a token with one per
-meaning (`--done`, `--warn`, `--error`, `--waiting`, `--working`, `--deliver`, `--neutral`, `--person`), and a theme is
-one block of values. Light and Dark keep their values exactly; Dark's are written twice, for System in dark mode and
-for Dark, because a selector cannot test a media query (`light-dark()` would avoid that but leaves Safari before 17.5
-with no colours at all), and an end-to-end test keeps the two equal. The Terminal block sets a monospace font, square
-corners, 1 px lines, terminal line heights, no shadows, blur or translucency, and one fluorescent colour per meaning:
-lime for done, approved and added lines; red for errors, failures and removed lines; orange for warnings and the
-budget raise; magenta for what needs the person (its highlighter: waiting cards, the attention dot, "Needs you"
-labels); cyan for work in progress (Continue and Retry, which start work); blue for GitHub (Open, Update and
-View PR, Push); yellow for the person (their messages, Send, links, their choices, focus); grey for the rest. A
-short section at the end of `app.css` draws what values cannot: outlines in place of fills, each control in the
-colour of what it does (`--tone`, from classes such as `approve` and `deliver` that say what a button does), the
-primary action and the current row in inverse video, and the person's words after a `>` prompt. *Alternative:* a
-second stylesheet for the terminal would restate every component and drift from it; ASCII frames and braille spinners
-were left out as decoration.
+**Light and dark follow the device; there is no theme picker.** Dark is one block of the same tokens under
+`prefers-color-scheme: dark`, so every colour is a value per meaning and nothing is restyled per theme. *Before:* a
+picker in the drawer chose System, Light, Dark or a Terminal theme (ANSI neon, monospace, square). It was removed as
+offering nothing to act on in a tool that is opened to check on work, and the Terminal theme went with it, since
+nothing could choose it any more; with them went the blocking boot script that applied a stored choice before the
+first paint. The Terminal theme is in the history if it is wanted back somewhere else.
 
 **A wide screen gets the same app, laid out for its width.** It has no extra features, only a layout for the
 space:
-- From 900 px the drawer becomes a persistent sidebar.
+- From 900 px the drawer becomes a sidebar. It can be put away (and brought back with the ☰ button), and stays put
+  away on that device across visits.
 - Every band of a page runs the full width of its pane: title bar, transcript, composer bar, setup form. So the bars and their hairlines meet the pane's edges, while the content keeps to a centred 760 px reading
   column. This is padding computed from the pane width, so no wrapper elements are needed.
 - Without the menu button, the title lines up with the content.

@@ -1,75 +1,47 @@
-// The navigation drawer: every session, grouped by whether it needs the person, is working, or is done, each row with
-// enough status to decide where to look. On a phone it slides over the session; on a wide screen it stays.
+// The sidebar: a listing of the sessions under way, each one line with a coloured mark for its status, newest first,
+// so a glance says what the other sessions are doing. Sessions that are done, archived or untouched for half a day sit
+// folded under it. On a phone it slides over the session; on a wide screen it stays, unless put away.
 import type { JSX } from "preact";
 import type { RefObject } from "preact";
 import { useEffect, useRef, useState } from "preact/hooks";
-import { needsAttention, type SessionGroup, type SessionRow, toneOf } from "../../shared/session.ts";
+import { needsAttention, type SessionRow } from "../../shared/session.ts";
 import { describeFailure } from "../api.ts";
 import { FingerSpeed, projected } from "../motion.ts";
 import { timeAgo } from "../format.ts";
 import { enableNotifications, pushSupported } from "../push.ts";
-import { navigate, showToast, store, useStore } from "../store.ts";
-import { chooseTheme, storedTheme, type Theme, THEMES } from "../theme.ts";
+import { navigate, setSidebarHidden, showToast, store, useStore } from "../store.ts";
 import { Icon } from "./Icons.tsx";
 
-const GROUPS: { group: SessionGroup; title: string }[] = [
-	{ group: "attention", title: "Needs you" },
-	{ group: "working", title: "Working" },
-	{ group: "done", title: "Done" },
-];
+/** A session untouched this long has gone quiet: most are never returned to. */
+const STALE_MS = 12 * 60 * 60 * 1000;
 
-const THEME_NAMES: Record<Theme, string> = { system: "System", light: "Light", dark: "Dark", terminal: "Terminal" };
-
-function ThemeChoice(): JSX.Element {
-	const [theme, setTheme] = useState(storedTheme);
-	return (
-		<label class="theme-choice">
-			<span>Theme</span>
-			<select
-				value={theme}
-				onChange={(event) => {
-					const value = (event.target as HTMLSelectElement).value;
-					const chosen = THEMES.find((name) => name === value) ?? "system";
-					chooseTheme(chosen);
-					setTheme(chosen);
-				}}
-			>
-				{THEMES.map((name) => (
-					<option key={name} value={name}>
-						{THEME_NAMES[name]}
-					</option>
-				))}
-			</select>
-		</label>
-	);
+/** Under way: not archived, not done, and changed within the last half day. */
+function active(row: SessionRow, now: number): boolean {
+	return !row.archived && row.tone !== "done" && now - row.updatedAt < STALE_MS;
 }
 
 function Row(props: { row: SessionRow; current: boolean }): JSX.Element {
 	const { row } = props;
-	const attention = needsAttention(row);
 	return (
 		<li>
 			<a
 				href={`#/s/${row.id}`}
-				class={`row ${props.current ? "current" : ""}`}
+				class={`row ${props.current ? "current" : ""} ${needsAttention(row) ? "unseen" : ""}`}
 				aria-current={props.current ? "page" : undefined}
+				title={`${row.label} · ${row.repo}`}
 				onClick={() => store.set({ drawerOpen: false })}
 			>
-				<span class="row-main">
-					<span class="row-title">{row.title}</span>
-					<span class="row-meta">
-						<span class={`row-label ${toneOf(row)}`}>{row.label}</span>
-						<span class="row-repo">{row.repo}</span>
-					</span>
-				</span>
-				<span class="row-side">
-					<time dateTime={new Date(row.updatedAt).toISOString()}>{timeAgo(row.updatedAt)}</time>
-					{attention ? <span class="dot" role="img" aria-label="Needs your attention" /> : null}
-				</span>
+				<span class={`indicator ${row.tone}`} aria-hidden="true" />
+				<span class="row-title">{row.title}</span>
+				<span class="visually-hidden">{row.label}</span>
+				<time dateTime={new Date(row.updatedAt).toISOString()}>{timeAgo(row.updatedAt)}</time>
 			</a>
 		</li>
 	);
 }
+
+/** Where the drawer becomes a sidebar; app.css draws the same line. */
+const WIDE = "(min-width: 900px)";
 
 /** How near the left edge a touch must start to open the drawer. */
 const EDGE = 24;
@@ -80,7 +52,7 @@ const EDGE = 24;
  */
 function useDrawerDrag(drawer: RefObject<HTMLElement>, backdrop: RefObject<HTMLElement>): void {
 	useEffect(() => {
-		const wide = window.matchMedia("(min-width: 900px)");
+		const wide = window.matchMedia(WIDE);
 		let drag: { x: number; y: number; open: boolean; width: number; moving: boolean; offset: number; speed: FingerSpeed } | undefined;
 
 		const onMove = (event: TouchEvent) => {
@@ -151,7 +123,6 @@ export function Drawer(): JSX.Element {
 	const route = useStore((state) => state.route);
 	const open = useStore((state) => state.drawerOpen);
 	const bootstrap = useStore((state) => state.bootstrap);
-	const connected = useStore((state) => state.connected);
 	const [notifications, setNotifications] = useState(() => (pushSupported() ? Notification.permission : "unsupported"));
 	const panel = useRef<HTMLElement>(null);
 	const backdrop = useRef<HTMLDivElement>(null);
@@ -164,7 +135,9 @@ export function Drawer(): JSX.Element {
 	}, [open]);
 	const rows = Object.values(index?.rows ?? {}).sort((a, b) => b.updatedAt - a.updatedAt);
 	const current = route.kind === "session" ? route.id : undefined;
-	const archived = rows.filter((row) => row.archived);
+	const now = Date.now();
+	const underWay = rows.filter((row) => active(row, now));
+	const inactive = rows.filter((row) => !active(row, now));
 
 	const turnOn = async () => {
 		if (bootstrap === undefined) return;
@@ -193,54 +166,50 @@ export function Drawer(): JSX.Element {
 					>
 						<Icon name="plus" size={20} /> New
 					</button>
+					<button type="button" class="icon-button hide-sidebar" aria-label="Hide the sidebar" onClick={() => setSidebarHidden(true)}>
+						<Icon name="sidebar" size={20} />
+					</button>
 				</header>
 				<div class="drawer-body">
 					{rows.length === 0 ? <p class="empty">No sessions yet. Start one with New.</p> : null}
-					{GROUPS.map(({ group, title }) => {
-						const members = rows.filter((row) => !row.archived && row.group === group);
-						if (members.length === 0) return null;
-						return (
-							<section key={group} class="group" aria-label={title}>
-								<h3>{title}</h3>
-								<ul>
-									{members.map((row) => (
-										<Row key={row.id} row={row} current={row.id === current} />
-									))}
-								</ul>
-							</section>
-						);
-					})}
-					{archived.length > 0 ? (
-						<details class="group archived">
+					{rows.length > 0 && underWay.length === 0 ? <p class="empty">Nothing under way.</p> : null}
+					{underWay.length === 0 ? null : (
+						<ul class="listing" aria-label="Under way">
+							{underWay.map((row) => (
+								<Row key={row.id} row={row} current={row.id === current} />
+							))}
+						</ul>
+					)}
+					{inactive.length === 0 ? null : (
+						<details class="inactive">
 							<summary>
-								<Icon name="chevron" size={16} />
-								Archived ({archived.length})
+								<Icon name="chevron" size={14} />
+								Inactive ({inactive.length})
 							</summary>
-							<ul>
-								{archived.map((row) => (
+							<ul class="listing" aria-label="Inactive">
+								{inactive.map((row) => (
 									<Row key={row.id} row={row} current={row.id === current} />
 								))}
 							</ul>
 						</details>
-					) : null}
+					)}
 				</div>
-				<footer class="drawer-footer">
-					{notifications === "default" || notifications === "denied" ? (
+				{notifications === "default" || notifications === "denied" ? (
+					<footer class="drawer-footer">
 						<button type="button" class="link" onClick={() => void turnOn()}>
 							<Icon name="bell" size={18} /> Turn on notifications
 						</button>
-					) : null}
-					<ThemeChoice />
-					<span class={`connection ${connected ? "on" : "off"}`} role="status">
-						{connected ? (bootstrap?.fake === true ? "Connected · fake mode" : "Connected") : "Reconnecting…"}
-					</span>
-				</footer>
+					</footer>
+				) : null}
 			</nav>
 		</>
 	);
 }
 
-/** The ☰ button, with a dot when a session other than the open one needs the person. */
+/**
+ * The ☰ button, with a dot when a session other than the open one needs the person. On a phone it slides the drawer
+ * over the session; on a wide screen it shows only while the sidebar is put away, and brings it back.
+ */
 export function DrawerButton(): JSX.Element {
 	const index = useStore((state) => state.index);
 	const route = useStore((state) => state.route);
@@ -254,7 +223,7 @@ export function DrawerButton(): JSX.Element {
 			aria-label={others > 0 ? `Sessions, ${others} need${others === 1 ? "s" : ""} you` : "Sessions"}
 			aria-expanded={open}
 			aria-controls="drawer"
-			onClick={() => store.set({ drawerOpen: !open })}
+			onClick={() => (matchMedia(WIDE).matches ? setSidebarHidden(false) : store.set({ drawerOpen: !open }))}
 		>
 			<Icon name="menu" />
 			{others > 0 ? <span class="dot badge-dot" data-testid="attention-dot" /> : null}

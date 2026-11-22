@@ -2,7 +2,9 @@ import assert from "node:assert/strict";
 import { after, before, describe, test } from "node:test";
 import { NUDGE_ENTRY, planOf } from "../src/shared/session.ts";
 import { MAX_CONTINUATIONS } from "../src/server/supervisor.ts";
-import { ApiFailure, modelText, TestServer } from "./helpers.ts";
+import type { ConversationId } from "@earendil-works/pi-durable";
+import { SessionIndexToken } from "../src/server/docs.ts";
+import { ApiFailure, context, modelText, TestServer } from "./helpers.ts";
 
 describe("the plan-first workflow", () => {
 	let server: TestServer;
@@ -87,16 +89,26 @@ describe("the plan-first workflow", () => {
 		assert.equal(done.outcome?.kind, "reported");
 	});
 
-	test("the turn limit ends a runaway run and tells the person", async () => {
-		const limited = await TestServer.start({ env: { PICLOUD_MAX_TURNS: "4" } });
+	test("a run takes as many tool rounds as its work needs, including in sessions created with the old limit", async () => {
+		const server = await TestServer.start();
 		try {
-			const id = await limited.createSession("Keep going [spin]");
-			const done = await limited.settled(id);
-			assert.equal(done.outcome?.kind, "failed");
-			assert.equal(done.outcome?.kind === "failed" && done.outcome.reason, "turn_limit");
-			assert.ok(done.notified.some((key) => key.startsWith("run:")));
+			const id = await server.createSession("What does greet() return?");
+			await server.settled(id);
+			const conversation = await server.app.harness.conversation(id as ConversationId, context);
+			assert.equal((await conversation!.agent(context)).maxTurns, undefined);
+			// As an earlier picloud left a session: a turn limit, and a sidebar row without a status tone. Then a restart.
+			await conversation!.configure({ maxTurns: 150 }, context);
+			await server.app.harness.commit(async (tx) => {
+				const index = await tx.doc(SessionIndexToken);
+				delete (index.rows[String(id)] as { tone?: string }).tone;
+			}, context);
+			await server.restart();
+			const restarted = await server.app.harness.conversation(id as ConversationId, context);
+			assert.equal((await restarted!.agent(context)).maxTurns, undefined);
+			const index = await server.app.harness.snapshot(SessionIndexToken, context);
+			assert.equal(index?.rows[String(id)]?.tone, "attention");
 		} finally {
-			await limited.close();
+			await server.close();
 		}
 	});
 });

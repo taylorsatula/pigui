@@ -46,7 +46,6 @@ export type SessionsDeps = {
 	now: () => number;
 	/** The model a new session runs with: Pi's default model, read when the session is created. */
 	defaultModel: () => ModelRef;
-	maxTurns: number;
 	spendCap: number | undefined;
 };
 
@@ -225,7 +224,6 @@ export class Sessions {
 			await configure(tx, id, {
 				model,
 				cwd: this.#workspace(id),
-				maxTurns: this.#deps.maxTurns,
 				compaction: compactionFor(window),
 			});
 			await editSession(tx, id, now, (doc) => {

@@ -5,7 +5,7 @@ import { mkdir } from "node:fs/promises";
 import { join } from "node:path";
 import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
 import type { Api, Model, Models } from "@earendil-works/pi-ai";
-import { createRegistry, defineExtension, Harness, type ModelRef, type Report } from "@earendil-works/pi-durable";
+import { configure, type ConversationId, createRegistry, defineExtension, Harness, type ModelRef, type Report } from "@earendil-works/pi-durable";
 import { createFitImagesExtension } from "@earendil-works/pi-durable/images/fit";
 import { createNodePhotonImages } from "@earendil-works/pi-durable/images/node";
 import { openNodeSqliteStorage } from "@earendil-works/pi-durable/storage/sqlite/node";
@@ -14,7 +14,8 @@ import { picloudAgent } from "./agent/extension.ts";
 import type { AgentServices, Faults } from "./agent/services.ts";
 import type { Config } from "./config.ts";
 import { Delivery } from "./delivery.ts";
-import { SessionIndexToken } from "./docs.ts";
+import { SessionDocToken, SessionIndexToken } from "./docs.ts";
+import { type SessionDoc, sessionRow } from "../shared/session.ts";
 import { LocalGitHub } from "./fake/github.ts";
 import { type ScriptedModelOptions, scriptedModels } from "./fake/model.ts";
 import { fakeSynthesizer } from "./fake/synthesizer.ts";
@@ -126,7 +127,6 @@ export async function startApp(options: AppOptions): Promise<App> {
 		log,
 		now,
 		defaultModel: pi.defaultModel,
-		maxTurns: config.maxTurns,
 		spendCap: config.spendCap,
 	});
 	const maintenance = new Maintenance({
@@ -182,9 +182,17 @@ export async function startApp(options: AppOptions): Promise<App> {
 		},
 		context,
 	);
-	// The drawer's document exists from the start, so a phone can watch it before the first session.
+	// The drawer's document exists from the start, so a phone can watch it before the first session. Its rows are a
+	// projection of each session, recomputed here so rows an earlier picloud wrote take the current shape. Sessions
+	// an earlier picloud created with a turn limit lose it: a run takes as many tool rounds as its work needs.
 	await opened.commit(async (tx) => {
-		await tx.doc(SessionIndexToken);
+		const index = await tx.doc(SessionIndexToken);
+		for (const key of Object.keys(index.rows)) {
+			const id = Number(key) as ConversationId;
+			const row = sessionRow((await tx.doc(SessionDocToken, id)) as SessionDoc);
+			if (JSON.stringify(index.rows[key]) !== JSON.stringify(row)) index.rows[key] = row;
+			await configure(tx, id, { maxTurns: null });
+		}
 	}, context);
 	await maintenance.ensureScheduled(context);
 	await supervisor.start(context);

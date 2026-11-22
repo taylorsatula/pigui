@@ -5,8 +5,8 @@ and lets you drive it from your phone. Pick a repository, describe a task, answe
 approve its plan, and put the phone away. Pi implements, verifies and commits on its own branch; you get a
 notification and a report, and you choose whether to push the branch, open a pull request, or keep working.
 Titles, buttons and your own messages are set in a serif, the agent's replies in a sans, and what it did as one quiet
-line each. The app follows the phone's
-light or dark mode, or keeps the theme chosen in its drawer: Light, Dark or Terminal.
+line each, and the app follows the phone's light or dark mode. A sidebar lists the sessions under way, each with a
+coloured mark for its status.
 A speaker under each reply reads it aloud, with a speech model that runs on the server ([Reading aloud](#reading-aloud)).
 
 It is thin glue around [Pi Durable](https://www.npmjs.com/package/@earendil-works/pi-durable), which owns the agent
@@ -100,7 +100,6 @@ Configuration is by environment variables. The installer writes them to `/etc/pi
 | `PICLOUD_PORT` | `8787` | Bind port. `0` picks a free one. |
 | `PICLOUD_PUSH_SUBJECT` | `mailto:picloud@localhost` | Contact (`mailto:` or `https:`) sent to push services with VAPID. Set a real one: Apple may reject a placeholder. |
 | `PICLOUD_ALLOWED_LOGINS` | empty | Comma-separated Tailscale logins allowed in, checked against the `Tailscale-User-Login` header that `tailscale serve` adds. Empty allows anyone who reaches the server. |
-| `PICLOUD_MAX_TURNS` | `150` | Tool rounds one run may take before it stops and asks. |
 | `PICLOUD_SPEND_CAP` | none | Default spend cap per session, in US dollars. The person can raise a session's cap from the phone. |
 | `PICLOUD_COMPACTION_MODEL` | each session's model | The model that writes compaction checkpoints, as `provider/modelId` the way Pi names it (for example `anthropic/claude-sonnet-4-5`). It must be one Pi has credentials for; while it is not, picloud logs a warning and uses the session's model. Its spend counts toward the session's cap. |
 | `PICLOUD_FAKE` | `0` | `1` runs fake mode. |

@@ -1,4 +1,4 @@
-// Builds the phone app into dist/public: esbuild bundles for the app, its theme boot script and the service worker,
+// Builds the phone app into dist/public: esbuild bundles for the app and the service worker,
 // the static shell, the fonts (copied from their pinned packages), and the icons, drawn here so the repository holds no
 // binary assets. Then the sandbox launcher into dist/bin.
 import { spawnSync } from "node:child_process";
@@ -48,22 +48,10 @@ const app = await build({
 	metafile: true,
 	logLevel: "warning",
 });
-// A classic script, not a module, so it runs before the first paint (see src/client/boot.ts).
-const boot = await build({
-	entryPoints: [join(client, "boot.ts")],
-	outfile: join(out, "boot.js"),
-	bundle: true,
-	format: "iife",
-	platform: "browser",
-	target: ["safari16", "chrome110"],
-	minify: true,
-	metafile: true,
-	logLevel: "warning",
-});
 // The service worker's cache is named after everything in the shell, so any change to it replaces the cache.
 const shell = await Promise.all(["index.html", "app.css", "manifest.webmanifest"].map((file) => readFile(join(client, file))));
 const buildId = createHash("sha256")
-	.update(JSON.stringify([app.metafile.outputs, boot.metafile.outputs]))
+	.update(JSON.stringify(app.metafile.outputs))
 	.update(Buffer.concat(shell))
 	.update(Buffer.concat(fontBytes))
 	.digest("hex")

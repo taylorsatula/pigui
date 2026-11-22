@@ -343,7 +343,7 @@ export type SessionGroup = "attention" | "working" | "done";
  */
 export type StatusTone = "working" | "attention" | "warn" | "error" | "done" | "idle";
 
-/** One drawer row: a projection of a SessionDoc, recomputed whenever the document changes. */
+/** One drawer row: a projection of a SessionDoc, recomputed whenever the document changes and when picloud starts. */
 export type SessionRow = {
 	id: number;
 	title: string;
@@ -351,8 +351,7 @@ export type SessionRow = {
 	branch: string;
 	group: SessionGroup;
 	label: string;
-	/** Absent on rows written before tones; `toneOf` reads those from the group. */
-	tone?: StatusTone;
+	tone: StatusTone;
 	progress?: { done: number; total: number };
 	updatedAt: number;
 	attentionAt?: number;
@@ -373,7 +372,8 @@ export function sessionRow(doc: SessionDoc): SessionRow {
 	const { group, label, tone } = describe(doc);
 	const row: SessionRow = {
 		id: doc.id,
-		title: doc.title,
+		// The plan's title once there is one: a few words, where the session's own title is the first line of its task.
+		title: doc.plan === undefined ? doc.title : doc.plan.title,
 		repo: doc.repo,
 		branch: doc.branch,
 		group,
@@ -417,11 +417,6 @@ function describe(doc: SessionDoc): { group: SessionGroup; label: string; tone: 
 	if (doc.report !== undefined && delivered === undefined) return { group: "attention", label: "Report ready", tone: "attention" };
 	if (delivered !== undefined || doc.report !== undefined) return { group: "done", label: delivered ?? "Reported", tone: "done" };
 	return { group: "done", label: "Idle", tone: "idle" };
-}
-
-/** A row's tone; rows written before tones read as their group. */
-export function toneOf(row: SessionRow): StatusTone {
-	return row.tone ?? (row.group === "done" ? "done" : row.group);
 }
 
 /** Whether a row asks for the person's attention and they have not looked since. */

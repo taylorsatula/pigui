@@ -306,7 +306,7 @@ export function PlanCardView(props: { card: PlanCard; answer?: CardAnswer; pendi
 			{feedback === undefined ? null : <p class="given">You asked: “{feedback}”</p>}
 			{props.pending ? (
 				<div class="card-actions">
-					<button type="button" class="primary approve" disabled={busy} onClick={() => void approve()}>
+					<button type="button" class="primary" disabled={busy} onClick={() => void approve()}>
 						Approve
 					</button>
 					<button type="button" class="secondary" disabled={busy} onClick={() => props.actions.focusComposer()}>
