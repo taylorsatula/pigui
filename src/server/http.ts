@@ -17,8 +17,11 @@ import {
 	CreateSessionBody,
 	DeliverBody,
 	PushSubscriptionBody,
+	type ScriptLine,
 	SendMessageBody,
 	type SkillSummary,
+	SpeechBody,
+	SpeechScriptBody,
 } from "../shared/api.ts";
 import { skillsAt } from "./agent/resources.ts";
 import { PushSubscriptionsToken, SessionDocToken, SessionIndexToken } from "./docs.ts";
@@ -27,10 +30,11 @@ import { HttpError, notFound } from "./errors.ts";
 import { trackedFiles } from "./git.ts";
 import type { RepoHost } from "./host.ts";
 import { MAX_UPLOAD_BYTES, type Uploads } from "./input.ts";
-import { serveLive } from "./live.ts";
+import { openLines, serveLive } from "./live.ts";
 import { errorKind, type Logger } from "./log.ts";
 import type { Presence } from "./presence.ts";
 import type { Sessions } from "./sessions.ts";
+import type { Speech } from "./speech/speech.ts";
 import { validPushKeys } from "./webpush.ts";
 
 export type HttpDeps = {
@@ -48,6 +52,8 @@ export type HttpDeps = {
 	agentDir: string;
 	workspace: (id: number) => string;
 	staticDir: string;
+	/** Undefined when this server does not read aloud. */
+	speech: Speech | undefined;
 	/** Real mode: refuses connections opened by picloud's own user, as the agent's commands are (see callers.ts). */
 	callerCheck?: (socket: Socket) => Promise<boolean>;
 };
@@ -68,6 +74,8 @@ const bodies = {
 	budget: validator<BudgetBody>(BudgetBody),
 	archive: validator<ArchiveBody>(ArchiveBody),
 	push: validator<PushSubscriptionBody>(PushSubscriptionBody),
+	script: validator<SpeechScriptBody>(SpeechScriptBody),
+	speech: validator<SpeechBody>(SpeechBody),
 };
 
 async function readBody(request: IncomingMessage, limit: number): Promise<Buffer> {
@@ -119,6 +127,15 @@ function sessionId(raw: string | undefined): number {
 	return id;
 }
 
+/** Aborted when the phone goes away before the response is finished, so the work for it stops. */
+function abortOnClose(response: ServerResponse): AbortSignal {
+	const controller = new AbortController();
+	response.once("close", () => {
+		if (!response.writableFinished) controller.abort();
+	});
+	return controller.signal;
+}
+
 function repoName(owner: string | undefined, name: string | undefined): string {
 	const repo = `${owner ?? ""}/${name ?? ""}`;
 	if (!/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(repo)) throw notFound("The repository");
@@ -143,7 +160,7 @@ export function createHttpServer(deps: HttpDeps): Server {
 			"Cache-Control": "no-cache",
 			"X-Content-Type-Options": "nosniff",
 			...(extname(file) === ".html"
-				? { "Content-Security-Policy": "default-src 'self'; img-src 'self' data: blob:; style-src 'self' 'unsafe-inline'; connect-src 'self'; frame-ancestors 'none'" }
+				? { "Content-Security-Policy": "default-src 'self'; img-src 'self' data: blob:; media-src 'self' blob:; style-src 'self' 'unsafe-inline'; connect-src 'self'; frame-ancestors 'none'" }
 				: {}),
 		});
 		response.end(await readFile(file));
@@ -160,6 +177,13 @@ export function createHttpServer(deps: HttpDeps): Server {
 			found.push({ name: frontmatter.name ?? match[1] ?? match[2] ?? path, description: frontmatter.description ?? "" });
 		}
 		return found;
+	}
+
+	function speech(): Speech {
+		if (deps.speech === undefined) {
+			throw new HttpError(404, "Reading aloud is not available on this server.", "picloud was built without speech (PICLOUD_SPEECH=off), or its model is missing.");
+		}
+		return deps.speech;
 	}
 
 	function globalSkills(): SkillSummary[] {
@@ -180,7 +204,7 @@ export function createHttpServer(deps: HttpDeps): Server {
 
 		if (is("GET", "bootstrap") && parts.length === 2) {
 			const index = await harness.snapshot(SessionIndexToken, context);
-			const body: Bootstrap = { fake: deps.fake, vapidPublicKey: deps.vapidPublicKey };
+			const body: Bootstrap = { fake: deps.fake, vapidPublicKey: deps.vapidPublicKey, speech: deps.speech !== undefined };
 			if (index?.lastRepo !== undefined) body.lastRepo = index.lastRepo;
 			return send(response, 200, body);
 		}
@@ -201,6 +225,22 @@ export function createHttpServer(deps: HttpDeps): Server {
 				doc.subscriptions.push({ endpoint: body.endpoint, keys: { p256dh: body.keys.p256dh, auth: body.keys.auth }, createdAt: deps.now() });
 			}, context);
 			return send(response, 200, {});
+		}
+		if (is("POST", "speech") && parts.length === 2) {
+			const reader = speech();
+			const { text } = await json(request, bodies.speech);
+			const signal = abortOnClose(response);
+			let wav: Uint8Array;
+			try {
+				wav = await reader.audio(text, signal);
+			} catch (error) {
+				// The phone stopped listening; there is no one to answer.
+				if (signal.aborted) return;
+				throw error;
+			}
+			response.writeHead(200, { "Content-Type": "audio/wav", "Content-Length": wav.length, "Cache-Control": "no-store" });
+			response.end(wav);
+			return;
 		}
 		if (is("POST", "uploads") && parts.length === 2) {
 			const bytes = await readBody(request, MAX_UPLOAD_BYTES);
@@ -254,6 +294,14 @@ export function createHttpServer(deps: HttpDeps): Server {
 			}
 			if (method === "POST") {
 				switch (action) {
+					case "speech-script": {
+						const reader = speech();
+						const { text } = await json(request, bodies.script);
+						const model = await reader.modelOf(id, context);
+						await reader.script(id, model, text, openLines<ScriptLine>(response), abortOnClose(response), context);
+						response.end();
+						return;
+					}
 					case "messages":
 						return send(response, 200, { route: await deps.sessions.send(id, await json(request, bodies.send), context) });
 					case "answer":

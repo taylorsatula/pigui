@@ -10,6 +10,7 @@ import { followEnd, keepPosition, pinToEnd, stopFollowing } from "../viewport.ts
 import { type CardActions, type DeliveryActions, PlanCardView, QuestionsCard, ReportCard } from "./Cards.tsx";
 import { Icon } from "./Icons.tsx";
 import { Markdown } from "./Markdown.tsx";
+import { Speak } from "./Speak.tsx";
 
 function CallDetail(props: { call: CallView }): JSX.Element {
 	const { call } = props;
@@ -144,6 +145,8 @@ export function Transcript(props: {
 						);
 					case "text":
 						return <Markdown key={block.key} text={block.text} class={`agent ${block.streaming ? "streaming" : ""}`} />;
+					case "speak":
+						return props.session === undefined ? null : <Speak key={block.key} id={block.key} session={props.session.id} markdown={block.text} />;
 					case "thinking":
 						return (
 							<details key={block.key} class="thinking">

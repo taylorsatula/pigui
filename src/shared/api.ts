@@ -60,6 +60,27 @@ export const PushSubscriptionBody = obj(
 );
 export type PushSubscriptionBody = Static<typeof PushSubscriptionBody>;
 
+/**
+ * The most text one segment of speech holds. Kokoro reads at most 510 phonemes a call and cuts off the rest; letters
+ * read one by one ("A P I") take two and a half phonemes a character, the most any speakable text does, so a segment
+ * this long is always read whole.
+ */
+export const SPEECH_SEGMENT_CHARS = 200;
+
+/** A reply's Markdown, as the phone shows it, to be rewritten as a speakable script. */
+export const SpeechScriptBody = obj({ text: str({ minLength: 1, maxLength: 100_000 }) });
+export type SpeechScriptBody = Static<typeof SpeechScriptBody>;
+
+/** One segment of a speakable script, to be read aloud. */
+export const SpeechBody = obj({ text: str({ minLength: 1, maxLength: SPEECH_SEGMENT_CHARS }) });
+export type SpeechBody = Static<typeof SpeechBody>;
+
+/**
+ * The speakable script, one line of newline-delimited JSON per message: each segment as soon as its paragraph is
+ * written, then `done`, or `error` when the model failed partway, after the response had begun.
+ */
+export type ScriptLine = { t: "segment"; text: string } | { t: "done" } | ({ t: "error" } & ApiError);
+
 /** Every error response: what went wrong and, where there is one, what the person can do next. */
 export type ApiError = {
 	error: string;
@@ -70,6 +91,8 @@ export type Bootstrap = {
 	fake: boolean;
 	vapidPublicKey: string;
 	lastRepo?: string;
+	/** Whether this server reads replies aloud: built with speech and its model in place, or in fake mode. */
+	speech: boolean;
 };
 
 export type RepoSummary = {

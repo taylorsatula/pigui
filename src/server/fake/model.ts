@@ -28,6 +28,7 @@ import { ASK_MULTIPLE, ASK_SINGLE } from "../agent/questions.ts";
 import { RECALL } from "../agent/recall.ts";
 import { FILE_REPORT } from "../agent/report.ts";
 import { SUMMARIZER_PROMPT } from "../agent/summarizer.ts";
+import { SPEECH_PROMPT } from "../speech/script.ts";
 
 const FAKE_PROVIDER = "picloud-fake";
 const FAKE_MODEL = "scripted";
@@ -134,11 +135,13 @@ function style(messages: readonly Message[]): string {
 
 function respond(context: TranscriptContext, options: SimpleStreamOptions | undefined, onRequest?: ScriptedModelOptions["onRequest"]): AssistantMessage {
 	const messages = context.messages;
-	const summary = systemText(messages).includes(SUMMARIZER_PROMPT.slice(0, 60));
+	const system = systemText(messages);
+	const kind: RequestKind = system.includes(SUMMARIZER_PROMPT.slice(0, 60)) ? "summary" : system.includes(SPEECH_PROMPT.slice(0, 60)) ? "speech" : "agent";
 	const lastUser = messages.findLast((message) => message.role === "user");
-	onRequest?.(summary ? "summary" : "agent", lastUser === undefined ? "" : textOf(lastUser));
-	if (summary) return summarize(messages);
-	if (systemText(messages).includes("context summarization assistant")) return builtInSummary(messages, options);
+	onRequest?.(kind, lastUser === undefined ? "" : textOf(lastUser));
+	if (kind === "summary") return summarize(messages);
+	if (kind === "speech") return speechScript(lastUser === undefined ? "" : textOf(lastUser));
+	if (system.includes("context summarization assistant")) return builtInSummary(messages, options);
 	const people = messages.filter((message) => message.role === "user").map(textOf);
 	const directives = people.join("\n");
 	const previous = lastStep(messages);
@@ -349,6 +352,33 @@ function report(messages: readonly Message[]): AssistantMessage {
 	);
 }
 
+/**
+ * The scripted speech rewrite, mechanical so tests know what they will hear: a code block becomes one sentence, a link
+ * its text, each list item and heading a sentence, and Markdown's markers go. [speech-fails] fails it.
+ */
+function speechScript(markdown: string): AssistantMessage {
+	if (markdown.includes("[speech-fails]")) return fauxAssistantMessage([], { stopReason: "error", errorMessage: "Scripted speech failure" });
+	const paragraphs = markdown
+		.replace(/```[\s\S]*?(?:```|$)/g, "\n\nA code block.\n\n")
+		.split(/\n\s*\n/)
+		.map((block) =>
+			block
+				.split("\n")
+				.map((line) =>
+					line
+						.replace(/^\s*(?:#+|[-*+]|\d+\.|>)\s+/, "")
+						.replace(/\[([^\]]*)\]\([^)]*\)/g, "$1")
+						.replace(/[*_`#]/g, "")
+						.trim(),
+				)
+				.filter((line) => line !== "")
+				.map((line) => (/[.!?:]$/.test(line) ? line : `${line}.`))
+				.join(" "),
+		)
+		.filter((paragraph) => paragraph !== "");
+	return fauxAssistantMessage(paragraphs.join("\n\n"));
+}
+
 /** Durable's own summarizer, which runs only when picloud's backstop hook fails; [compaction-fails] fails it once. */
 function builtInSummary(messages: readonly Message[], options: SimpleStreamOptions | undefined): AssistantMessage {
 	const request = messages.filter((message) => message.role === "user").map(textOf).join("\n");
@@ -462,13 +492,16 @@ function priced(inner: AssistantMessageEventStream, model: Model<string>): Assis
 	return outer;
 }
 
+/** What a request to the scripted model is for: the agent's turn, a compaction checkpoint or a speakable script. */
+export type RequestKind = "agent" | "summary" | "speech";
+
 export type ScriptedModelOptions = {
 	/** Small windows force compaction in tests. */
 	contextWindow?: number;
 	/** Streaming pace, so a phone sees text arrive; unset streams at once. */
 	tokensPerSecond?: number;
 	/** Told of every request and the text of its last user message, so tests can see what the model was asked. */
-	onRequest?: (kind: "agent" | "summary", text: string) => void;
+	onRequest?: (kind: RequestKind, text: string) => void;
 };
 
 export function scriptedModels(options: ScriptedModelOptions = {}): { models: Models; model: ModelRef } {

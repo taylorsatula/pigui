@@ -5,9 +5,9 @@
 import type { Context } from "@earendil-works/chord/context";
 import type { Api, Model } from "@earendil-works/pi-ai";
 import type { ContextView, EntryDraft, EntryId, EntryRecord, HookApi, Tx } from "@earendil-works/pi-durable";
-import { UsageDoc } from "@earendil-works/pi-durable";
 import { CHECKPOINT_ENTRY, type CheckpointEntryData, type SessionDoc } from "../../shared/session.ts";
 import { editSession } from "../docs.ts";
+import { countSpend } from "./budget.ts";
 import { type Bounds, chooseCut, condensed, condenseEdits, retainedMessages, type Span } from "./cut.ts";
 import { commitLine, fileLine, type FilesTouched, filesTouched, type Ground, groundTruth, planLines, promptFacts, repositoryLines, sessionLines, wordLines } from "./facts.ts";
 import { messagesText, RECALL } from "./recall.ts";
@@ -254,19 +254,6 @@ export async function saveCheckpoint(tx: Tx, services: AgentServices, api: Pick<
 		if (doc.handoff?.lastTask === api.taskId) return;
 		const compactions = (doc.handoff?.compactions ?? 0) + 1;
 		doc.handoff = written.body === undefined ? { compactions, lastTask: api.taskId } : { body: written.body, compactions, lastTask: api.taskId };
-		if (written.usage === undefined) return;
-		const usage = await tx.doc(UsageDoc, api.conversationId);
-		const bucket = (usage.models[written.usage.key] ??= {
-			input: 0,
-			output: 0,
-			cacheRead: 0,
-			cacheWrite: 0,
-			totalTokens: 0,
-			cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
-		});
-		bucket.input += written.usage.input;
-		bucket.output += written.usage.output;
-		bucket.totalTokens += written.usage.input + written.usage.output;
-		bucket.cost.total += written.usage.cost;
+		if (written.usage !== undefined) await countSpend(tx, api.conversationId, written.usage);
 	});
 }

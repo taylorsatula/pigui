@@ -13,7 +13,7 @@ import {
 	type TranscriptItem,
 } from "@earendil-works/pi-durable";
 import { type LiveMessage, PING_INTERVAL_MS } from "../shared/stream.ts";
-import { api } from "./api.ts";
+import { api, lines } from "./api.ts";
 import { store } from "./store.ts";
 
 export type Gap = Extract<TranscriptItem, { kind: "gap" }>;
@@ -100,20 +100,9 @@ class Live {
 		this.#arm(controller);
 		store.set({ connected: true });
 		this.#retry = 0;
-		const reader = response.body.pipeThrough(new TextDecoderStream()).getReader();
-		let buffer = "";
-		for (;;) {
-			const { value, done } = await reader.read();
-			if (done) return;
+		for await (const message of lines<LiveMessage>(response)) {
 			this.#arm(controller);
-			buffer += value;
-			let newline = buffer.indexOf("\n");
-			while (newline !== -1) {
-				const line = buffer.slice(0, newline);
-				buffer = buffer.slice(newline + 1);
-				if (line.trim() !== "") this.#apply(JSON.parse(line) as LiveMessage);
-				newline = buffer.indexOf("\n");
-			}
+			this.#apply(message);
 		}
 	}
 

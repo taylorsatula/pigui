@@ -561,6 +561,75 @@ scoped. Ubuntu 24.04's 6.8 kernel stops at ABI 4. The installer supports both, c
 with exit code 2 and what to do. The allowlisted environment and the agent's token apply either way. Fake mode uses
 the sandbox wherever it works, so the tests exercise it on any machine that has it.
 
+## Reading replies aloud
+
+**A speakable script, written by the session's own model after the tap.** Raw Markdown never reaches the voice: the
+phone sends a reply's Markdown (or, for the report card, Markdown made of what the card shows), and one model call
+rewrites it for the ear (`src/server/speech/script.ts`). Rules could not do it: "/" is "slash" in a path, "or" in
+and/or and "per" in km/h, `SQL` is letters or "sequel", and a code block needs describing rather than reading. It runs
+only on a tap, so unheard replies cost nothing, with reasoning off or as low as `clampThinkingLevel` allows. Its cost
+goes into `pi.usage` through `countSpend`, the helper the summarizer's checkpoint now shares, so the session's spend
+and cap see it exactly as they see the summarizer's. Nothing checks the cap before the call: it is small, and a
+person asked for it. The phone keeps each complete script in memory, so hearing a reply again costs no second call.
+
+**Streamed as paragraphs, cut into segments of at most 200 characters.** The script comes back as newline-delimited
+JSON, the live stream's framing (`openLines` on the server, `lines` on the phone), a segment per line as soon as its
+paragraph is written, then `done` or `error`; the phone caches only a script that reached `done`. The limit is
+Kokoro's: kokoro-js truncates its input to the tokenizer's 512 tokens, two of them markers, and the voice has 510
+style vectors. Those tokens are phonemes, measured at 1.1 to 1.4 per character of prose and 2.5 for letters read one
+by one ("A P I"), so 200 characters always fit. A longer paragraph is packed into segments of whole sentences, and a
+sentence too long by itself is cut at its last comma, semicolon or colon that fits. *Alternative:* splitting into
+sentences always would start the audio sooner (a full segment takes about seven seconds to synthesize on two vCPU),
+but the paragraph is the unit the design asked for, and short first paragraphs already start quickly.
+
+**Kokoro in picloud's own process, one synthesis at a time.** `kokoroSynthesizer` loads the model on first use and
+keeps it (about 450 MB resident once loaded, about 800 MB once it has read). ONNX Runtime runs on its own threads, so
+the event loop stalled at most 180 ms during a synthesis; a worker process would add a protocol for no gain. Requests
+queue, since two vCPU have no room for two at once. The WAV is picloud's own 16-bit PCM encoder (`src/shared/wav.ts`,
+also used by the phone): transformers.js's `toWav` writes 32-bit float, twice the bytes.
+
+**The voice comes from the kokoro-js package.** In Node, kokoro-js 1.2.1 reads `voices/<name>.bin` from its own
+package directory with `fs`; its Hugging Face URL is the browser's path only. That `af_heart.bin` is byte-identical
+(sha256 `d583ccff…`) to the one at the pinned model revision, and the lockfile pins the package by integrity. Fetching
+it again would bake in a second copy nothing reads, and making kokoro-js read another would mean patching it, so
+`deploy/speech-model.sh` fetches the configuration, the tokenizer and the q8 weights only.
+
+**Offline and read-only at run time.** transformers.js is told to load local files only, from `models/` beside the
+sources, and to keep no file cache (`env.allowRemoteModels = false`, `env.useFSCache = false`), so the container's
+read-only root is never written. The image's model was checked to synthesize under `--network none` with compose's
+hardening. The model itself comes from a pinned Hugging Face commit, each file checked against its sha256, by one
+script that the Dockerfile and the installer both run.
+
+**A build-time switch, `PICLOUD_SPEECH`.** `kokoro-js` and `@huggingface/transformers` (whose `env` picloud sets) are
+optional dependencies, pinned exactly. picloud reads aloud when `kokoro-js` resolves and the weights are in place, or
+in fake mode; `Bootstrap.speech` tells the phone, and otherwise both endpoints answer 404 with why.
+- **Off** prunes optional dependencies (`npm prune --omit=optional`). That is safe: Pi's packages declare no optional
+  dependencies, and the lockfile's only other optional runtime package is `@types/trusted-types`, type declarations.
+  esbuild's platform binary is optional too, but a development dependency that the build has finished with. The off
+  image was listed: no speech package and no model (npm leaves empty `@huggingface` and `@img` scope directories, as
+  it does for the development scopes it prunes).
+- **`.npmrc` sets `onnxruntime-node-install-cuda=skip`.** Otherwise onnxruntime-node's install script downloads CUDA
+  binaries from GitHub on Linux x64, and when that fails npm drops the whole optional tree without an error. The image
+  build and the installer also stop if `kokoro-js` is missing with speech on.
+- **Size.** Speech adds 451 MB of packages and the 92 MB model to the image unpacked, and 223 MB to what a pull
+  downloads. Two-thirds of onnxruntime-node is binaries for other platforms; trimming them by hand was left out as
+  fragile.
+
+**Playback that survives a locked screen.** iOS plays media only from a tap, and the audio arrives several awaits
+later, so the phone (`src/client/speech.ts`) keeps one `HTMLAudioElement`, unlocks it inside the tap by playing a
+tenth of a second of silence, and plays each segment on it from a fetched blob. The next segment is always fetched
+while one plays, so `ended` swaps the source and plays with no await in between, which is what keeps reading going in
+the background. Web Audio was ruled out because the silent switch mutes it. The Content Security Policy gains
+`media-src 'self' blob:`. Leaving a session stops its reading, since its stop button would be out of reach; locking
+the phone does not.
+
+**What a reply is, and where the speaker goes.** A reply is the agent's text in one turn: consecutive text blocks,
+read as one with the thinking and tool activity between them left out. Any other block (the person's message, a
+card, a notice, a compaction) ends it, and the newest reply ends when the run does, so no speaker appears while text
+may still come. The speaker sits after the reply's last text. On the report card it ends the title row and reads the
+summary, changes and notes, the prose the card shows; what waits behind a tap (verification, what Pi learned) is not
+read.
+
 ## Slash commands: not built
 
 Pi Durable has no command concept; its extensions contribute tools, hooks, tasks, prompt sections and documents. Pi's
@@ -581,4 +650,5 @@ decision of their own.
 Pinned exactly, with the lockfile committed: the five `@earendil-works/*` packages at 1.6.0; `preact`, `marked` and
 `dompurify` for the client; `esbuild`, `typescript`, `@types/node` and `@playwright/test` (matching the installed
 Chromium) for building and testing. Apart from the `@earendil-works/*` versions the runbook fixes, each version was at
-least two weeks old when it was chosen.
+least two weeks old when it was chosen. Reading aloud adds two optional dependencies, `kokoro-js` 1.2.1 and
+`@huggingface/transformers` 3.8.1 (the version kokoro-js's range resolved to), which a build can leave out.

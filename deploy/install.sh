@@ -15,6 +15,7 @@
 #   --spend-cap DOLLARS             default per-session spend cap                    [PICLOUD_SPEND_CAP]
 #   --port PORT                     loopback port picloud listens on (default 8787)  [PICLOUD_PORT]
 #   --hostname NAME                 Tailscale machine name (default picloud)         [PICLOUD_TS_HOSTNAME]
+#   --speech on|off                 read replies aloud with Kokoro (default on)      [PICLOUD_SPEECH]
 #   -h, --help                      show this help
 set -euo pipefail
 
@@ -39,6 +40,7 @@ ALLOWED_LOGINS=${PICLOUD_ALLOWED_LOGINS:-}
 SPEND_CAP=${PICLOUD_SPEND_CAP:-}
 PORT_OPTION=${PICLOUD_PORT:-}
 TS_HOSTNAME=${PICLOUD_TS_HOSTNAME:-picloud}
+SPEECH=${PICLOUD_SPEECH:-on}
 HUMAN_STEPS=()
 # Tests point this at a stand-in, to see what the installer chooses on each system.
 OS_RELEASE=${PICLOUD_OS_RELEASE:-/etc/os-release}
@@ -56,6 +58,7 @@ while [[ $# -gt 0 ]]; do
 		--spend-cap) SPEND_CAP=${2:?}; shift ;;
 		--port) PORT_OPTION=${2:?}; shift ;;
 		--hostname) TS_HOSTNAME=${2:?}; shift ;;
+		--speech) SPEECH=${2:?}; shift ;;
 		-h | --help) usage; exit 0 ;;
 		*) echo "Unknown option: $1 (see --help)" >&2; exit 2 ;;
 	esac
@@ -93,6 +96,7 @@ if [[ -r $OS_RELEASE ]]; then
 fi
 [[ -f $SOURCE_DIR/package.json && -f $SOURCE_DIR/package-lock.json ]] || { echo "Run the installer from a picloud checkout." >&2; exit 1; }
 [[ -z $PORT_OPTION || $PORT_OPTION =~ ^[0-9]+$ ]] || { echo "--port must be a number." >&2; exit 2; }
+[[ $SPEECH == on || $SPEECH == off ]] || { echo "--speech must be on or off." >&2; exit 2; }
 if [[ -n $PUSH_SUBJECT && ! $PUSH_SUBJECT =~ ^(mailto:|https://) ]]; then
 	echo "--push-subject must start with mailto: or https://" >&2
 	exit 2
@@ -187,7 +191,7 @@ else
 fi
 
 step "Install the picloud app into $APP_DIR"
-run rsync -a --delete --exclude .git --exclude node_modules --exclude dist --exclude test-results "$SOURCE_DIR/" "$APP_DIR/"
+run rsync -a --delete --exclude .git --exclude node_modules --exclude dist --exclude test-results --exclude models "$SOURCE_DIR/" "$APP_DIR/"
 run sh -c "cd '$APP_DIR' && npm ci --no-audit --no-fund"
 run sh -c "cd '$APP_DIR' && npm run build"
 run chown -R root:root "$APP_DIR"
@@ -200,6 +204,21 @@ elif abi=$("$APP_DIR/dist/bin/picloud-sandbox" --abi 2>&1); then
 else
 	note "$abi"
 	human "Sandbox: this kernel has no Landlock, so picloud will not start. Use Debian 13 (recommended), or set PICLOUD_SANDBOX=off in $ENV_FILE to run agent commands unconfined, then 'sudo systemctl restart picloud'."
+fi
+
+step "Install speech ($SPEECH)"
+# The same switch as the Docker image's PICLOUD_SPEECH: on fetches the model, checked against pinned checksums, so
+# picloud reaches no network for it; off removes kokoro-js, the only optional package the server could load, and the
+# model. picloud reads aloud only when both are in place.
+if [[ $SPEECH == on ]]; then
+	if [[ $DRY_RUN != 1 && ! -d $APP_DIR/node_modules/kokoro-js ]]; then
+		echo "npm left out kokoro-js, which speech needs: an install script under it failed (see above). Re-run, or use --speech off." >&2
+		exit 1
+	fi
+	run "$APP_DIR/deploy/speech-model.sh" "$APP_DIR/models"
+else
+	run sh -c "cd '$APP_DIR' && npm prune --omit=optional --no-audit --no-fund"
+	run rm -rf "$APP_DIR/models"
 fi
 
 step "Write the configuration ($ENV_FILE)"

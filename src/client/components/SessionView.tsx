@@ -2,10 +2,11 @@
 // composer, whose placeholder says what sending will do right now.
 import type { LiveState, UsageState } from "@earendil-works/pi-durable";
 import type { JSX } from "preact";
-import { useCallback, useMemo, useState } from "preact/hooks";
+import { useCallback, useEffect, useMemo, useState } from "preact/hooks";
 import { type SessionDoc, sessionRow } from "../../shared/session.ts";
 import { formatDollars, spentOf } from "../../shared/spend.ts";
 import { api, describeFailure } from "../api.ts";
+import { stopReading } from "../speech.ts";
 import { navigate, showToast, useStore } from "../store.ts";
 import { buildBlocks } from "../transcript.ts";
 import { pinToEnd } from "../viewport.ts";
@@ -108,9 +109,11 @@ export function SessionView(props: { id: number }): JSX.Element {
 	const [focus, setFocus] = useState(0);
 	const [diff, setDiff] = useState(false);
 	const doc = session?.id === props.id ? session : undefined;
-	const blocks = useMemo(() => buildBlocks(view, doc), [view, doc]);
 	const live = view?.docs["pi.live"] as LiveState | undefined;
 	const running = live?.run !== undefined || doc?.activeRun !== undefined;
+	const blocks = useMemo(() => buildBlocks(view, doc, running), [view, doc, running]);
+	// A reading belongs to the session on screen: leaving it stops the reading, while locking the phone does not.
+	useEffect(() => () => stopReading(), []);
 	const spent = spentOf(view?.docs["pi.usage"] as UsageState | undefined);
 
 	const act = useCallback((work: () => Promise<unknown>) => {

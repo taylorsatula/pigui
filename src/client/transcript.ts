@@ -1,5 +1,6 @@
 // From Durable entries to what the session view shows: the person's messages, the agent's prose, its thinking, its
-// tool activity grouped into one collapsed line per stretch of work, and cards in place of the tool calls behind them.
+// tool activity grouped into one collapsed line per stretch of work, cards in place of the tool calls behind them, and a
+// speaker under each finished reply.
 import type { AssistantMessage, ToolResultMessage } from "@earendil-works/pi-ai";
 import type { EntryRecord, LiveState, TranscriptView } from "@earendil-works/pi-durable";
 import {
@@ -35,6 +36,8 @@ export type Block =
 	| { kind: "person"; key: string; data: MessageEntryData }
 	| { kind: "nudge"; key: string; data: NudgeEntryData }
 	| { kind: "text"; key: string; text: string; streaming: boolean }
+	/** After a finished reply: its text, to read aloud. */
+	| { kind: "speak"; key: string; text: string }
 	| { kind: "thinking"; key: string; text: string; streaming: boolean }
 	| { kind: "activity"; key: string; calls: CallView[] }
 	| { kind: "questions"; key: string; card: QuestionCard; answer?: CardAnswer; pending: boolean }
@@ -67,7 +70,8 @@ function compactionBlock(key: string, entry: EntryRecord): Block {
 	return { kind: "compaction", key, summary: userText(entry).replace(/^[\s\S]*?<summary>\n?/, "").replace(/\n?<\/summary>\s*$/, "") };
 }
 
-export function buildBlocks(view: TranscriptView | undefined, session: SessionDoc | undefined): Block[] {
+/** `running`: a run is under way, so the newest reply may not be finished even while nothing streams. */
+export function buildBlocks(view: TranscriptView | undefined, session: SessionDoc | undefined, running: boolean): Block[] {
 	if (view === undefined) return [];
 	const live = view.docs["pi.live"] as LiveState | undefined;
 	const results = new Map<string, { message: ToolResultMessage; details: Details | undefined }>();
@@ -192,7 +196,36 @@ export function buildBlocks(view: TranscriptView | undefined, session: SessionDo
 	}
 	const partial = live?.generation?.message as AssistantMessage | undefined;
 	if (partial !== undefined) assistant("streaming", partial, true);
-	return blocks;
+	return withSpeakers(blocks, running);
+}
+
+/**
+ * A speaker after the last text of each finished reply. A reply is the agent's text in one turn, read as one, with the
+ * thinking and tool activity between its parts left out. Anything else ends the turn, and the newest ends with the run.
+ */
+function withSpeakers(blocks: readonly Block[], running: boolean): Block[] {
+	const result: Block[] = [];
+	let texts: Extract<Block, { kind: "text" }>[] = [];
+	let after = 0;
+	const finish = () => {
+		const first = texts[0];
+		if (first !== undefined && !texts.some((text) => text.streaming)) {
+			result.splice(after, 0, { kind: "speak", key: `${first.key}:speak`, text: texts.map((text) => text.text).join("\n\n") });
+		}
+		texts = [];
+	};
+	for (const block of blocks) {
+		if (block.kind === "text") {
+			texts.push(block);
+			result.push(block);
+			after = result.length;
+			continue;
+		}
+		if (block.kind !== "thinking" && block.kind !== "activity") finish();
+		result.push(block);
+	}
+	if (!running) finish();
+	return result;
 }
 
 function cardBlock(

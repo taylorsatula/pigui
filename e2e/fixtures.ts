@@ -25,7 +25,7 @@ export class FakeServer {
 	readonly #dirs: string[];
 	#child: ChildProcess | undefined;
 
-	private constructor(port: number, dataDir: string, agentDir: string) {
+	private constructor(port: number, dataDir: string, agentDir: string, tokensPerSecond: number) {
 		this.url = `http://127.0.0.1:${port}`;
 		this.#dirs = [dataDir, agentDir];
 		this.#env = {
@@ -33,12 +33,12 @@ export class FakeServer {
 			PICLOUD_PORT: String(port),
 			PICLOUD_DATA_DIR: dataDir,
 			PI_CODING_AGENT_DIR: agentDir,
-			PICLOUD_FAKE_TOKENS_PER_SECOND: "300",
+			PICLOUD_FAKE_TOKENS_PER_SECOND: String(tokensPerSecond),
 		};
 	}
 
-	static async start(): Promise<FakeServer> {
-		const server = new FakeServer(await freePort(), await mkdtemp(join(tmpdir(), "picloud-e2e-")), await mkdtemp(join(tmpdir(), "picloud-pi-")));
+	static async start(tokensPerSecond: number): Promise<FakeServer> {
+		const server = new FakeServer(await freePort(), await mkdtemp(join(tmpdir(), "picloud-e2e-")), await mkdtemp(join(tmpdir(), "picloud-pi-")), tokensPerSecond);
 		await server.#spawn();
 		return server;
 	}
@@ -78,10 +78,12 @@ export class FakeServer {
 	}
 }
 
-export const test = base.extend<{ errors: string[] }, { server: FakeServer }>({
+export const test = base.extend<{ errors: string[] }, { server: FakeServer; tokensPerSecond: number }>({
+	/** How fast the scripted model writes; a test file that needs to watch text arrive slows it. */
+	tokensPerSecond: [300, { scope: "worker", option: true }],
 	server: [
-		async ({}, use) => {
-			const server = await FakeServer.start();
+		async ({ tokensPerSecond }, use) => {
+			const server = await FakeServer.start(tokensPerSecond);
 			await use(server);
 			await server.dispose();
 		},

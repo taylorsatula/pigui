@@ -978,6 +978,41 @@ details[open] > summary > .icon:first-child {
 	color: var(--text-2);
 }
 
+/* The speaker under a finished reply: quiet, its icon in line with the text and close under it. The margins give back
+   what the 44 pt target adds around the icon. While it reads it is a stop button like the composer's, outlined rather
+   than filled to stay quiet, in the accent of a control that is on; its ring is the preparing spinner's, come to rest. */
+.speak {
+	align-self: flex-start;
+	margin: -10px 0 -6px -12px;
+	color: var(--text-2);
+}
+
+.speak .spinner {
+	width: 18px;
+	height: 18px;
+}
+
+.speak.playing {
+	color: var(--accent);
+}
+
+.speak.playing::before {
+	content: "";
+	position: absolute;
+	inset: 13px;
+	border: 2px solid currentColor;
+	border-radius: var(--radius-full);
+}
+
+.speak.playing .icon {
+	fill: currentColor;
+}
+
+/* On the report card it ends the title row, without making the row taller. */
+.card-title .speak {
+	margin: -12px -12px -12px auto;
+}
+
 .thinking > summary,
 .activity > summary,
 .compaction > summary {

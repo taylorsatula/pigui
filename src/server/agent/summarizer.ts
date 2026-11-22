@@ -3,6 +3,7 @@
 // (the person's words, the plan, the repository, the files touched) is given to it as facts and never asked of it.
 import type { Api, AssistantMessage, Model, Models } from "@earendil-works/pi-ai";
 import type { EntryId } from "@earendil-works/pi-durable";
+import { type ModelSpend, modelSpend } from "./budget.ts";
 import type { CondenseRequest, Span } from "./cut.ts";
 import { messagesText, RECALL } from "./recall.ts";
 
@@ -102,7 +103,7 @@ type SummarizerReply = { cut?: number; reasoning: string; condense: CondenseRequ
 export type SummarizerResult = {
 	reply?: SummarizerReply;
 	problem?: string;
-	usage?: { key: string; cost: number; input: number; output: number };
+	usage?: ModelSpend;
 };
 
 function clip(text: string, limit: number, id: EntryId): string {
@@ -215,7 +216,7 @@ export async function summarize(models: Models, model: Model<Api>, prompt: strin
 		return { problem: error instanceof Error ? (error.message.split("\n")[0] ?? "the request failed") : String(error) };
 	}
 	signal?.throwIfAborted();
-	const usage = { key: `${model.provider}/${model.id}`, cost: reply.usage.cost.total, input: reply.usage.input, output: reply.usage.output };
+	const usage = modelSpend(model, reply);
 	if (reply.stopReason === "error" || reply.stopReason === "aborted") return { problem: reply.errorMessage ?? reply.stopReason, usage };
 	const parsed = parseReply(reply.content.flatMap((block) => (block.type === "text" ? [block.text] : [])).join(""));
 	return parsed === undefined ? { problem: "the reply had no checkpoint sections", usage } : { reply: parsed, usage };

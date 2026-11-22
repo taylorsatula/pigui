@@ -14,6 +14,7 @@ const paths = {
 	branch: "M7 4v12M7 16a2 2 0 1 0 0 4 2 2 0 0 0 0-4zM17 8a2 2 0 1 0 0-4 2 2 0 0 0 0 4zM17 8c0 5-10 3-10 8",
 	archive: "M4 7h16v13H4zM3 3h18v4H3zM10 11h4",
 	bell: "M6 16V11a6 6 0 0 1 12 0v5l2 2H4zM10 20a2 2 0 0 0 4 0",
+	speaker: "M4 9.5h3l5-4v13l-5-4H4zM16 9a4.5 4.5 0 0 1 0 6M18.5 6.5a8 8 0 0 1 0 11",
 } as const;
 
 type IconName = keyof typeof paths;

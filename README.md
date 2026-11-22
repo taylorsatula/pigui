@@ -5,6 +5,7 @@ and lets you drive it from your phone. Pick a repository, describe a task, answe
 approve its plan, and put the phone away. Pi implements, verifies and commits on its own branch; you get a
 notification and a report, and you choose whether to push the branch, open a pull request, or keep working.
 The app follows the phone's light or dark mode, or keeps the theme chosen in its drawer: Light, Dark or Terminal.
+A speaker under each reply reads it aloud, with a speech model that runs on the server ([Reading aloud](#reading-aloud)).
 
 It is thin glue around [Pi Durable](https://www.npmjs.com/package/@earendil-works/pi-durable), which owns the agent
 loop, persistence, compaction and recovery. Tailscale provides access and TLS, `gh` and `git` talk to GitHub, Web
@@ -28,6 +29,7 @@ npm run build        # bundles the phone app into dist/public, draws its icons, 
 npm test             # automated tests (node:test), real Durable storage, fake mode
 npm run e2e          # builds, then runs the Playwright tests in a phone-sized Chromium
 npm run check        # all of the above
+deploy/speech-model.sh models   # optional: the speech model, for real speech here and the test that uses it
 ```
 
 ### Fake mode
@@ -61,6 +63,9 @@ What it runs:
   small TypeScript library with an `AGENTS.md`, a Pi skill `release-notes`, a binary file, and a second branch
   `feature/farewell`) and `demo/notes` (branches `main` and `drafts`). Pull requests are kept in
   `fake-github/pulls.json`, so they survive restarts. Notifications are recorded instead of sent.
+- **Reading aloud** without a model: the scripted model rewrites a reply for speech mechanically (a code block becomes
+  "A code block.", Markdown's markers go), and a stand-in synthesizer answers each segment with a quiet tone as long as
+  its text. `[speech-fails]` in the text to read fails the rewrite.
 - `PICLOUD_FAKE_TOKENS_PER_SECOND` (only for `npm run fake`, default 60) sets how fast scripted text streams.
 - **The sandbox** wherever this machine has Landlock and `npm run build` compiled the launcher; otherwise agent
   commands run unconfined, and the tests that need it skip. For those tests, the scripted model's `[probe]` directive
@@ -74,8 +79,9 @@ empty Pi configuration directory. Storage is the real SQLite storage of Pi Durab
 `restart()` closes the server and opens a new one on the same data directory, as a process restart would. Tests wait
 on Durable watches of the session document rather than polling. A few seams in `AppOptions` exist for tests: a clock
 (`now`), a request observer on the scripted model (`fakeModel.onRequest`, told each request's kind and last user
-message), a smaller context window (`fakeModel.contextWindow`), and `faults`, hooks that hold the code at an exact point
-so a test can cut it off there the way a crash would.
+message), a smaller context window (`fakeModel.contextWindow`), `speech: false` for a build without speech, and
+`faults`, hooks that hold the code at an exact point so a test can cut it off there the way a crash would. The test that
+reads with the real speech model runs only where `deploy/speech-model.sh models` has fetched it.
 
 The end-to-end tests (`e2e/`) start `scripts/fake.ts` as a child process per test file, on a free port with temporary
 directories, and drive it with Playwright in Chromium at 390×844 (375 px for the horizontal-scroll check) with touch.
@@ -115,6 +121,28 @@ the data directory.
 With the sandbox on, real mode checks at startup that the launcher works, logs the kernel's Landlock ABI
 (`sandbox.on`), and warns below ABI 6, where signals and abstract sockets are not scoped. Where it does not work,
 picloud exits with code 2 and what to do: use a kernel with Landlock, or set `PICLOUD_SANDBOX=off`.
+
+## Reading aloud
+
+A speaker sits under each finished reply and on the report card. Tapped, it reads the reply aloud; tapped again, it
+stops. Reading goes on with the phone locked.
+
+- **What happens on a tap.** The phone sends the reply's Markdown to picloud, and the session's own model rewrites it
+  as a script for the ear: code described rather than read, symbols and acronyms written as they are said. The script
+  streams back a paragraph at a time, and the phone fetches each segment's audio, the next one while the current one
+  plays, so the first words come once the first paragraph is ready. The rewrite is one small model call per reply,
+  counted in the session's spend; reading the same reply again reuses its script.
+- **The voice** is [Kokoro-82M](https://huggingface.co/onnx-community/Kokoro-82M-v1.0-ONNX) through `kokoro-js`, the
+  8-bit model on the CPU, in the `af_heart` voice. It loads on first use and then keeps about 800 MB of memory. On two
+  vCPU, synthesis takes about 0.6 of the speech's own length: a full 200-character segment, some 13 seconds of
+  speech, takes 7 seconds, so a long first paragraph is that long in starting. One segment is read at a time.
+- **Nothing leaves the machine for speech** apart from the rewrite, which goes to the session's model provider like
+  the reply itself. The model is fetched at build or install time, from a pinned Hugging Face revision with checked
+  checksums (`deploy/speech-model.sh`); at run time picloud loads it from `models/` beside the sources and touches no
+  network for it.
+- **It is a build-time choice.** With Docker, `PICLOUD_SPEECH=off` in `.env` builds an image without `kokoro-js`, its
+  runtime packages or the model; the installer takes `--speech off`. picloud reads aloud when `kokoro-js` is installed
+  and the model is in place, and logs `speech` at startup; otherwise the speaker does not appear.
 
 ## Security model
 
@@ -164,6 +192,7 @@ sudo deploy/install.sh \
   --github-token-file /root/github-token \
   --agent-github-token-file /root/agent-github-token \
   --allowed-logins you@example.com
+# --speech off leaves out reading replies aloud: about 550 MB of packages and model, and 800 MB of memory in use.
 ```
 
 - **Why Debian 13.** Its 6.12 kernel has Landlock ABI 6, so agent commands cannot signal picloud's or other
@@ -188,7 +217,7 @@ runs in one and serves picloud over HTTPS to your tailnet only. picloud runs in 
 network and listening on its loopback. Nothing is exposed on the machine's own ports. From a checkout of picloud:
 
 ```bash
-cp .env.example .env              # fill in TS_AUTHKEY, GH_TOKEN and AGENT_GH_TOKEN; the rest is optional
+cp .env.example .env              # fill in TS_AUTHKEY, GH_TOKEN and AGENT_GH_TOKEN; the rest is optional (PICLOUD_SPEECH too)
 docker compose build
 docker compose run --rm picloud pi   # once: /login, then /model, then /quit
 docker compose up -d
@@ -269,11 +298,14 @@ three 10 MB files.
 src/shared/     shapes shared by server and phone: API payloads, documents, live protocol, reference syntax
 src/server/     the server: app assembly, HTTP, sessions, supervisor, delivery, notifications, maintenance
 src/server/agent/  what picloud adds to Pi: tools, prompt sections, spend cap, compaction cycle and checkpoints
-src/server/fake/   fake mode: scripted model, stand-in GitHub, fixture repositories
+src/server/speech/ reading aloud: the speakable script, Kokoro, and what the HTTP boundary calls
+src/server/fake/   fake mode: scripted model, stand-in synthesizer, stand-in GitHub, fixture repositories
 src/sandbox/    the agent sandbox's launcher (C), compiled by scripts/build.ts
 src/client/     the phone app (Preact), bundled by scripts/build.ts
 src/sw/         the service worker
 test/           automated tests (node:test)
 e2e/            end-to-end tests (Playwright)
-deploy/         the installer, and the serve config for the Docker setup (Dockerfile and compose.yaml are at the root)
+deploy/         the installer, the speech model's download, and the serve config for the Docker setup (Dockerfile and
+                compose.yaml are at the root)
+models/         the speech model, once deploy/speech-model.sh has fetched it (not in git)
 ```

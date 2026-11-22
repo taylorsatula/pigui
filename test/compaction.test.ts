@@ -9,6 +9,7 @@ import { HANDOFF_TRIGGER } from "../src/server/agent/compaction.ts";
 import { chooseCut, condensed, durableBounds, spansOf } from "../src/server/agent/cut.ts";
 import type { Ground } from "../src/server/agent/facts.ts";
 import { RESUME, WRITE_HANDOFF } from "../src/server/agent/handoff.ts";
+import type { RequestKind } from "../src/server/fake/model.ts";
 import { CHECKPOINT_ENTRY, type CheckpointEntryData, COMPACTION_NOTE_ENTRY, type CompactionNoteData, type SessionDoc } from "../src/shared/session.ts";
 import { checkpoints, context, modelText, TestServer } from "./helpers.ts";
 
@@ -245,7 +246,7 @@ describe("compaction", () => {
 		let holding = false;
 		let reached!: () => void;
 		const held = new Promise<void>((resolve) => (reached = resolve));
-		const count = { contextWindow: ONE_COMPACTION, onRequest: (kind: "agent" | "summary") => void (kind === "summary" && summaries++) };
+		const count = { contextWindow: ONE_COMPACTION, onRequest: (kind: RequestKind) => void (kind === "summary" && summaries++) };
 		const server = await TestServer.start({
 			fakeModel: count,
 			faults: {

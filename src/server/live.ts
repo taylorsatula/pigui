@@ -15,6 +15,21 @@ export type LiveRequest = {
 	from?: number;
 };
 
+/**
+ * Begin a newline-delimited JSON response, the framing of the live stream and of a speech script. `send` writes one
+ * message while the response is open.
+ */
+export function openLines<T>(response: ServerResponse): (message: T) => void {
+	response.writeHead(200, {
+		"Content-Type": "application/x-ndjson; charset=utf-8",
+		"Cache-Control": "no-store",
+		"X-Accel-Buffering": "no",
+	});
+	return (message) => {
+		if (!response.writableEnded && !response.destroyed) response.write(`${JSON.stringify(message)}\n`);
+	};
+}
+
 export async function serveLive(response: ServerResponse, request: LiveRequest, harness: Harness, presence: Presence, parent: Context): Promise<void> {
 	const { context, cancel } = withCancel(parent);
 	const watches: WatchHandle<unknown>[] = [];
@@ -29,14 +44,7 @@ export async function serveLive(response: ServerResponse, request: LiveRequest, 
 		for (const watch of watches) void watch.stop();
 		response.end();
 	};
-	const send = (message: LiveMessage) => {
-		if (!closed) response.write(`${JSON.stringify(message)}\n`);
-	};
-	response.writeHead(200, {
-		"Content-Type": "application/x-ndjson; charset=utf-8",
-		"Cache-Control": "no-store",
-		"X-Accel-Buffering": "no",
-	});
+	const send = openLines<LiveMessage>(response);
 	const ping = setInterval(() => send({ t: "ping" }), PING_INTERVAL_MS);
 	response.on("close", close);
 

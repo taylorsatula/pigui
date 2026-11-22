@@ -15,7 +15,7 @@ test("the installer passes a syntax check", () => {
 test("its dry run lists every step and changes nothing", () => {
 	const result = spawnSync("bash", [script, "--dry-run", "--push-subject", "mailto:owner@example.com", "--spend-cap", "5"], {
 		encoding: "utf8",
-		env: { ...process.env, PICLOUD_DRY_RUN: "" },
+		env: { ...process.env, PICLOUD_DRY_RUN: "", PICLOUD_SPEECH: "" },
 	});
 	assert.equal(result.status, 0, result.stderr);
 	const steps = [...result.stdout.matchAll(/^== \d+\. (.+)$/gm)].map((match) => match[1]);
@@ -29,6 +29,7 @@ test("its dry run lists every step and changes nothing", () => {
 		"Create the data, install and configuration directories",
 		"Install the pi CLI (1.6.0)",
 		"Install the picloud app into /opt/picloud/app",
+		"Install speech (on)",
 		"Write the configuration (/etc/picloud/picloud.env)",
 		"Sign gh in for the service user",
 		"Install the systemd service",
@@ -47,6 +48,20 @@ test("its dry run lists every step and changes nothing", () => {
 	assert.match(result.stdout, /PICLOUD_AGENT_GH_TOKEN=$/m);
 	assert.match(result.stdout, /read-only \(Contents and Metadata: read\).*--agent-github-token-file FILE/);
 	assert.match(result.stdout, /RestartPreventExitStatus=78 2/);
+	// Speech is on by default: its model is fetched by the script the Docker image uses too.
+	assert.match(result.stdout, /\[dry run\] \/opt\/picloud\/app\/deploy\/speech-model\.sh \/opt\/picloud\/app\/models$/m);
+});
+
+test("its dry run with --speech off removes speech's packages and model instead", () => {
+	const result = spawnSync("bash", [script, "--dry-run", "--speech", "off"], { encoding: "utf8", env: { ...process.env, PICLOUD_DRY_RUN: "", PICLOUD_SPEECH: "" } });
+	assert.equal(result.status, 0, result.stderr);
+	assert.match(result.stdout, /^== \d+\. Install speech \(off\)$/m);
+	assert.match(result.stdout, /npm prune --omit=optional/);
+	assert.match(result.stdout, /\[dry run\] rm -rf \/opt\/picloud\/app\/models$/m);
+	assert.doesNotMatch(result.stdout, /speech-model\.sh/);
+	const refused = spawnSync("bash", [script, "--dry-run", "--speech", "maybe"], { encoding: "utf8", env: { ...process.env, PICLOUD_DRY_RUN: "" } });
+	assert.equal(refused.status, 2);
+	assert.match(refused.stderr, /--speech must be on or off/);
 });
 
 test("its dry run on Debian 13 picks Tailscale's trixie source and writes the agent's token where only root reads it", () => {

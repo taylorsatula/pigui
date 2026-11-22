@@ -8,6 +8,9 @@ export type Route = { kind: "new" } | { kind: "session"; id: number };
 
 export type Toast = { message: string; action?: { label: string; run: () => void } };
 
+/** The reply being read aloud (see speech.ts): its first words are being prepared, or it is playing. */
+export type Reading = { key: string; state: "preparing" | "playing" };
+
 export type State = {
 	route: Route;
 	bootstrap?: Bootstrap;
@@ -20,6 +23,7 @@ export type State = {
 	connected: boolean;
 	drawerOpen: boolean;
 	toast?: Toast;
+	reading?: Reading;
 };
 
 type Listener = () => void;

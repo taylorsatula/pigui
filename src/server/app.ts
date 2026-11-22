@@ -17,6 +17,7 @@ import { Delivery } from "./delivery.ts";
 import { SessionIndexToken } from "./docs.ts";
 import { LocalGitHub } from "./fake/github.ts";
 import { type ScriptedModelOptions, scriptedModels } from "./fake/model.ts";
+import { fakeSynthesizer } from "./fake/synthesizer.ts";
 import { GhHost, type RepoHost } from "./host.ts";
 import { callerCheck } from "./callers.ts";
 import { createHttpServer } from "./http.ts";
@@ -28,6 +29,8 @@ import { Presence } from "./presence.ts";
 import { openSandbox, readableGrants, type Sandbox } from "./sandbox.ts";
 import { sessionEnvs } from "./session-env.ts";
 import { Sessions } from "./sessions.ts";
+import { kokoroInstalled, kokoroSynthesizer } from "./speech/kokoro.ts";
+import { Speech } from "./speech/speech.ts";
 import { Supervisor } from "./supervisor.ts";
 import { loadVapidKeys, type PushSender, RecordingPushSender, WebPushSender } from "./webpush.ts";
 
@@ -46,6 +49,11 @@ export type AppOptions = {
 	staticDir?: string;
 	/** Refuse connections opened by picloud's own user (see callers.ts); on in real mode, where tests run as that user. */
 	refuseOwnUser?: boolean;
+	/**
+	 * Read replies aloud where this build can: with kokoro-js and its model installed, and always in fake mode, whose
+	 * synthesizer needs neither. Tests set false to see a build without speech.
+	 */
+	speech?: boolean;
 };
 
 export type App = {
@@ -133,6 +141,8 @@ export async function startApp(options: AppOptions): Promise<App> {
 	});
 	const delivery = new Delivery({ harness, host, workspace, now });
 	const supervisor = new Supervisor({ harness, notifications, log, now });
+	const synthesizer = options.speech === false ? undefined : config.fake ? fakeSynthesizer() : (await kokoroInstalled()) ? kokoroSynthesizer() : undefined;
+	const speech = synthesizer === undefined ? undefined : new Speech({ harness, agent: services, synthesizer, log, now });
 
 	const registry = createRegistry();
 	registry.install(createCodingTools({ images }));
@@ -196,6 +206,7 @@ export async function startApp(options: AppOptions): Promise<App> {
 		agentDir: options.agentDir,
 		workspace,
 		staticDir: options.staticDir ?? join(import.meta.dirname, "..", "..", "dist", "public"),
+		speech,
 	});
 	await new Promise<void>((resolve, reject) => {
 		server.once("error", reject);
@@ -203,7 +214,7 @@ export async function startApp(options: AppOptions): Promise<App> {
 	});
 	const address = server.address() as AddressInfo;
 	const url = `http://${config.host.includes(":") ? `[${config.host}]` : config.host}:${address.port}`;
-	log.info("started", { port: address.port, fake: config.fake });
+	log.info("started", { port: address.port, fake: config.fake, speech: speech !== undefined });
 
 	return {
 		url,

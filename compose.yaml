@@ -50,7 +50,10 @@ services:
     restart: unless-stopped
 
   picloud:
-    build: .
+    build:
+      context: .
+      args:
+        PICLOUD_SPEECH: ${PICLOUD_SPEECH:-on}
     image: picloud:local
     # picloud listens on the loopback of the Tailscale container's network, so `tailscale serve` is the only way in.
     network_mode: service:tailscale

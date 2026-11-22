@@ -5,6 +5,7 @@ import { useState } from "preact/hooks";
 import type { CardAnswer, PlanCard, QuestionAnswer, QuestionCard, Report, SessionDoc } from "../../shared/session.ts";
 import { Icon } from "./Icons.tsx";
 import { Markdown } from "./Markdown.tsx";
+import { Speak } from "./Speak.tsx";
 
 export type CardActions = {
 	answer(cardId: string, answer: CardAnswer): Promise<void>;
@@ -185,6 +186,15 @@ function Busy(props: { busy: boolean; label: string; working: string }): JSX.Ele
 	);
 }
 
+/** The prose a report card shows, as Markdown to read aloud: its summary, changes and notes, not what waits behind a tap. */
+function reportProse(report: Report): string {
+	return [
+		report.summary,
+		...(report.changes.length === 0 ? [] : ["## Changes", report.changes.map((change) => `- ${change}`).join("\n")]),
+		...(report.notes.trim() === "" ? [] : ["## Notes", report.notes]),
+	].join("\n\n");
+}
+
 export function ReportCard(props: { report: Report; latest: boolean; session?: SessionDoc; running: boolean; actions: DeliveryActions }): JSX.Element {
 	const { report, session } = props;
 	const [busy, setBusy] = useState<"push" | "pr" | undefined>(undefined);
@@ -203,6 +213,7 @@ export function ReportCard(props: { report: Report; latest: boolean; session?: S
 			<header class="card-title">
 				Report
 				{pushed ? <span class="status-tag good">Pushed</span> : null}
+				{session === undefined ? null : <Speak id={`report:${report.commit}:${report.filedAt}`} session={session.id} markdown={reportProse(report)} />}
 			</header>
 			<Markdown text={report.summary} />
 			{report.changes.length > 0 ? (
