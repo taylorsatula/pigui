@@ -83,12 +83,29 @@ Six tools, in `src/server/agent`:
   a fetch. A successful report ends the run (`terminate`), so no tokens are spent on a sign-off.
 - `recall_history`: search or read the full history, including what compaction removed from view.
 
-The prompt (`prompt.ts`) is picloud's own preamble (running remotely, the person usually away, how to work: answer
-simple things directly, explore → ask once → plan → approval → work to completion, verify, commit but never push or
-switch branches, merge the base before reporting, report honestly), then sections that change rarely: the session
+The prompt (`prompt.ts`) is picloud's own preamble, then sections that change rarely: the session
 (repository, branch, base, workflow and plan progress), the project's instructions through Pi's
 `loadProjectContextFiles` rendered as Pi renders them, Pi's skills list through `loadSkills`/`formatSkillsForPrompt`,
 and repo memory. Durable re-sends only changed sections, so prompt caching stays warm.
+
+**The preamble is written from primitives, for unattended runs.** It was rewritten by first listing every fact the
+agent needs and every rule the server depends on, each marked as stated, stated badly or missing, and then writing
+from that list rather than editing sentences. It is organised around the moments of a run:
+- **How a turn ends.** A reply's opening is the notification. Cards are the only way to wait. A report card is the only
+  way to deliver, so every change to the repository ends with one, small ones included; before this, a one-line fix
+  could end without a Push button.
+- **Which path a request needs:** reply, small change and report, or plan.
+- **Before the plan.** Explore until you can name the files. Ask only what the repository cannot tell you and only the
+  person can decide, all on one card. State the decisions you made in the plan, so approving it approves them.
+- **After approval.** Run the tests first, stay in scope, and settle open points yourself. If blocked, file the report
+  instead of asking.
+- **Verifying.** Never weaken a check to make it pass.
+- **Git and this machine.** Commits are added, never rewritten. Nothing changes on GitHub. The shell is
+  non-interactive. Touch only your own workspace. These rules beat a repository's own instructions.
+
+Tool descriptions carry only how to fill each field: the report summary's first line is both the notification and the
+pull request title. The session section states only this session's facts and its current state; two of its states
+had been wrong. The full primitives table is kept with the change that introduced it (`git log -- src/server/agent/prompt.ts`).
 
 **Waiting is a parked tool.** A question or plan tool commits its card (and its notification) to the session
 document, then returns `{ sleep: { signals: [picloud.card-answer] } }`; the call holds no process. The person's answer

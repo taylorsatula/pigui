@@ -5,6 +5,7 @@ import { arr, int, obj, opt, str } from "@earendil-works/pi-schema";
 import type { Plan, PlanCard, PlanState } from "../../shared/session.ts";
 import { editSession } from "../docs.ts";
 import { awaitCard, isPark, sessionOf } from "./cards.ts";
+import { FILE_REPORT } from "./report.ts";
 import type { AgentServices } from "./services.ts";
 
 export const SUBMIT_PLAN = "submit_plan";
@@ -12,8 +13,15 @@ export const UPDATE_PROGRESS = "update_progress";
 
 const PlanParameters = obj({
 	title: str({ minLength: 1, maxLength: 200, description: "The change in a few words" }),
-	summary: str({ maxLength: 4000, description: "What will change and why, in a short paragraph the person reads on a phone" }),
-	steps: arr(str({ minLength: 1, maxLength: 500 }), { minItems: 1, maxItems: 20, description: "Concrete steps in order, each checkable" }),
+	summary: str({
+		maxLength: 4000,
+		description: "What will change and why, the decisions you made instead of asking, and anything left out, in a short paragraph read on a phone",
+	}),
+	steps: arr(str({ minLength: 1, maxLength: 500 }), {
+		minItems: 1,
+		maxItems: 20,
+		description: "Usually 3 to 8 steps in order, each a result you can verify and mark done (not a single command, not a vague phase), including any tests you will add",
+	}),
 });
 
 const ProgressParameters = obj({
@@ -29,7 +37,7 @@ export function planTools(services: AgentServices) {
 	const submitPlan = defineTool({
 		name: SUBMIT_PLAN,
 		description:
-			"Propose a plan for substantial work and wait for the person to approve it or ask for changes. Submit it after exploring and after your questions are answered. Approval is your go-ahead to implement the whole plan without further permission.",
+			"Propose a plan and wait until the person approves it or asks for changes. Approval is the go-ahead to carry out all of it unattended, so the plan holds every decision they would want to veto. A new plan replaces the approved one and stops work until it is approved: submit one mid-run only when the approved plan can no longer work.",
 		parameters: PlanParameters,
 		replay: "safe",
 		async execute(args, api, context): Promise<ToolExecutionResult | ToolPark> {
@@ -55,7 +63,7 @@ export function planTools(services: AgentServices) {
 					output: [
 						{
 							type: "text",
-							text: `The person approved the plan (revision ${revision}). Implement all of it now, without asking for permission. Mark steps complete with ${UPDATE_PROGRESS}, commit as you go, verify, bring the branch up to date with its base, and finish with file_report.`,
+							text: `The person approved the plan (revision ${revision}). Implement all of it now, without asking for permission. Mark steps complete with ${UPDATE_PROGRESS}, commit as you go, verify, bring the branch up to date with its base, and finish with ${FILE_REPORT}.`,
 						},
 					],
 					details,
@@ -76,7 +84,7 @@ export function planTools(services: AgentServices) {
 
 	const updateProgress = defineTool({
 		name: UPDATE_PROGRESS,
-		description: "Mark steps of the approved plan as complete, as you finish them, so the person sees progress at a glance.",
+		description: "Mark steps of the approved plan complete once each is done and verified, so the person sees progress at a glance.",
 		parameters: ProgressParameters,
 		replay: "safe",
 		async execute(args, api, context): Promise<ToolExecutionResult> {

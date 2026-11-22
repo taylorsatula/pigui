@@ -6,7 +6,7 @@ import { emptyNotes, mergeNotes, renderHandoff } from "../src/server/agent/hando
 import { compactions, modelText, TestServer } from "./helpers.ts";
 
 /** Context windows small enough that the [long] scenario compacts during implementation, once or several times. */
-const ONE_COMPACTION = 16_000;
+const ONE_COMPACTION = 17_500;
 const SEVERAL_COMPACTIONS = 12_000;
 
 function hangUntilAborted(context: Context): Promise<void> {

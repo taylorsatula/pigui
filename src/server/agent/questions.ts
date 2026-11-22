@@ -78,8 +78,8 @@ export function describeAnswer(questions: readonly Question[], answer: CardAnswe
 
 function questionTool(name: string, multiple: boolean, services: AgentServices) {
 	const description = multiple
-		? "Ask the person one or more questions where several options may apply (checkboxes), with free text always available. Put every question you have on one card: the person is usually away, and each card interrupts them. Waits until they answer."
-		: "Ask the person one or more questions, each with one answer chosen from options (radio buttons) and your recommendation, with free text always available. Put every question you have on one card: the person is usually away, and each card interrupts them. Waits until they answer.";
+		? "Ask the person questions where several options may apply (checkboxes); they can always write their own answer instead. Put every question you have on one card, since each card notifies their phone: a question with a single answer can go on this card too. Write each question so it makes sense on its own, read hours later. Waits until they answer."
+		: "Ask the person questions that each take one answer from your options (radio buttons), with the one you recommend; they can always write their own answer instead. Put every question you have on one card, since each card notifies their phone. Write each question so it makes sense on its own, read hours later, with options that cover the likely answers so one tap is enough. Waits until they answer.";
 	return defineTool({
 		name,
 		description,

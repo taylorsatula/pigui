@@ -11,12 +11,17 @@ import type { AgentServices } from "./services.ts";
 export const FILE_REPORT = "file_report";
 
 const ReportParameters = obj({
-	summary: str({ minLength: 1, maxLength: 4000, description: "What was done, in a few sentences the person reads first" }),
+	summary: str({
+		minLength: 1,
+		maxLength: 4000,
+		description:
+			"The outcome in a few sentences, read first. Its first line is the notification and the pull request title, so make it one short line saying what changed. Anything unfinished or failing belongs here, not only in notes.",
+	}),
 	changes: arr(str({ maxLength: 1000 }), { maxItems: 50, description: "The changes, one line each" }),
-	verification: str({ maxLength: 4000, description: "How you verified the work: commands run and their results" }),
+	verification: str({ maxLength: 4000, description: "The commands you ran and what they showed, and anything you could not verify" }),
 	notes: str({
 		maxLength: 4000,
-		description: "What you could not do, what you are unsure about, decisions you made that the plan did not cover; empty if none",
+		description: "What you could not do, what you are unsure about, decisions the plan did not cover, and problems you noticed but left alone; empty if none",
 	}),
 	learned: str({
 		maxLength: 4000,
@@ -31,7 +36,7 @@ export function reportTool(services: AgentServices) {
 	return defineTool({
 		name: FILE_REPORT,
 		description:
-			"File the final report when the work is done, or when you cannot go further. Refused while there are uncommitted changes or the branch is behind its base. Ends your turn; the person then chooses to push, open a pull request, or ask for more.",
+			"File a report after any change to the repository: when the work is done, or when you cannot go further. It ends your turn, and it becomes the pull request's description if the person opens one. Refused while there are uncommitted changes or the branch is behind its base.",
 		parameters: ReportParameters,
 		replay: "safe",
 		async execute(args, api, context): Promise<ToolExecutionResult> {
