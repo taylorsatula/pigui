@@ -4,7 +4,7 @@ import type { Context } from "@earendil-works/chord/context";
 import { type PromptInput, type PromptSection, section } from "@earendil-works/pi-durable";
 import type { SessionDoc } from "../../shared/session.ts";
 import { RepoMemoryToken, SessionDocToken } from "../docs.ts";
-import { describePlan, SUBMIT_PLAN, UPDATE_PROGRESS } from "./plan.ts";
+import { describeEndState, describePlan, SUBMIT_PLAN, UPDATE_PROGRESS } from "./plan.ts";
 import { ASK_MULTIPLE, ASK_SINGLE } from "./questions.ts";
 import { FILE_REPORT } from "./report.ts";
 import { projectContext, renderProjectContext, renderSkills, skillsAt } from "./resources.ts";
@@ -33,7 +33,7 @@ After approval:
 - First run the tests, so you can tell failures you cause from ones already there.
 - Work to the end without asking for permission or checking in, marking steps with ${UPDATE_PROGRESS} as each is done.
 - Do what the plan covers and no more; note other problems in the report instead of fixing them.
-- Settle anything the plan left open yourself and say so in the report. Ask only if a decision that is the person's to make blocks all remaining work.
+- Settle anything the plan left open yourself and list it in the report's deviations. Ask only if a decision that is the person's to make blocks all remaining work.
 - If you cannot finish (missing access, a failure you cannot fix), file the report with what is done and what stopped you.
 
 Verifying:
@@ -75,7 +75,8 @@ function workflowLines(doc: SessionDoc): string[] {
 				`Plan approved (revision ${plan.revision}): "${plan.title}". Carry it out to the end and finish with ${FILE_REPORT}.`,
 				`Progress, ${plan.done.length} of ${plan.steps.length} steps done:`,
 				describePlan(plan),
-			];
+				describeEndState(plan),
+			].filter((line) => line !== "");
 		}
 		case "reported":
 			return [FOLLOW_UP];

@@ -1104,7 +1104,7 @@ details[open] > summary > .icon:first-child {
 .markdown code {
 	font-family: var(--mono);
 	/* The mono runs a little large beside its sans; this brings it back to the line's size. */
-	font-size: 0.9em;
+	font-size: 0.86em;
 	font-variant-numeric: normal;
 }
 
@@ -1458,19 +1458,166 @@ select:focus-visible {
 	flex-basis: 100%;
 }
 
+/* ---- The parts of a plan and a report: each under a small label, its items one line each, with what supports an item
+   (a reason, evidence, files) set smaller under it. Lists hang from their markers, so the text lines up down the part. */
+
+.goal {
+	margin: 0;
+	max-width: 34em;
+}
+
+.part {
+	margin-top: 18px;
+}
+
+.part-title {
+	margin: 0 0 8px;
+	font-family: var(--mono);
+	font-size: var(--label);
+	font-weight: 400;
+	color: var(--text-2);
+	text-transform: uppercase;
+	letter-spacing: var(--label-tracking);
+	line-height: var(--leading-tight);
+}
+
+.items {
+	list-style: none;
+	margin: 0;
+	padding: 0;
+	display: flex;
+	flex-direction: column;
+	gap: 10px;
+	line-height: var(--leading-tight);
+}
+
+.items > li {
+	display: flex;
+	gap: 10px;
+	min-width: 0;
+	overflow-wrap: anywhere;
+}
+
+/* A marker as tall as the item's first line, so it sits on it whatever the text size. */
+.marker {
+	flex: none;
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	width: 1.375rem;
+	height: calc(var(--leading-tight) * 1em);
+	color: var(--text-2);
+}
+
+.ring {
+	width: 0.625rem;
+	height: 0.625rem;
+	border: 1.25px solid currentColor;
+	border-radius: var(--radius-full);
+}
+
+.items.dashed > li::before {
+	content: "–";
+	flex: none;
+	width: 1.375rem;
+	text-align: center;
+	color: var(--text-2);
+}
+
+.item-text {
+	display: flex;
+	flex-direction: column;
+	gap: 3px;
+	min-width: 0;
+}
+
+.item-detail {
+	font-size: var(--footnote);
+	color: var(--text-2);
+}
+
+/* A decision reads as the choice, with its reason under it. */
+.items.decisions > li {
+	flex-direction: column;
+	gap: 3px;
+}
+
+.paths {
+	font-family: var(--mono);
+	font-size: var(--record);
+	color: var(--text-2);
+	overflow-wrap: anywhere;
+}
+
+.paths.command,
+.paths.ref {
+	color: var(--text);
+}
+
+.items.commands {
+	font-family: var(--mono);
+	font-size: var(--record);
+	gap: 6px;
+}
+
+.results .met > .marker {
+	color: var(--done);
+}
+
+.results .unmet > .marker {
+	color: var(--error);
+}
+
+.inline code {
+	font-family: var(--mono);
+	font-size: 0.86em;
+}
+
+/* Inside a list of commands, everything is already monospace. */
+.items.commands .inline code {
+	font-size: inherit;
+}
+
+.part.more > summary,
+.part.sources > summary {
+	font-family: var(--mono);
+	font-size: var(--record);
+	color: var(--text);
+}
+
+.part.more > summary {
+	margin-top: -6px;
+}
+
+.part.sources .items,
+.part.more > .markdown {
+	padding: 0 0 8px 20px;
+}
+
+.verdict.warn {
+	color: var(--warn);
+}
+
+.verdict.bad {
+	color: var(--error);
+}
+
 /* The plan as a checklist: each box holds its step's number until the step is done, then a tick. */
 .steps {
 	list-style: none;
 	padding: 0;
-	margin: 12px 0 0;
-	font-size: var(--prose);
+	margin: 0;
+	display: flex;
+	flex-direction: column;
+	gap: 10px;
 }
 
 .steps li {
 	display: flex;
-	gap: 12px;
-	padding: 6px 0;
+	gap: 10px;
 	line-height: var(--leading-tight);
+	min-width: 0;
+	overflow-wrap: anywhere;
 }
 
 .box {
@@ -1498,42 +1645,12 @@ select:focus-visible {
 	color: var(--bg);
 }
 
-.changes {
-	padding-left: 1.4em;
-	margin: 12px 0;
-	font-size: var(--prose);
-	list-style: "–  ";
-}
-
-.changes li + li {
-	margin-top: 0.25em;
-}
-
-.changes li::marker {
-	color: var(--text-2);
-}
-
-/* The report opens with its summary set a size up, as a lede. */
+/* The report opens with its headline set a size up, as a lede. */
 .lede {
+	margin: 0 0 6px;
 	font-size: 1.1875rem;
 	line-height: 1.45;
 	font-family: var(--serif);
-}
-
-.report details > summary {
-	font-family: var(--mono);
-	font-size: var(--record);
-	color: var(--text);
-}
-
-.report details > .markdown {
-	padding: 0 0 8px 20px;
-}
-
-.report-notes {
-	margin: 12px 0;
-	padding-left: 12px;
-	border-left: 2px solid var(--rule);
 }
 
 .error-text {

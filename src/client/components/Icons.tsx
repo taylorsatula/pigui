@@ -11,6 +11,7 @@ const paths = {
 	chevron: "M9 6l6 6-6 6",
 	check: "M5 12.5l4.5 4.5L19 7.5",
 	close: "M6 6l12 12M18 6L6 18",
+	minus: "M6 12h12",
 	diff: "M12 4v8M8 8h8M8 18h8",
 	archive: "M4 7h16v13H4zM3 3h18v4H3zM10 11h4",
 	bell: "M6 16V11a6 6 0 0 1 12 0v5l2 2H4zM10 20a2 2 0 0 0 4 0",

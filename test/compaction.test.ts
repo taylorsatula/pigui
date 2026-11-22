@@ -10,17 +10,17 @@ import { chooseCut, condensed, durableBounds, spansOf } from "../src/server/agen
 import type { Ground } from "../src/server/agent/facts.ts";
 import { RESUME, WRITE_HANDOFF } from "../src/server/agent/handoff.ts";
 import type { RequestKind } from "../src/server/fake/model.ts";
-import { CHECKPOINT_ENTRY, type CheckpointEntryData, COMPACTION_NOTE_ENTRY, type CompactionNoteData, type SessionDoc } from "../src/shared/session.ts";
+import { CHECKPOINT_ENTRY, type CheckpointEntryData, COMPACTION_NOTE_ENTRY, type CompactionNoteData, reportOf, type SessionDoc } from "../src/shared/session.ts";
 import { checkpoints, context, modelText, TestServer } from "./helpers.ts";
 
 /**
  * Context windows for the [long] scenario, whose builds print about 4k tokens each beside a system prompt of about 4k.
  * The trigger sits between Durable's thresholds and the agent's start, so these are calibrated by the scenario: at 24k
- * picloud compacts once, after the second build; at 17.5k after each build; at 33k the [backstop] flood starts Durable's
+ * picloud compacts once, after the second build; at 19k after each build; at 33k the [backstop] flood starts Durable's
  * background compaction and the next build its blocking one.
  */
 const ONE_COMPACTION = 24_000;
-const SEVERAL_COMPACTIONS = 17_500;
+const SEVERAL_COMPACTIONS = 19_000;
 const BACKGROUND_THEN_BLOCKING = 33_000;
 
 function hangUntilAborted(context: Context): Promise<void> {
@@ -311,7 +311,7 @@ describe("compaction", () => {
 			const recall = resultOf(entries, "recall_history");
 			assert.ok(recall !== undefined, "the agent searched its history");
 			assert.match(modelText(recall), /build id: 4817/);
-			assert.match(done.report?.notes ?? "", /4817/);
+			assert.match(done.report === undefined ? "" : reportOf(done.report).notes.join("\n"), /4817/);
 		} finally {
 			await server.close();
 		}

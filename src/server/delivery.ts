@@ -4,7 +4,7 @@ import type { Context } from "@earendil-works/chord/context";
 import type { Draft } from "@earendil-works/chord/delta";
 import { type ConversationId, type Harness, LiveDoc } from "@earendil-works/pi-durable";
 import type { DeliveryResult, SessionDiff } from "../shared/api.ts";
-import type { Report, SessionDoc } from "../shared/session.ts";
+import { type Report, reportOf, type SessionDoc } from "../shared/session.ts";
 import { editSession, SessionDocToken } from "./docs.ts";
 import { HttpError, notFound } from "./errors.ts";
 import { comparisonPoint, diffFiles, head, push, PushRejected, uncommitted } from "./git.ts";
@@ -17,13 +17,36 @@ export type DeliveryDeps = {
 	now: () => number;
 };
 
+const OUTCOME: Record<Report["outcome"], string> = { complete: "Complete", partial: "Partly done", blocked: "Blocked" };
+
+/** The report as a pull request's description: the same parts as its card, in GitHub's Markdown. */
 function prBody(doc: Readonly<SessionDoc>, report: Report | undefined): string {
 	if (report === undefined) return `Work from the picloud session "${doc.title}".`;
-	const sections = [report.summary];
-	if (report.changes.length > 0) sections.push(`## Changes\n${report.changes.map((change) => `- ${change}`).join("\n")}`);
-	if (report.verification.trim() !== "") sections.push(`## Verification\n${report.verification}`);
-	if (report.notes.trim() !== "") sections.push(`## Notes\n${report.notes}`);
-	return sections.join("\n\n");
+	const files = (paths: string[]) => (paths.length === 0 ? "" : ` (${paths.map((path) => `\`${path}\``).join(", ")})`);
+	const list = (title: string, lines: string[]) => (lines.length === 0 ? [] : [`## ${title}\n${lines.join("\n")}`]);
+	return [
+		`**${OUTCOME[report.outcome]}.** ${report.summary}`.trim(),
+		...list(
+			"Done when",
+			report.endState.map((check) => `- [${check.met ? "x" : " "}] ${check.criterion}: ${check.evidence}`),
+		),
+		...list(
+			"Changes",
+			report.changes.map((change) => `- ${change.change}${files(change.files)}`),
+		),
+		...list(
+			"Checks",
+			report.checks.map((check) => `- ${check.result}: \`${check.command}\`${check.detail === "" ? "" : `: ${check.detail}`}`),
+		),
+		...list(
+			"Changed from the plan",
+			report.deviations.map((line) => `- ${line}`),
+		),
+		...list(
+			"Notes",
+			report.notes.map((line) => `- ${line}`),
+		),
+	].join("\n\n");
 }
 
 export class Delivery {
@@ -78,8 +101,9 @@ export class Delivery {
 			if (existing !== undefined) {
 				pr = { number: existing.number, url: existing.url, created: false };
 			} else {
-				const title = doc.report?.summary.split("\n")[0]?.slice(0, 120) || doc.title;
-				const created = await this.#deps.host.createPullRequest(doc.repo, { head: doc.branch, base: doc.base, title, body: prBody(doc, doc.report) });
+				const report = doc.report === undefined ? undefined : reportOf(doc.report);
+				const title = report?.headline.slice(0, 120) || doc.title;
+				const created = await this.#deps.host.createPullRequest(doc.repo, { head: doc.branch, base: doc.base, title, body: prBody(doc, report) });
 				pr = { ...created, created: true };
 			}
 		}

@@ -16,7 +16,9 @@ import {
 	type PlanCard,
 	type QuestionCard,
 	type Report,
+	reportOf,
 	type SessionDoc,
+	type StoredReport,
 } from "../shared/session.ts";
 import type { Gap } from "./live.ts";
 
@@ -66,7 +68,7 @@ function entryTime(entry: EntryRecord): number | undefined {
 	return entry.model?.[0]?.timestamp;
 }
 
-type Details = { card?: QuestionCard | PlanCard; answer?: CardAnswer; report?: Report };
+type Details = { card?: QuestionCard | PlanCard; answer?: CardAnswer; report?: StoredReport };
 
 const NOTES: Record<CompactionNoteData["note"], string> = {
 	"handoff-request": "Asked Pi for a handoff note before compacting the context",
@@ -256,7 +258,7 @@ function cardBlock(
 ): void {
 	const details = result?.details;
 	if (name === "file_report") {
-		if (details?.report !== undefined) add({ kind: "report", key, report: details.report, latest: result?.message === lastReport?.message });
+		if (details?.report !== undefined) add({ kind: "report", key, report: reportOf(details.report), latest: result?.message === lastReport?.message });
 		else if (result?.message.isError === true) add({ kind: "notice", key, tone: "info", text: resultText(result.message) });
 		return;
 	}

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { after, before, describe, test } from "node:test";
-import { NUDGE_ENTRY } from "../src/shared/session.ts";
+import { NUDGE_ENTRY, planOf } from "../src/shared/session.ts";
 import { MAX_CONTINUATIONS } from "../src/server/supervisor.ts";
 import { ApiFailure, modelText, TestServer } from "./helpers.ts";
 
@@ -21,7 +21,7 @@ describe("the plan-first workflow", () => {
 		const second = await server.until(id, (doc) => doc.card?.kind === "plan" && doc.card.id !== first.card!.id, "revised plan");
 		assert.equal(second.plan?.revision, 2);
 		assert.equal(second.plan?.approved, false);
-		assert.match(second.plan?.summary ?? "", /Mention the README too\./);
+		assert.match(second.plan === undefined ? "" : planOf(second.plan).goal, /Mention the README too\./);
 		assert.deepEqual(
 			second.words.map((word) => word.kind),
 			["task", "answer", "feedback"],

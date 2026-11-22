@@ -3,9 +3,10 @@
 // is marked in the highlighter's yellow; nothing else is.
 import type { JSX } from "preact";
 import { useState } from "preact/hooks";
-import type { CardAnswer, PlanCard, QuestionAnswer, QuestionCard, Report, SessionDoc } from "../../shared/session.ts";
+import type { ComponentChildren } from "preact";
+import { type CardAnswer, type Plan, type PlanCard, planOf, type QuestionAnswer, type QuestionCard, type Report, type SessionDoc } from "../../shared/session.ts";
 import { Icon } from "./Icons.tsx";
-import { Markdown } from "./Markdown.tsx";
+import { Inline, Markdown } from "./Markdown.tsx";
 import { Speak } from "./Speak.tsx";
 
 export type CardActions = {
@@ -117,8 +118,131 @@ export function QuestionsCard(props: { card: QuestionCard; answer?: CardAnswer; 
 	);
 }
 
+/** One part of a plan or report under its label; a part with nothing in it is left out. */
+function Part(props: { title: string; count: number; children: ComponentChildren }): JSX.Element | null {
+	if (props.count === 0) return null;
+	return (
+		<section class="part" aria-label={props.title}>
+			<h4 class="part-title">{props.title}</h4>
+			{props.children}
+		</section>
+	);
+}
+
+/** Repository paths under an item, in the record's monospace. */
+function Paths(props: { paths: string[] }): JSX.Element | null {
+	return props.paths.length === 0 ? null : <span class="paths">{props.paths.join("  ")}</span>;
+}
+
+/** A list of one-line items, each after a dash. */
+function Lines(props: { lines: string[] }): JSX.Element {
+	return (
+		<ul class="items dashed">
+			{props.lines.map((line, index) => (
+				<li key={index}>
+					<Inline text={line} />
+				</li>
+			))}
+		</ul>
+	);
+}
+
+function EndState(props: { plan: Plan }): JSX.Element | null {
+	return (
+		<Part title="Done when" count={props.plan.endState.length}>
+			<ul class="items targets">
+				{props.plan.endState.map((condition, index) => (
+					<li key={index}>
+						<span class="marker" aria-hidden="true">
+							<span class="ring" />
+						</span>
+						<Inline text={condition} />
+					</li>
+				))}
+			</ul>
+		</Part>
+	);
+}
+
+function Decisions(props: { plan: Plan }): JSX.Element | null {
+	return (
+		<Part title="Decided for you" count={props.plan.decisions.length}>
+			<ul class="items decisions">
+				{props.plan.decisions.map((decision, index) => (
+					<li key={index}>
+						<Inline text={decision.choice} class="item-main" />
+						<Inline text={decision.reason} class="item-detail" />
+					</li>
+				))}
+			</ul>
+		</Part>
+	);
+}
+
+/** The steps as a checklist: each box holds its step's number until the step is done, then a tick. */
+function Steps(props: { plan: Plan; done: string[] }): JSX.Element {
+	return (
+		<Part title="Steps" count={props.plan.steps.length}>
+			<ol class="steps">
+				{props.plan.steps.map((step, index) => (
+					<li key={step.id} class={props.done.includes(step.id) ? "done" : ""}>
+						<span class="box">{props.done.includes(step.id) ? <Icon name="check" size={14} label={`Step ${index + 1}, done`} /> : index + 1}</span>
+						<span class="item-text">
+							<Inline text={step.text} />
+							<Paths paths={step.files} />
+						</span>
+					</li>
+				))}
+			</ol>
+		</Part>
+	);
+}
+
+/** What the person checks last: how the work will be proved, what is left out, what could go wrong, and the sources. */
+function PlanRest(props: { plan: Plan }): JSX.Element {
+	const { plan } = props;
+	return (
+		<>
+			<Part title="Verified by" count={plan.verification.length}>
+				<ul class="items dashed commands">
+					{plan.verification.map((command, index) => (
+						<li key={index}>
+							<Inline text={command} />
+						</li>
+					))}
+				</ul>
+			</Part>
+			<Part title="Not doing" count={plan.outOfScope.length}>
+				<Lines lines={plan.outOfScope} />
+			</Part>
+			<Part title="Risks" count={plan.risks.length}>
+				<Lines lines={plan.risks} />
+			</Part>
+			{plan.citations.length === 0 ? null : (
+				<details class="part sources">
+					<summary>
+						<Icon name="chevron" size={14} />
+						{plan.citations.length === 1 ? "1 source" : `${plan.citations.length} sources`} read for this plan
+					</summary>
+					<ul class="items">
+						{plan.citations.map((citation, index) => (
+							<li key={index}>
+								<span class="item-text">
+									<span class="paths ref">{citation.ref}</span>
+									<Inline text={citation.note} class="item-detail" />
+								</span>
+							</li>
+						))}
+					</ul>
+				</details>
+			)}
+		</>
+	);
+}
+
 export function PlanCardView(props: { card: PlanCard; answer?: CardAnswer; pending: boolean; session?: SessionDoc; actions: CardActions }): JSX.Element {
 	const { card } = props;
+	const plan = planOf(card.plan);
 	const [busy, setBusy] = useState(false);
 	const done = props.session?.plan?.revision === card.revision && props.session.plan.approved ? props.session.plan.done : [];
 	const approve = async () => {
@@ -141,24 +265,39 @@ export function PlanCardView(props: { card: PlanCard; answer?: CardAnswer; pendi
 						: undefined;
 	const feedback = props.answer?.kind === "revise" ? props.answer.feedback : props.answer?.kind === "text" ? props.answer.text : undefined;
 	return (
-		<section class={`card plan ${props.pending ? "waiting" : ""}`} aria-label={`Plan: ${card.plan.title}`}>
+		<section class={`card plan ${props.pending ? "waiting" : ""}`} aria-label={`Plan: ${plan.title}`}>
 			<header class="card-title">
 				<span>Plan{card.revision > 1 ? `, revision ${card.revision}` : ""}</span>
 				{status === undefined ? null : (
 					<span class={`verdict ${props.answer?.kind === "approve" ? "good" : props.pending ? "mark" : ""}`}>{status}</span>
 				)}
 			</header>
-			<h3>{card.plan.title}</h3>
-			<Markdown text={card.plan.summary} />
-			{/* A checklist: each box holds its step's number until the step is done, then a tick. */}
-			<ol class="steps">
-				{card.plan.steps.map((step, index) => (
-					<li key={step.id} class={done.includes(step.id) ? "done" : ""}>
-						<span class="box">{done.includes(step.id) ? <Icon name="check" size={14} label={`Step ${index + 1}, done`} /> : index + 1}</span>
-						<span>{step.text}</span>
-					</li>
-				))}
-			</ol>
+			<h3>{plan.title}</h3>
+			<p class="goal">
+				<Inline text={plan.goal} />
+			</p>
+			{props.pending ? (
+				<>
+					<EndState plan={plan} />
+					<Decisions plan={plan} />
+					<Steps plan={plan} done={done} />
+					<PlanRest plan={plan} />
+				</>
+			) : (
+				// Once answered, the plan is what is being carried out: its steps, ticking off. The rest opens on a tap.
+				<>
+					<Steps plan={plan} done={done} />
+					<details class="part more">
+						<summary>
+							<Icon name="chevron" size={14} />
+							The rest of the plan
+						</summary>
+						<EndState plan={plan} />
+						<Decisions plan={plan} />
+						<PlanRest plan={plan} />
+					</details>
+				</>
+			)}
 			{feedback === undefined ? null : <p class="given">You asked: “{feedback}”</p>}
 			{props.pending ? (
 				<div class="card-actions">
@@ -192,14 +331,25 @@ function Busy(props: { busy: boolean; label: string; working: string }): JSX.Ele
 	);
 }
 
-/** The prose a report card shows, as Markdown to read aloud: its summary, changes and notes, not what waits behind a tap. */
+/** The prose a report card shows, as Markdown to read aloud: what the person reads first, not the record under it. */
 function reportProse(report: Report): string {
 	return [
+		report.headline,
 		report.summary,
-		...(report.changes.length === 0 ? [] : ["## Changes", report.changes.map((change) => `- ${change}`).join("\n")]),
-		...(report.notes.trim() === "" ? [] : ["## Notes", report.notes]),
-	].join("\n\n");
+		...(report.deviations.length === 0 ? [] : ["## Changed from the plan", report.deviations.map((line) => `- ${line}`).join("\n")]),
+		...(report.notes.length === 0 ? [] : ["## Notes", report.notes.map((line) => `- ${line}`).join("\n")]),
+	]
+		.filter((part) => part !== "")
+		.join("\n\n");
 }
+
+const OUTCOME: Record<Report["outcome"], { label: string; tone: string }> = {
+	complete: { label: "Complete", tone: "good" },
+	partial: { label: "Partly done", tone: "warn" },
+	blocked: { label: "Blocked", tone: "bad" },
+};
+
+const CHECK_ICON = { passed: "check", failed: "close", "not run": "minus" } as const;
 
 export function ReportCard(props: { report: Report; latest: boolean; session?: SessionDoc; running: boolean; actions: DeliveryActions }): JSX.Element {
 	const { report, session } = props;
@@ -219,34 +369,64 @@ export function ReportCard(props: { report: Report; latest: boolean; session?: S
 			<header class="card-title">
 				<span>Report</span>
 				<span class="commit">{report.commit.slice(0, 7)}</span>
+				<span class={`verdict ${OUTCOME[report.outcome].tone}`}>{OUTCOME[report.outcome].label}</span>
 				{pushed ? <span class="verdict good">Pushed</span> : null}
 				{session === undefined ? null : <Speak id={`report:${report.commit}:${report.filedAt}`} session={session.id} markdown={reportProse(report)} />}
 			</header>
-			<Markdown text={report.summary} class="lede" />
-			{report.changes.length > 0 ? (
-				<ul class="changes">
-					{report.changes.map((change, index) => (
-						<li key={index}>{change}</li>
+			<p class="lede">
+				<Inline text={report.headline} />
+			</p>
+			{report.summary === "" ? null : <Markdown text={report.summary} />}
+			<Part title="Done when" count={report.endState.length}>
+				<ul class="items results">
+					{report.endState.map((check, index) => (
+						<li key={index} class={check.met ? "met" : "unmet"}>
+							<span class="marker">
+								<Icon name={check.met ? "check" : "close"} size={16} label={check.met ? "Met" : "Not met"} />
+							</span>
+							<span class="item-text">
+								<Inline text={check.criterion} />
+								<Inline text={check.evidence} class="item-detail" />
+							</span>
+						</li>
 					))}
 				</ul>
-			) : null}
-			{report.verification.trim() === "" ? null : (
-				<details>
-					<summary>
-						<Icon name="chevron" size={14} />
-						How it was verified
-					</summary>
-					<Markdown text={report.verification} />
-				</details>
-			)}
-			{report.notes.trim() === "" ? null : (
-				<div class="report-notes">
-					<div class="io-label">Notes</div>
-					<Markdown text={report.notes} />
-				</div>
-			)}
+			</Part>
+			<Part title="Changes" count={report.changes.length}>
+				<ul class="items dashed">
+					{report.changes.map((change, index) => (
+						<li key={index}>
+							<span class="item-text">
+								<Inline text={change.change} />
+								<Paths paths={change.files} />
+							</span>
+						</li>
+					))}
+				</ul>
+			</Part>
+			<Part title="Checks" count={report.checks.length}>
+				<ul class="items results">
+					{report.checks.map((check, index) => (
+						<li key={index} class={check.result === "passed" ? "met" : check.result === "failed" ? "unmet" : "skipped"}>
+							<span class="marker">
+								<Icon name={CHECK_ICON[check.result]} size={16} label={check.result === "not run" ? "Not run" : check.result === "passed" ? "Passed" : "Failed"} />
+							</span>
+							<span class="item-text">
+								<span class="paths command">{check.command}</span>
+								{check.detail === "" ? null : <Inline text={check.detail} class="item-detail" />}
+							</span>
+						</li>
+					))}
+				</ul>
+			</Part>
+			<Part title="Changed from the plan" count={report.deviations.length}>
+				<Lines lines={report.deviations} />
+			</Part>
+			<Part title="Notes" count={report.notes.length}>
+				<Lines lines={report.notes} />
+			</Part>
 			{report.learned.trim() === "" ? null : (
-				<details>
+				<details class="part more">
 					<summary>
 						<Icon name="chevron" size={14} />
 						What Pi learned about this repository

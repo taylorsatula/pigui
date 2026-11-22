@@ -312,10 +312,14 @@ function next(previous: StepResult, messages: readonly Message[], directives: st
 		case "follow-commit":
 			return tools(
 				call("follow-report", FILE_REPORT, {
-					summary: "Made the follow-up change.",
-					changes: ["Added a follow-up note"],
-					verification: "Committed; no code changed.",
-					notes: "",
+					headline: "Made the follow-up change.",
+					summary: "",
+					outcome: "complete",
+					endState: [],
+					changes: [{ change: "Added a follow-up note under docs/", files: [] }],
+					checks: [{ command: "git log --oneline -1", result: "passed", detail: "Committed; no code changed." }],
+					deviations: [],
+					notes: [],
 					learned: "Run the tests with `node --test test/*.test.ts`.",
 				}),
 			);
@@ -332,8 +336,26 @@ function plan(feedback: string | undefined): AssistantMessage {
 	return tools(
 		call("plan", SUBMIT_PLAN, {
 			title: revised ? "Add shout() (revised)" : "Add shout()",
-			summary: revised ? `Add a shout() greeting, revised for: ${quoted ?? "the feedback"}` : "Add a shout() function that greets in capitals, with a test.",
-			steps: ["Add src/shout.ts", "Add a test", "Run the tests and commit"],
+			goal: revised
+				? `Add a shout() greeting, revised for: ${quoted ?? "the feedback"}`
+				: "Add a `shout()` function that greets in capitals, built on `greet()`, with a test.",
+			endState: ['`shout("Ada")` returns `"HELLO, ADA!"`', "`greet()` behaves exactly as before", "`node --test test/*.test.ts` passes"],
+			decisions: [
+				{ choice: "Put it in its own file, `src/shout.ts`", reason: "Keeps `src/greet.ts` to one function, as the repository does" },
+				{ choice: "Build on `greet()` rather than repeat its template", reason: "One place decides the greeting's wording" },
+			],
+			steps: [
+				{ text: "Add `shout(name)`", files: ["src/shout.ts"] },
+				{ text: "Add a test for it", files: ["test/shout.test.ts"] },
+				{ text: "Run the tests and commit", files: [] },
+			],
+			verification: ["node --test test/*.test.ts"],
+			outOfScope: ["Changing `greet()` or its test"],
+			risks: [],
+			citations: [
+				{ ref: "src/greet.ts:1-3", note: "`greet()` builds the greeting that `shout()` will capitalise" },
+				{ ref: "test/greet.test.ts", note: "The test style to follow: `node:test` with strict assertions" },
+			],
 		}),
 	);
 }
@@ -343,10 +365,21 @@ function report(messages: readonly Message[]): AssistantMessage {
 	const id = recalled === undefined ? undefined : textOf(recalled).match(/build id: (\d+)/)?.[1];
 	return tools(
 		call("report", FILE_REPORT, {
-			summary: "Added shout(), a capitalised greeting, with a test.",
-			changes: ["src/shout.ts: shout(name)", "test/shout.test.ts: covers it"],
-			verification: "node --test test/*.test.ts passes.",
-			notes: id === undefined ? "" : `The build id from the start of the session was ${id}.`,
+			headline: "Added shout(), a capitalised greeting, with a test.",
+			summary: "",
+			outcome: "complete",
+			endState: [
+				{ criterion: '`shout("Ada")` returns `"HELLO, ADA!"`', met: true, evidence: "Asserted in `test/shout.test.ts`, which passes" },
+				{ criterion: "`greet()` behaves exactly as before", met: true, evidence: "`src/greet.ts` is unchanged and its test passes" },
+				{ criterion: "`node --test test/*.test.ts` passes", met: true, evidence: "2 tests, 0 failures" },
+			],
+			changes: [
+				{ change: "Added `shout(name)`, built on `greet()`", files: ["src/shout.ts"] },
+				{ change: "Added a test for it", files: ["test/shout.test.ts"] },
+			],
+			checks: [{ command: "node --test test/*.test.ts", result: "passed", detail: "2 tests, 0 failures" }],
+			deviations: [],
+			notes: id === undefined ? [] : [`The build id from the start of the session was ${id}.`],
 			learned: "Run the tests with `node --test test/*.test.ts`; no install step is needed.",
 		}),
 	);

@@ -46,22 +46,66 @@ export type QuestionCard = {
 	createdAt: number;
 };
 
+/** A choice the agent made instead of asking. Approving the plan approves it. */
+export type PlanDecision = { choice: string; reason: string };
+
+/** What a plan rests on: a repository path (`path`, `path:line` or `path:start-end`) or a URL, and what it shows. */
+export type Citation = { ref: string; note: string };
+
 export type PlanStep = {
 	id: string;
 	text: string;
+	/** The repository paths the step creates or changes. */
+	files: string[];
 };
 
+/**
+ * A plan, as the agent submits it with submit_plan. Every part is required, and lists may be empty only where the
+ * tool's description allows, so each part of a good plan is stated out loud. A new part goes here, in the tool's
+ * parameters, in the card, and in what the agent is told while implementing.
+ */
 export type Plan = {
 	title: string;
-	summary: string;
+	/** What changes and why, in one to three sentences. */
+	goal: string;
+	/** Done when: conditions a reviewer could check. */
+	endState: string[];
+	decisions: PlanDecision[];
 	steps: PlanStep[];
+	/** How the work will be proved: the commands and tests to run. */
+	verification: string[];
+	outOfScope: string[];
+	risks: string[];
+	citations: Citation[];
 };
+
+/** A plan filed before plans were structured: a summary paragraph and steps without files. */
+export type LegacyPlan = { title: string; summary: string; steps: { id: string; text: string }[] };
+
+/** A plan as stored: sessions from before plans were structured may hold the older shape. */
+export type StoredPlan = Plan | LegacyPlan;
+
+/** Any stored plan in the current shape, the older one read as a goal and steps with nothing else stated. */
+export function planOf(plan: StoredPlan): Plan {
+	if ("goal" in plan) return plan;
+	return {
+		title: plan.title,
+		goal: plan.summary,
+		endState: [],
+		decisions: [],
+		steps: plan.steps.map((step) => ({ ...step, files: [] })),
+		verification: [],
+		outOfScope: [],
+		risks: [],
+		citations: [],
+	};
+}
 
 export type PlanCard = {
 	kind: "plan";
 	id: string;
 	taskId: number;
-	plan: Plan;
+	plan: StoredPlan;
 	/** 1 for the first proposal, then one more per revision. */
 	revision: number;
 	createdAt: number;
@@ -85,23 +129,79 @@ export type CardAnswer =
 	| { kind: "approve" }
 	| { kind: "revise"; feedback: string };
 
-export type PlanState = Plan & {
+export type PlanState = StoredPlan & {
 	revision: number;
 	approved: boolean;
 	/** Step IDs Pi marked complete. */
 	done: string[];
 };
 
+/** How far the work got against what was asked: all of it, some of it, or none for a reason the person must clear. */
+export type ReportOutcome = "complete" | "partial" | "blocked";
+
+/** One condition of the plan's end state, restated, with whether it now holds and what shows it. */
+export type EndStateCheck = { criterion: string; met: boolean; evidence: string };
+
+export type ReportChange = { change: string; files: string[] };
+
+/** A check the agent ran, as the exact command, and what it showed. */
+export type ReportCheck = { command: string; result: "passed" | "failed" | "not run"; detail: string };
+
+/**
+ * A report, as the agent files it with file_report, set against the plan: each end-state condition with its evidence,
+ * the changes by file, the checks run, and where the work departed from the plan. A new part goes here, in the tool's
+ * parameters, in the card and in the pull request's description.
+ */
 export type Report = {
+	/** One line: the notification and the pull request's title. */
+	headline: string;
 	summary: string;
-	changes: string[];
-	verification: string;
-	notes: string;
+	outcome: ReportOutcome;
+	endState: EndStateCheck[];
+	changes: ReportChange[];
+	checks: ReportCheck[];
+	/** Where the work departed from the plan, and decisions the plan left open. */
+	deviations: string[];
+	/** What the agent is unsure of, could not do, or noticed and left alone. */
+	notes: string[];
 	learned: string;
 	/** HEAD when the report was filed. */
 	commit: string;
 	filedAt: number;
 };
+
+/** A report filed before reports were structured: prose fields and changes as plain lines. */
+export type LegacyReport = {
+	summary: string;
+	changes: string[];
+	verification: string;
+	notes: string;
+	learned: string;
+	commit: string;
+	filedAt: number;
+};
+
+/** A report as stored: sessions from before reports were structured may hold the older shape. */
+export type StoredReport = Report | LegacyReport;
+
+/** Any stored report in the current shape. The older one's verification prose has no commands to show, so it reads as a note. */
+export function reportOf(report: StoredReport): Report {
+	if ("headline" in report) return report;
+	const [headline = "", ...rest] = report.summary.split("\n");
+	return {
+		headline,
+		summary: rest.join("\n").trim(),
+		outcome: "complete",
+		endState: [],
+		changes: report.changes.map((change) => ({ change, files: [] })),
+		checks: [],
+		deviations: [],
+		notes: [report.verification, report.notes].map((text) => text.trim()).filter((text) => text !== ""),
+		learned: report.learned,
+		commit: report.commit,
+		filedAt: report.filedAt,
+	};
+}
 
 export type PullRequestRef = {
 	number: number;
@@ -193,7 +293,7 @@ export type SessionDoc = {
 	workflow: Workflow;
 	plan?: PlanState;
 	card?: PendingCard;
-	report?: Report;
+	report?: StoredReport;
 	delivery: Delivery;
 	/** Spend cap in US dollars; absent means no cap. */
 	cap?: number;

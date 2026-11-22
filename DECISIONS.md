@@ -76,11 +76,11 @@ Seven tools, in `src/server/agent`:
   recommended option (shown first and pre-selected), and every question accepts free text. Two tools rather than one
   with a mode flag, because the model chooses a tool more reliably than a parameter, and each schema can say exactly
   what it needs (recommendation required vs. absent).
-- `submit_plan`: title, summary, steps; waits for approval or feedback. Approval moves the workflow to `implementing`;
-  feedback comes back verbatim and the model revises.
+- `submit_plan`: a structured plan (below); waits for approval or feedback. Approval moves the workflow to
+  `implementing`; feedback comes back verbatim and the model revises.
 - `update_progress`: step numbers done.
-- `file_report`: summary, changes, verification, notes, and `learned` (which replaces the repository's memory). It
-  checks the workspace itself: refused with uncommitted changes, refused when the branch is behind `origin/<base>` after
+- `file_report`: a structured report (below), and `learned` (which replaces the repository's memory). It checks the
+  workspace itself: refused with uncommitted changes, refused when the branch is behind `origin/<base>` after
   a fetch. A successful report ends the run (`terminate`), so no tokens are spent on a sign-off.
 - `recall_history`: search or read the full history, including what compaction removed from view.
 - `write_handoff`: a short first-person note, only when picloud asks for one before it compacts the context (see
@@ -106,9 +106,28 @@ from that list rather than editing sentences. It is organised around the moments
 - **Git and this machine.** Commits are added, never rewritten. Nothing changes on GitHub. The shell is
   non-interactive. Touch only your own workspace. These rules beat a repository's own instructions.
 
-Tool descriptions carry only how to fill each field: the report summary's first line is both the notification and the
-pull request title. The session section states only this session's facts and its current state; two of its states
+Tool descriptions carry only how to fill each field: the report's headline is both the notification and the pull
+request title. The session section states only this session's facts and its current state; two of its states
 had been wrong.
+
+**Plans and reports are structured, part by part.** A plan written as a paragraph and a list of steps read as a wall
+of text on a phone, and left out what a reviewer most needs: what "done" means, what the agent decided without asking,
+and what it read. So `submit_plan` takes the parts a reviewer checks, each a list of one-line items: a `goal` (one to
+three sentences), an `endState` (conditions a reviewer could check, not activities), `decisions` (choice and reason;
+approving the plan approves them), `steps` with the `files` each touches, `verification` (the commands it will run),
+`outOfScope`, `risks`, and `citations` (a path, `path:line` or URL, and what it shows). Every part is required; a list
+may be empty only where its description allows, so the model states each part out loud rather than leaving it out.
+`file_report` mirrors it, so the card can set what was asked beside what was done: a `headline` (the notification and
+the pull request title), a short `summary`, an `outcome` (`complete`, `partial`, `blocked`), each end-state condition
+restated with `met` and its `evidence`, `changes` with their files, `checks` (the exact command, `passed`, `failed` or
+`not run`, and what it showed), `deviations` from the plan, and `notes`. The agent sees the plan's end state again in
+the session section while it works and in checkpoints, since its report must answer it. The same structure renders
+three ways: the card, the pull request's description (a GitHub task list for the end state), and what is read aloud.
+The shapes live once, in `src/shared/session.ts`, and extending one means adding a field there, to the tool's
+parameters and to the card. Plans and reports filed before this keep their older shape in storage; `planOf` and
+`reportOf` read either as the current one, where they are rendered or summarised. *Alternatives:* Markdown with
+required headings is what models drift from, and a card cannot tell an empty section from a forgotten one; asking for
+structure in the prompt alone is advice, where a schema is enforced.
 
 **Waiting is a parked tool.** A question or plan tool commits its card (and its notification) to the session
 document, then returns `{ sleep: { signals: [picloud.card-answer] } }`; the call holds no process. The person's answer
@@ -335,6 +354,13 @@ highlighter drawn across) read as a costume: the props announced the idea instea
 margin cost a phone fifty pixels of every line. A newspaper layout made the waiting moment loud but everything else
 too graphic for something read every day; the system sans with a stronger accent kept the hollowness, which came from
 the defaults, not the colour.
+
+**A plan and a report are reviewed part by part.** Each part sits under a small label, each item is one line, and what
+supports it (a decision's reason, a condition's evidence, a step's files, a check's output) is set smaller beneath it.
+A plan waiting for approval shows every part except its sources, which open on a tap; once answered, it shows its goal
+and its steps ticking off, and the rest opens on a tap. A report shows its outcome by the title (Complete, Partly done,
+Blocked), its headline, each end-state condition ticked or crossed with its evidence, the changes with their files, the
+checks with their results, and where the work departed from the plan. Parts with nothing in them are left out.
 
 **One small set of values, declared once at the top of `app.css`.** Spacing comes from 2/4/8/12/16/24 px, radii from
 four tokens, type from Apple's text styles expressed as fractions of Body (so Dynamic Type scales all of it), colour

@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { after, before, describe, test } from "node:test";
 import type { DeliveryResult, SessionDiff } from "../src/shared/api.ts";
-import { MESSAGE_ENTRY } from "../src/shared/session.ts";
+import { MESSAGE_ENTRY, reportOf } from "../src/shared/session.ts";
 import { git } from "../src/server/git.ts";
 import type { ConversationId } from "@earendil-works/pi-durable";
 import { context, TestServer } from "./helpers.ts";
@@ -46,7 +46,7 @@ describe("the zero-shot lifecycle", () => {
 		assert.equal(done.workflow, "reported");
 		assert.equal(done.outcome?.kind, "reported");
 		assert.deepEqual(done.plan?.done, ["1", "2", "3"]);
-		assert.match(done.report?.summary ?? "", /shout/);
+		assert.match(done.report === undefined ? "" : reportOf(done.report).headline, /shout/);
 		assert.equal(done.report?.commit, (await git(server.workspace(id), ["rev-parse", "HEAD"])).stdout.trim());
 
 		// The answer shaped the code: "Three !!!" was chosen.
@@ -74,6 +74,12 @@ describe("the zero-shot lifecycle", () => {
 		assert.equal(pulls.length, 1);
 		assert.equal(pulls[0]?.head, done.branch);
 		assert.equal(pulls[0]?.base, "main");
+		// The report, part by part, becomes the pull request: its headline the title, its end state a checklist.
+		assert.equal(pulls[0]?.title, "Added shout(), a capitalised greeting, with a test.");
+		assert.match(pulls[0]?.body ?? "", /^\*\*Complete\.\*\*/);
+		assert.match(pulls[0]?.body ?? "", /## Done when\n- \[x\] `shout\("Ada"\)` returns `"HELLO, ADA!"`: Asserted in/);
+		assert.match(pulls[0]?.body ?? "", /## Changes\n- Added `shout\(name\)`, built on `greet\(\)` \(`src\/shout\.ts`\)/);
+		assert.match(pulls[0]?.body ?? "", /## Checks\n- passed: `node --test test\/\*\.test\.ts`: 2 tests, 0 failures/);
 		const final = await server.session(id);
 		assert.deepEqual(final?.delivery.pr, { number: delivered.pr?.number, url: delivered.pr?.url });
 

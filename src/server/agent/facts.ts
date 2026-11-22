@@ -2,9 +2,9 @@
 // agent read and changed with its file tools, and picloud's own records of the person's words, the plan and the session.
 import type { Context } from "@earendil-works/chord/context";
 import type { Cursor, EntryId, HookApi } from "@earendil-works/pi-durable";
-import type { SessionDoc } from "../../shared/session.ts";
+import { planOf, reportOf, type SessionDoc } from "../../shared/session.ts";
 import { aheadBehind, changedFiles, commits, comparisonPoint, currentBranch, head, refExists, uncommitted } from "../git.ts";
-import { describePlan } from "./plan.ts";
+import { describeEndState, describePlan } from "./plan.ts";
 
 export type Ground = {
 	branch: string;
@@ -90,7 +90,12 @@ export function wordLines(doc: Readonly<SessionDoc>): string[] {
 export function planLines(doc: Readonly<SessionDoc>): string[] {
 	const plan = doc.plan;
 	if (plan === undefined) return ["No plan has been proposed."];
-	return [`"${plan.title}", revision ${plan.revision}, ${plan.approved ? "approved" : "not approved yet"}; ${plan.done.length} of ${plan.steps.length} steps done.`, plan.summary, describePlan(plan)];
+	return [
+		`"${plan.title}", revision ${plan.revision}, ${plan.approved ? "approved" : "not approved yet"}; ${plan.done.length} of ${plan.steps.length} steps done.`,
+		planOf(plan).goal,
+		describePlan(plan),
+		describeEndState(plan),
+	].filter((line) => line !== "");
 }
 
 export function sessionLines(doc: Readonly<SessionDoc>): string[] {
@@ -98,7 +103,7 @@ export function sessionLines(doc: Readonly<SessionDoc>): string[] {
 	return [
 		`Workflow: ${workflow}.`,
 		`Repository ${doc.repo}; your branch ${doc.branch}; base ${doc.base}.`,
-		...(doc.report === undefined ? [] : [`Last report (${new Date(doc.report.filedAt).toISOString()}): ${doc.report.summary}`]),
+		...(doc.report === undefined ? [] : [`Last report (${new Date(doc.report.filedAt).toISOString()}): ${reportOf(doc.report).headline}`]),
 	];
 }
 
