@@ -44,7 +44,8 @@ ENV PICLOUD_DATA_DIR=/data \
 	PICLOUD_PORT=8787
 USER picloud
 WORKDIR /app
-# /data holds the database, workspaces and backups; the home holds Pi's sign-in and model choice, and the caches of
-# the tools the agent runs (npm and the like). With compose.yaml's read-only root, these and /tmp are all it can write.
+# /data holds the database, workspaces and backups, and each session's own home and tmp, where the tools the agent
+# runs keep their caches; the home holds Pi's sign-in and model choice. With compose.yaml's read-only root, these and
+# /tmp are all it can write.
 VOLUME ["/data", "/home/picloud"]
 CMD ["node", "--disable-warning=ExperimentalWarning", "src/server/main.ts"]

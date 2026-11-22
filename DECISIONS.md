@@ -312,7 +312,8 @@ A bash script, because it has to run on a machine that does not have Node yet. E
 (`run`, `write_file`) that print instead of acting in `--dry-run`, every step checks before it changes anything, and
 the configuration file keeps existing values unless an option replaces them, so re-running upgrades in place. It ends
 by listing the steps only a person can do. The systemd unit uses `RestartPreventExitStatus=78` so a missing Pi
-sign-in waits for a person instead of restarting in a loop.
+sign-in waits for a person instead of restarting in a loop, and does the same for exit code 2: a configuration that
+is incomplete, such as a missing agent token, or a kernel the sandbox cannot work on.
 
 ## Running in Docker
 
@@ -323,14 +324,16 @@ put picloud on the droplet's public interface. Tailscale uses its documented set
 kernel networking with `/dev/net/tun`, a serve file applied at start, and the auth key used once.
 
 **Configuration lives in one `.env` that compose reads.** Each value goes only to the container that needs it: the
-auth key to Tailscale, `GH_TOKEN` and the `PICLOUD_*` settings to picloud. GitHub access uses `GH_TOKEN`, which `gh`
-reads and which git reaches through gh's credential helper (configured system-wide in the image). That is the same
-access the service user's `gh` login gives under the installer. Pi's sign-in stays interactive (`docker compose run
+auth key to Tailscale, `GH_TOKEN` and the `PICLOUD_*` settings to picloud. picloud's GitHub access uses `GH_TOKEN`,
+which `gh` reads and which git reaches through gh's credential helper (configured system-wide in the image). That is
+the same access the service user's `gh` login gives under the installer. Agent commands get `AGENT_GH_TOKEN` instead
+(see "Session isolation"). Pi's sign-in stays interactive (`docker compose run
 --rm picloud pi`), because it often uses Pi's own subscription login, and writing Pi's configuration ourselves would
 take that over from Pi.
 
 **The image is Ubuntu 24.04, with Node copied from the official Node image.**
-- Ubuntu 24.04 is what the installer targets, so the agent's tools are the same on either path.
+- Ubuntu 24.04 is one of the installer's targets, so the agent's tools are the same on either path. The recommended
+  host is Debian 13, but the sandbox is the host kernel's Landlock, so the image's userland need not follow.
 - `gh` comes from Ubuntu's own archive rather than a third-party apt repository.
 - Copying Node pins it exactly (22.23.4), which NodeSource's 22.x channel would not.
 - A build stage installs everything and builds the phone app; the runtime stage keeps production dependencies only.
@@ -343,9 +346,10 @@ take that over from Pi.
   - has the setuid and setgid bits stripped from the image;
   - has a read-only root filesystem, writing only to the `data` volume, its `home` volume and a size-capped `/tmp`.
 
-  The agent still builds and runs code: the volumes and `/tmp` allow it to execute programs, and npm and the like keep
-  their caches in the home volume. That is why the volume is now the whole home directory and not just `~/.pi`. A
-  process limit (1024) contains a runaway test.
+  The agent still builds and runs code: the volumes allow it to execute programs. The home volume was made the whole
+  home directory, not just `~/.pi`, for the caches of npm and the like; since session isolation those live in each
+  session's own home on the `data` volume, and the home volume keeps Pi's sign-in. A process limit (1024) contains a
+  runaway test.
 - **Tailscale** keeps only `NET_ADMIN` and `NET_RAW`, the two capabilities its tunnel and firewall rules need, on a
   read-only root.
 
@@ -369,6 +373,100 @@ dry-run helpers, through `deploy/lib.sh`.
   - cloud-init and the provider's agents, which resizing, the web console and backups depend on.
 - **What it buys.** The masked services hold on the order of 100 MB on a stock Ubuntu image. The swap file matters more
   for the agent's test runs: a spike past memory slows them down instead of getting them killed.
+
+## Session isolation
+
+**Each session's agent is isolated from picloud and from other sessions, in three layers.** This departs from the
+runbook's A7, where the agent shared the service user's credentials, at the owner's request.
+
+**Two GitHub tokens.**
+- **picloud's own** (Contents and Pull requests read and write, Metadata read) lists, clones, pushes and opens pull
+  requests. All of that runs in picloud's process, never sandboxed: `host.ts`, `sessions.ts` and `delivery.ts`.
+- **The agent's** is read-only (Contents and Metadata read). Agent commands get it as `GH_TOKEN` and `GITHUB_TOKEN`.
+  gh reads it, and git through gh's credential helper, which the image and now also the installer configure
+  system-wide, because agent commands have a home of their own.
+
+So "nothing reaches GitHub without the person's tap" holds at the credential level, not only as an instruction.
+Real mode refuses to start without the agent's token. Under the installer, picloud's token stays in the service
+user's gh login, and the env file holding the agent's token is root's alone (0600), since systemd reads it as root.
+
+**An allowlisted environment.** Durable spawns a command with picloud's whole environment unless told otherwise, so
+the session's environment passes `inheritEnv: false` with an explicit set:
+- PATH, the locale, TZ, TERM, the user and shell names;
+- proxies and the CA files they need;
+- the no-prompt git variables;
+- a `HOME`, `TMPDIR` and `GH_CONFIG_DIR` of the session's own, under `<data>/sandbox/<id>`;
+- the agent's token.
+
+No `PICLOUD_*` setting, provider key or picloud token gets through. `PI_CODING_AGENT_DIR` used to be passed so that a
+`pi` the agent ran would find picloud's configuration. That configuration (sign-in, models) is now deliberately out of
+reach, and the prompt names skills by absolute path, so nothing agent-side needs it. The scratch directory is made
+whenever a session's environment is built rather than at setup, so sessions from before this change get one on their
+next command. Maintenance removes it with the workspace.
+
+**Landlock around every command and file operation.** `picloud-sandbox` is under 200 lines of C with no
+dependencies. It restricts itself, then runs the command, with these grants:
+- **read-write:** the workspace, the scratch directory and `/dev`;
+- **read and execute:** `/usr`, `/bin`, `/sbin`, `/lib*`, `/etc`, `/proc`, `/sys`, and also
+  - the real directory behind `/etc/resolv.conf`;
+  - the Node.js running picloud (under `/usr` in both deployments, but anywhere on a developer's machine);
+  - the CA files the environment names;
+  - Pi's `skills` directory;
+  - in fake mode, the stand-in remote.
+
+Everything else is out of reach: other workspaces, the database, push keys, uploads, backups, picloud's home and code,
+and the shared `/tmp`. The launcher handles every right the kernel's ABI knows, best effort, as the kernel's own
+sample does. From ABI 6 it also scopes signals and abstract unix sockets. Landlock already forbids ptrace and reading
+`/proc/<pid>` across domains, so a command can neither read picloud's process nor, from ABI 6, signal it. Paths that
+do not exist, or that the user cannot open, are skipped.
+
+The file tools run in picloud's own process, where Landlock cannot apply. So the session's environment checks every
+path against the same grants, without `/proc`, which there is picloud's own:
+- it resolves real paths, following a planted or dangling symlink to where it leads;
+- it refuses writes to read-only grants;
+- it returns Durable's normal `FileError`, saying what was refused and where files may go.
+
+A check-then-use race remains. A command running at the same moment could swap a checked directory for a symlink
+before the tool opens it. Closing it would need `openat2` with `RESOLVE_BENEATH`, which Node does not offer.
+
+**What it costs.**
+- **Background processes:** each command is its own Landlock domain, so from ABI 6 a command cannot signal a
+  process an earlier command started. The prompt tells the agent to stop a background server in the command that
+  starts it.
+- **Toolchains** must live under a granted path, in practice `/usr`. One in the service user's home, such as
+  rustup's, is out of reach.
+- **Caches:** they are per session now, so each session downloads its own npm packages.
+- **`/tmp`:** a program that hard-codes it fails, since `TMPDIR` points into the scratch directory.
+
+**What stays open.**
+- **The loopback API.** TCP is not restricted, so a command can call picloud's HTTP API on 127.0.0.1 and send the
+  `Tailscale-User-Login` header itself. It can approve its own plan or tap Deliver. Closing this needs Landlock's
+  TCP rules (ABI 4) or a credential on the API, and network restriction is the owner's separate decision.
+- **The tailnet and metadata.** Commands reach every host the machine reaches: other tailnet devices (limited only by
+  Tailscale's access controls) and a cloud provider's metadata service. They can also reach tailscaled's local
+  socket, because Landlock does not restrict connecting to a named unix socket.
+- **TCP in general**, including sending the workspace anywhere. Builds need registries.
+- **The race above**, and `/dev/shm`, which every session can write through `/dev`.
+- **Root.** As root, Landlock still let a confined command read another process's `/proc/<pid>/environ` (seen on
+  Linux 6.18), though not its memory. picloud runs as its own unprivileged user in both deployments, and there it
+  cannot; the test of it skips as root.
+- **Below ABI 6** (Ubuntu 24.04's 6.8 kernel has ABI 4), commands can signal picloud's and other sessions'
+  processes. picloud warns at startup.
+
+**Why no VMs or per-session containers.** A microVM or a container per session would isolate more: its own kernel or
+namespaces, and network policy. But it needs KVM or a container runtime with privileges picloud does not have. The
+Docker deployment drops every capability and sets no-new-privileges, Docker's default seccomp profile blocks the user
+namespaces bubblewrap would need, and a typical droplet has no nested virtualization. Landlock needs no privilege,
+works unchanged inside the hardened container, adds under a millisecond per command, and is one small launcher
+rather than an orchestration layer.
+
+**Debian 13 is the recommended host.** Its 6.12 kernel has Landlock ABI 6, so signals and abstract sockets are
+scoped. Ubuntu 24.04's 6.8 kernel stops at ABI 4. The installer supports both, choosing Tailscale's apt source from
+`/etc/os-release`. The Docker image keeps its Ubuntu 24.04 userland, because Landlock is the host kernel's.
+
+**`PICLOUD_SANDBOX=off` is the way out for a kernel without Landlock.** Real mode otherwise refuses to start there,
+with exit code 2 and what to do. The allowlisted environment and the agent's token apply either way. Fake mode uses
+the sandbox wherever it works, so the tests exercise it on any machine that has it.
 
 ## Slash commands: not built
 
