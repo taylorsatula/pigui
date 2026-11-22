@@ -1,6 +1,7 @@
 // History recall: compaction drops old context from what the model sees, but every entry stays in storage. This tool
 // searches and reads that full history, so a detail lost to a summary can be found again.
 import type { Context } from "@earendil-works/chord/context";
+import type { Message } from "@earendil-works/pi-ai";
 import { type Cursor, defineTool, type EntryRecord, type ToolExecutionApi, type ToolExecutionResult } from "@earendil-works/pi-durable";
 import { int, obj, opt, str } from "@earendil-works/pi-schema";
 
@@ -12,8 +13,13 @@ const MAX_ENTRY_TEXT = 20_000;
 
 /** The searchable text of one entry: what was said, the calls made with their arguments, and what tools returned. */
 export function entryText(entry: EntryRecord): string {
+	return messagesText(entry.model ?? []);
+}
+
+/** Messages as text, the way recall shows an entry; system messages are left out. */
+export function messagesText(messages: readonly Message[]): string {
 	const parts: string[] = [];
-	for (const message of entry.model ?? []) {
+	for (const message of messages) {
 		if (message.role === "system") continue;
 		if (message.role === "toolResult") parts.push(`[result of ${message.toolName}]`);
 		const content = typeof message.content === "string" ? [{ type: "text" as const, text: message.content }] : message.content;
@@ -41,7 +47,7 @@ export function recallTool() {
 	return defineTool({
 		name: RECALL,
 		description:
-			"Search or read this session's full history, including everything from before a compaction. Give `query` (words that must all appear, such as a file name, an error message or a number) to find entries, or `entry` (an entry number from a search or the handoff) to read one in full.",
+			"Search or read this session's full history, including everything from before a compaction. Give `query` (words that must all appear, such as a file name, an error message or a number) to find entries, or `entry` (an entry number from a search or a compaction checkpoint) to read one in full.",
 		parameters: obj({
 			query: opt(str({ minLength: 1, maxLength: 500 })),
 			entry: opt(int({ minimum: 1 })),

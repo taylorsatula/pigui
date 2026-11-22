@@ -22,6 +22,8 @@ export function describeCall(name: string, args: Args): string {
 			const steps = Array.isArray(args.completed) ? args.completed.join(", ") : "";
 			return `Marked step${steps.includes(",") ? "s" : ""} ${steps} done`;
 		}
+		case "write_handoff":
+			return "Wrote a handoff note";
 		case "recall_history":
 			return args.entry !== undefined ? `Looked up history entry ${String(args.entry)}` : `Searched history for “${firstLine(args.query, 40)}”`;
 		default:
@@ -36,6 +38,7 @@ const NOUNS: Record<string, [string, string, string]> = {
 	edit: ["Edited", "file", "files"],
 	update_progress: ["Updated", "progress", "progress"],
 	recall_history: ["Searched", "history", "history"],
+	write_handoff: ["Wrote", "handoff note", "handoff notes"],
 };
 
 /** A group of calls in one line: "Ran 2 commands, edited 1 file". */

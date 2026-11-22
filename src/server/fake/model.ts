@@ -1,7 +1,7 @@
 // Fake mode's model: pi-ai's faux provider, scripted as a function of each request's messages, so it plays the whole
 // zero-shot flow (explore, questions, plan, edits, commits, progress, report) the same way in every conversation at
-// once. The step a request is at is read from the ID of the newest tool call, which survives compaction because the
-// kept tail always ends with it. Directives in the task, such as [no-report], steer the scenario for tests.
+// once. The step a request is at is read from the ID of the newest scripted tool call, which survives compaction because
+// the scripted summarizer always keeps it. Directives in the task, such as [no-report], steer the scenario for tests.
 import {
 	type AssistantMessage,
 	type AssistantMessageEventStream,
@@ -21,11 +21,13 @@ import {
 	type TranscriptContext,
 } from "@earendil-works/pi-ai";
 import type { ModelRef } from "@earendil-works/pi-durable";
-import { SUMMARIZER_PROMPT } from "../agent/handoff.ts";
+import { CHECKPOINT_HEADER } from "../agent/checkpoint.ts";
+import { HANDOFF_REQUEST, WRITE_HANDOFF } from "../agent/handoff.ts";
 import { SUBMIT_PLAN, UPDATE_PROGRESS } from "../agent/plan.ts";
 import { ASK_MULTIPLE, ASK_SINGLE } from "../agent/questions.ts";
 import { RECALL } from "../agent/recall.ts";
 import { FILE_REPORT } from "../agent/report.ts";
+import { SUMMARIZER_PROMPT } from "../agent/summarizer.ts";
 
 const FAKE_PROVIDER = "picloud-fake";
 const FAKE_MODEL = "scripted";
@@ -47,6 +49,7 @@ type Step =
 	| "follow-commit"
 	| "follow-report"
 	| "recall"
+	| "handoff"
 	| "spin"
 	| "build-1"
 	| "build-2"
@@ -54,11 +57,16 @@ type Step =
 
 const STEPS = new Set<string>([
 	"explore", "ask", "checklist", "plan", "write-src", "progress-1", "write-test", "progress-2", "commit", "progress-3",
-	"report", "fix-commit", "follow-edit", "follow-commit", "follow-report", "recall", "spin", "build-1", "build-2", "build-3",
+	"report", "fix-commit", "follow-edit", "follow-commit", "follow-report", "recall", "handoff", "spin", "build-1", "build-2", "build-3",
 ]);
+
+/** Steps that do not move the scenario on: looking up history, and the handoff note picloud asks for. */
+const ASIDES = new Set<string>(["recall", "handoff"]);
 
 /** In [long] scenarios, verbose build output fills the context so compaction happens mid-implementation. */
 const BULK = "seq 100000 102500";
+/** In [backstop] scenarios, one build prints the most bash keeps (50 KB), so a single round passes Durable's thresholds. */
+const FLOOD = 'seq -f "%032g" 1 2000';
 
 let callIds = 0;
 const call = (step: Step, name: string, args: Parameters<typeof fauxToolCall>[1]) => fauxToolCall(name, args, { id: `${step}:${++callIds}` });
@@ -82,13 +90,13 @@ function systemText(messages: readonly Message[]): string {
 
 type StepResult = { step: Step; index: number; text: string; isError: boolean };
 
-/** The newest result of a scripted step, skipping recall lookups, which do not move the scenario on. */
+/** The newest result of a scripted step, skipping the asides. */
 function lastStep(messages: readonly Message[]): StepResult | undefined {
 	for (let index = messages.length - 1; index >= 0; index--) {
 		const message = messages[index];
 		if (message?.role !== "toolResult") continue;
 		const step = message.toolCallId.split(":")[0] ?? "";
-		if (!STEPS.has(step) || step === "recall") continue;
+		if (!STEPS.has(step) || ASIDES.has(step)) continue;
 		return { step: step as Step, index, text: textOf(message), isError: message.isError };
 	}
 	return undefined;
@@ -125,7 +133,8 @@ function style(messages: readonly Message[]): string {
 function respond(context: TranscriptContext, options: SimpleStreamOptions | undefined, onRequest?: ScriptedModelOptions["onRequest"]): AssistantMessage {
 	const messages = context.messages;
 	const summary = systemText(messages).includes(SUMMARIZER_PROMPT.slice(0, 60));
-	onRequest?.(summary ? "summary" : "agent");
+	const lastUser = messages.findLast((message) => message.role === "user");
+	onRequest?.(summary ? "summary" : "agent", lastUser === undefined ? "" : textOf(lastUser));
 	if (summary) return summarize(messages);
 	if (systemText(messages).includes("context summarization assistant")) return builtInSummary(messages, options);
 	const people = messages.filter((message) => message.role === "user").map(textOf);
@@ -134,6 +143,11 @@ function respond(context: TranscriptContext, options: SimpleStreamOptions | unde
 	const after = previous === undefined ? messages : messages.slice(previous.index + 1);
 	const newest = [...after].reverse().find((message) => message.role === "user");
 	const nudged = after.some((message) => message.role === "user" && textOf(message).startsWith("[Automatic continuation"));
+
+	if (newest !== undefined && textOf(newest) === HANDOFF_REQUEST && !directives.includes("[ignore-handoff]")) {
+		const where = previous === undefined ? "starting out" : `just finished the ${previous.step} step`;
+		return tools(call("handoff", WRITE_HANDOFF, { text: `I have ${where} of the approved plan. Next I continue with the step after it, then mark progress. Nothing is blocking me.` }));
+	}
 
 	if (directives.includes("[model-error]") && previous?.step === "progress-1") {
 		const key = options?.sessionId ?? "none";
@@ -167,8 +181,14 @@ function respond(context: TranscriptContext, options: SimpleStreamOptions | unde
 		// A steer reached the spinning run: it stops and says what it heard.
 		return fauxAssistantMessage(`Stopping, as you said: ${stripContext(textOf(newest))}`);
 	}
-	if (directives.includes("[recall]") && people.some((text) => text.includes("<summary>")) && !messages.some((message) => message.role === "toolResult" && message.toolCallId.startsWith("recall:"))) {
+	const recalled = messages.some((message) => message.role === "toolResult" && message.toolCallId.startsWith("recall:"));
+	if (directives.includes("[recall]") && people.some((text) => text.includes(CHECKPOINT_HEADER)) && !recalled) {
 		return tools(call("recall", RECALL, { query: "build id" }));
+	}
+	// A condensed result says where the full one is; [condense] follows the pointer once, as an agent needing it would.
+	const pointer = messages.flatMap((message) => (message.role === "toolResult" ? [/^\[Condensed at compaction:[\s\S]*The full result is entry (\d+)/.exec(textOf(message))?.[1]] : [])).find((id) => id !== undefined);
+	if (directives.includes("[condense]") && pointer !== undefined && !recalled) {
+		return tools(call("recall", RECALL, { entry: Number(pointer) }));
 	}
 	return next(previous, messages, directives, nudged);
 }
@@ -179,7 +199,10 @@ function spin(turn: number): AssistantMessage {
 
 function next(previous: StepResult, messages: readonly Message[], directives: string, nudged: boolean): AssistantMessage {
 	const long = directives.includes("[long]");
-	const build = (step: "build-1" | "build-2" | "build-3") => tools(call(step, "bash", { command: `node --test test/*.test.ts --test-reporter=spec 2>&1 | tail -3; ${BULK}` }));
+	const build = (step: "build-1" | "build-2" | "build-3") => {
+		const bulk = step === "build-2" && directives.includes("[backstop]") ? FLOOD : BULK;
+		return tools(call(step, "bash", { command: `node --test test/*.test.ts --test-reporter=spec 2>&1 | tail -3; ${bulk}` }));
+	};
 	switch (previous.step) {
 		case "build-1":
 			return tools(call("progress-1", UPDATE_PROGRESS, { completed: [1], note: "Added shout()" }));
@@ -273,6 +296,7 @@ function next(previous: StepResult, messages: readonly Message[], directives: st
 				}),
 			);
 		case "recall":
+		case "handoff":
 		case "follow-report":
 			return fauxAssistantMessage("Done.");
 	}
@@ -304,7 +328,7 @@ function report(messages: readonly Message[]): AssistantMessage {
 	);
 }
 
-/** Durable's own summarizer, which runs only when picloud's handoff hook fails; [compaction-fails] fails it once. */
+/** Durable's own summarizer, which runs only when picloud's backstop hook fails; [compaction-fails] fails it once. */
 function builtInSummary(messages: readonly Message[], options: SimpleStreamOptions | undefined): AssistantMessage {
 	const request = messages.filter((message) => message.role === "user").map(textOf).join("\n");
 	const key = `builtin:${options?.sessionId ?? "none"}`;
@@ -315,25 +339,89 @@ function builtInSummary(messages: readonly Message[], options: SimpleStreamOptio
 	return fauxAssistantMessage("Summary: the plan is being implemented.");
 }
 
-/** The scripted summarizer: an update built from the transcript it is given, or a failure when asked for one. */
+type PromptEntry = { id: number; role: string; valid: boolean; text: string };
+
+function promptEntries(section: string): PromptEntry[] {
+	return [...section.matchAll(/<entry id="(\d+)" kind="[^"]*" role="([^"]*)"(?: valid_cutpoint="(true|false)")?>\n([\s\S]*?)\n<\/entry>/g)].map((match) => ({
+		id: Number(match[1]),
+		role: match[2] ?? "",
+		valid: match[3] === "true",
+		text: match[4] ?? "",
+	}));
+}
+
+function section(text: string, tag: string): string | undefined {
+	return new RegExp(`<${tag}>\\n([\\s\\S]*?)\\n</${tag}>`).exec(text)?.[1];
+}
+
+/**
+ * The scripted summarizer. By default it keeps the runway from the newest scripted call, which the scripted agent reads
+ * its step from, and evolves the previous checkpoint: its verified list gains one line per compaction. Directives: an
+ * invalid cut ([cut-invalid]), the earliest cut with every long result condensed ([condense]), an error
+ * ([summarizer-fails]) and a reply with no checkpoint in it ([summarizer-garbage]).
+ */
 function summarize(messages: readonly Message[]): AssistantMessage {
 	const request = messages.filter((message) => message.role === "user").map(textOf).join("\n");
 	if (request.includes("[summarizer-fails]")) return fauxAssistantMessage([], { stopReason: "error", errorMessage: "Scripted summarizer failure" });
-	const results = [...request.matchAll(/\[result of (\w+)\]/g)].map((match) => match[1]);
-	const latest = results.at(-1) ?? "nothing";
-	return fauxAssistantMessage(
-		JSON.stringify({
-			resume: {
-				inProgress: "Working through the approved plan.",
-				latestResult: `The last tool to finish was ${latest}.`,
-				nextAction: "Continue with the first plan step that is not done.",
-			},
-			addFindings: [`Compacted ${results.length} tool results.`],
-			addFailed: [],
-			addOpen: [],
-			resolve: [],
-		}),
-	);
+	if (request.includes("[summarizer-garbage]")) return fauxAssistantMessage("Sure! Here is a quick summary: the agent did some work.");
+	const history = promptEntries(section(request, "new_history_to_compact") ?? "");
+	const kept = promptEntries(section(request, "kept_recent_context") ?? "");
+	const valid = kept.filter((entry) => entry.valid);
+	const scripted = valid.filter((entry) => entry.role === "assistant" && /\[call (?!write_handoff)/.test(entry.text));
+	const condense = request.includes("[condense]");
+	const cut = request.includes("[cut-invalid]")
+		? (kept.find((entry) => entry.role === "toolResult")?.id ?? 999_999)
+		: condense
+			? valid[0]?.id
+			: (scripted.at(-1) ?? valid.at(-1))?.id;
+	const condensed = condense
+		? kept.filter((entry) => entry.role === "toolResult" && entry.text.includes("characters left out") && !entry.text.startsWith(`[result of ${WRITE_HANDOFF}]`))
+		: [];
+	const verified = [...(section(request, "previous_checkpoint") ?? "").matchAll(/^ {2}- Compaction \d+:.*$/gm)].map((match) => match[0]);
+	const latest = [...history.map((entry) => entry.text).join("\n").matchAll(/\[result of (\w+)\]/g)].at(-1)?.[1] ?? "nothing";
+	verified.push(`  - Compaction ${verified.length + 1}: compacted ${history.length} entries; the newest compacted result was from ${latest}.`);
+	const handoff = section(request, "agent_handoff");
+	const decision = [
+		"<cutpoint_decision>",
+		`<recommended_cut_before_entry_id>${cut ?? ""}</recommended_cut_before_entry_id>`,
+		"<cutpoint_reasoning>The newest scripted call and its result are the runway to the next step.</cutpoint_reasoning>",
+		"</cutpoint_decision>",
+		...(condensed.length === 0
+			? []
+			: ["<condense>", ...condensed.map((entry) => `<tool_result entry_id="${entry.id}">Printed a long build log; the build finished.</tool_result>`), "</condense>"]),
+	];
+	const body = [
+		"STATE AT COMPACTION BOUNDARY:",
+		"- Active task: Working through the approved plan.",
+		"- Most recent request from the person: as in their words.",
+		`- Current implementation state: the newest compacted result was from ${latest}.`,
+		`- Context needed to continue: ${handoff === undefined ? "the kept entries." : "the agent's handoff note, kept after this checkpoint."}`,
+		"",
+		"EVIDENCE TIERS:",
+		"- Verified from session and tool history:",
+		...verified,
+		"- Requirements the person stated: as in their words.",
+		"- Inferences: none.",
+		"",
+		"CODE REFERENCES:",
+		"- Files and paths: src/shout.ts, test/shout.test.ts",
+		"",
+		"DECISIONS AND RATIONALE:",
+		"- Decisions made: follow the approved plan.",
+		"",
+		"COMMANDS, TESTS, AND FAILURES:",
+		"- Tests run: node --test test/*.test.ts",
+		"",
+		"WORK QUEUE:",
+		"- Next exact steps: Continue with the first plan step that is not done.",
+		"",
+		"OPEN THREADS:",
+		"- Open questions: none.",
+		"",
+		"COMPACTED HISTORY SYNOPSIS:",
+		"The agent explored the repository, asked its questions, planned, and is implementing the plan.",
+	];
+	return fauxAssistantMessage([...decision, "", ...body].join("\n"));
 }
 
 /**
@@ -358,8 +446,8 @@ export type ScriptedModelOptions = {
 	contextWindow?: number;
 	/** Streaming pace, so a phone sees text arrive; unset streams at once. */
 	tokensPerSecond?: number;
-	/** Told of every request, so tests can count what the model was asked. */
-	onRequest?: (kind: "agent" | "summary") => void;
+	/** Told of every request and the text of its last user message, so tests can see what the model was asked. */
+	onRequest?: (kind: "agent" | "summary", text: string) => void;
 };
 
 export function scriptedModels(options: ScriptedModelOptions = {}): { models: Models; model: ModelRef } {

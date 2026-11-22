@@ -4,6 +4,10 @@ import type { AssistantMessage, ToolResultMessage } from "@earendil-works/pi-ai"
 import type { EntryRecord, LiveState, TranscriptView } from "@earendil-works/pi-durable";
 import {
 	type CardAnswer,
+	CHECKPOINT_ENTRY,
+	type CheckpointEntryData,
+	COMPACTION_NOTE_ENTRY,
+	type CompactionNoteData,
 	MESSAGE_ENTRY,
 	type MessageEntryData,
 	NUDGE_ENTRY,
@@ -36,7 +40,8 @@ export type Block =
 	| { kind: "questions"; key: string; card: QuestionCard; answer?: CardAnswer; pending: boolean }
 	| { kind: "plan"; key: string; card: PlanCard; answer?: CardAnswer; pending: boolean }
 	| { kind: "report"; key: string; report: Report; latest: boolean }
-	| { kind: "compaction"; key: string; summary: string }
+	/** `retained`: messages kept verbatim after it, when picloud placed the checkpoint. */
+	| { kind: "compaction"; key: string; summary: string; retained?: number }
 	| { kind: "notice"; key: string; text: string; tone: "info" | "error" };
 
 function resultText(message: ToolResultMessage): string {
@@ -51,6 +56,17 @@ function userText(entry: EntryRecord): string {
 
 type Details = { card?: QuestionCard | PlanCard; answer?: CardAnswer; report?: Report };
 
+const NOTES: Record<CompactionNoteData["note"], string> = {
+	"handoff-request": "Asked Pi for a handoff note before compacting the context",
+	resume: "Asked Pi to resume after compacting the context",
+};
+
+/** A compaction row from picloud's checkpoint marker, or from Durable's summary, which wraps its text. */
+function compactionBlock(key: string, entry: EntryRecord): Block {
+	if (entry.kind === CHECKPOINT_ENTRY) return { kind: "compaction", key, summary: userText(entry), retained: (entry.data as CheckpointEntryData).retained };
+	return { kind: "compaction", key, summary: userText(entry).replace(/^[\s\S]*?<summary>\n?/, "").replace(/\n?<\/summary>\s*$/, "") };
+}
+
 export function buildBlocks(view: TranscriptView | undefined, session: SessionDoc | undefined): Block[] {
 	if (view === undefined) return [];
 	const live = view.docs["pi.live"] as LiveState | undefined;
@@ -59,6 +75,16 @@ export function buildBlocks(view: TranscriptView | undefined, session: SessionDo
 		if (item.kind !== "entry") continue;
 		const message = item.entry.model?.[0];
 		if (message?.role === "toolResult") results.set(message.toolCallId, { message, details: message.details as Details | undefined });
+	}
+	// picloud's marker for a compaction Durable ran supersedes Durable's summary of it: one row for the two, where the
+	// compaction happened, showing what the agent sees.
+	const markers = new Map<number, EntryRecord>();
+	const summarized = new Set<number>();
+	for (const item of view.items) {
+		if (item.kind !== "entry") continue;
+		const cut = item.entry.kind === CHECKPOINT_ENTRY ? (item.entry.data as CheckpointEntryData).durableCut : undefined;
+		if (cut !== undefined) markers.set(cut, item.entry);
+		if (item.entry.kind === "pi.compaction" && item.entry.head !== undefined) summarized.add(item.entry.head);
 	}
 	const slots = new Map((live?.tools ?? []).map((slot) => [slot.callId, slot]));
 	const lastReport = [...results.values()].filter((result) => result.message.toolName === "file_report" && !result.message.isError).at(-1);
@@ -145,7 +171,18 @@ export function buildBlocks(view: TranscriptView | undefined, session: SessionDo
 			}
 			case "pi.compaction":
 				flush();
-				blocks.push({ kind: "compaction", key, summary: userText(entry).replace(/^[\s\S]*?<summary>\n?/, "").replace(/\n?<\/summary>\s*$/, "") });
+				blocks.push(compactionBlock(key, (entry.head === undefined ? undefined : markers.get(entry.head)) ?? entry));
+				break;
+			case CHECKPOINT_ENTRY: {
+				const cut = (entry.data as CheckpointEntryData).durableCut;
+				if (cut !== undefined && summarized.has(cut)) break;
+				flush();
+				blocks.push(compactionBlock(key, entry));
+				break;
+			}
+			case COMPACTION_NOTE_ENTRY:
+				flush();
+				blocks.push({ kind: "notice", key, tone: "info", text: NOTES[(entry.data as CompactionNoteData).note] });
 				break;
 			case "pi.reset":
 				flush();

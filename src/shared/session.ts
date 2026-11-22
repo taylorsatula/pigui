@@ -77,7 +77,7 @@ export type QuestionAnswer = {
 	text?: string;
 };
 
-/** What the person gave a card; signalled to the parked tool and kept verbatim for handoffs. */
+/** What the person gave a card; signalled to the parked tool and kept verbatim for compaction checkpoints. */
 export type CardAnswer =
 	| { kind: "questions"; answers: QuestionAnswer[] }
 	/** Typed into the composer while a card waits: one reply for the whole card. */
@@ -125,33 +125,20 @@ export type Outcome =
 
 export type PersonWordKind = "task" | "message" | "answer" | "approval" | "feedback";
 
-/** Something the person said, verbatim. Compaction handoffs carry these unchanged. */
+/** Something the person said, verbatim. Compaction checkpoints carry these unchanged. */
 export type PersonWord = {
 	at: number;
 	kind: PersonWordKind;
 	text: string;
 };
 
-export type NoteItem = {
-	id: string;
-	text: string;
-};
-
-/** The model-written part of the compaction handoff, accumulated across compactions. */
-export type HandoffNotes = {
-	resume: {
-		inProgress: string;
-		latestResult: string;
-		nextAction: string;
-	};
-	findings: NoteItem[];
-	failed: NoteItem[];
-	open: NoteItem[];
-};
-
 /** Entry kinds picloud places in the transcript, beside Durable's own `pi.*` kinds. */
 export const MESSAGE_ENTRY = "picloud.message";
 export const NUDGE_ENTRY = "picloud.nudge";
+/** picloud's compaction checkpoint: a head marker that starts the context at the cut its summarizer chose. */
+export const CHECKPOINT_ENTRY = "picloud.compaction";
+/** What picloud says to the agent around a compaction it runs; the model sees it as a user message. */
+export const COMPACTION_NOTE_ENTRY = "picloud.compaction-note";
 
 export type ReferenceStatus = "included" | "pointer" | "skill";
 
@@ -168,6 +155,25 @@ export type NudgeEntryData = {
 	attempt: number;
 	limit: number;
 };
+
+export type CheckpointEntryData = {
+	/** The compaction task that wrote it: picloud's own, or Durable's when picloud's backstop hook answered it. */
+	task: number;
+	/**
+	 * For a Durable compaction, the entry its own summary heads: that summary carries the same checkpoint text, and the
+	 * phone shows the two as one row.
+	 */
+	durableCut?: number;
+	/** Whose cut it is: the summarizer's, the nearest within the cap, or the fallback. */
+	selection: "model" | "capped" | "fallback";
+	/** Model messages kept verbatim after the checkpoint. */
+	retained: number;
+	/** Kept tool results replaced by a one-line note in what the model sees. */
+	condensed: number;
+};
+
+/** Before compacting, picloud asks the agent for a handoff note; after, it tells the agent to resume. */
+export type CompactionNoteData = { note: "handoff-request" | "resume" };
 
 /** Why the current run was started; decides how its end is handled. */
 export type RunCause = "person" | "continuation" | "resume" | "continue";
@@ -202,7 +208,20 @@ export type SessionDoc = {
 	notified: string[];
 	/** Recently handled request IDs and what they answered, so a retried send never acts twice. */
 	requests: { id: string; at: number; result: string }[];
-	handoff?: { notes: HandoffNotes; compactions: number; lastTask: number };
+	/**
+	 * What the next compaction needs. Documents from before checkpoints also hold `notes`, which nothing reads and the
+	 * next compaction drops.
+	 */
+	handoff?: {
+		/** The summarizer's latest working state, which the next one evolves; absent until one was written. */
+		body?: string;
+		/** Checkpoints written. */
+		compactions: number;
+		/** The compaction task that wrote the latest, so a rerun after a restart counts it once. */
+		lastTask: number;
+		/** When picloud asked the agent for a handoff note; cleared by the compaction that follows. */
+		requestedAt?: number;
+	};
 	/** The first message, kept until setup submits it, so a failed setup can be retried. */
 	pendingTask?: { text: string; attachments: string[] };
 	archived: boolean;

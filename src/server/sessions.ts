@@ -24,7 +24,7 @@ import type { AnswerCardBody, CreateSessionBody, MessageRoute, SendMessageBody }
 import { type CardAnswer, MESSAGE_ENTRY, type PendingCard, type SessionDoc, type SessionStart, type SetupStep } from "../shared/session.ts";
 import { formatDollars, spentOf } from "../shared/spend.ts";
 import { ANSWER_KEY, CardAnswerSignal } from "./agent/cards.ts";
-import { compactionFor } from "./agent/handoff.ts";
+import { compactionFor } from "./agent/compaction.ts";
 import { ATTACHMENTS_DIR } from "./agent/prompt.ts";
 import { describeAnswer } from "./agent/questions.ts";
 import { skillsAt } from "./agent/resources.ts";

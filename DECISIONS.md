@@ -32,7 +32,8 @@ through small typed interfaces (`AgentServices`, `SessionsDeps`, `RepoHost`, `Pu
 
 - `picloud.session` (conversation scope): the repository, branches, setup state, workflow, plan and progress, the
   pending card, the report, delivery state, spend cap, the run picloud started (`activeRun`), how the last run ended
-  (`outcome`), the person's words, notification keys already used, recent request IDs, and the handoff notes.
+  (`outcome`), the person's words, notification keys already used, recent request IDs, and what the next compaction
+  needs (the summarizer's latest working state, the checkpoint count, a pending handoff request).
 - `picloud.index` (session scope, one per Harness): one drawer row per session, plus the last repository and recent
   session-creation request IDs.
 - `picloud.repo-memory` (session-scoped family keyed by repository): what reports learned about building and testing.
@@ -69,7 +70,7 @@ also how the server knows whether the person is looking (presence, used to suppr
 
 ## Agent tools and prompt
 
-Six tools, in `src/server/agent`:
+Seven tools, in `src/server/agent`:
 
 - `ask_single_choice` and `ask_multiple_choice`: several questions per card; the single-choice one requires a
   recommended option (shown first and pre-selected), and every question accepts free text. Two tools rather than one
@@ -82,6 +83,8 @@ Six tools, in `src/server/agent`:
   checks the workspace itself: refused with uncommitted changes, refused when the branch is behind `origin/<base>` after
   a fetch. A successful report ends the run (`terminate`), so no tokens are spent on a sign-off.
 - `recall_history`: search or read the full history, including what compaction removed from view.
+- `write_handoff`: a short first-person note, only when picloud asks for one before it compacts the context (see
+  "Compaction handoff").
 
 The prompt (`prompt.ts`) is picloud's own preamble, then sections that change rarely: the session
 (repository, branch, base, workflow and plan progress), the project's instructions through Pi's
@@ -142,40 +145,100 @@ results. New runs are refused while over the cap.
 
 ## Compaction handoff
 
-picloud supplies the summary through `hook(CompactionTask, { beforeCompact })`, so the built-in summarizer only runs if
-picloud's hook fails. Thresholds are set per session from its model's context window. How each principle is met:
+**picloud compacts the context itself, led by the agent's own handoff note.** After every tool round, an `afterTools`
+hook (`compaction.ts`) measures the context the way Durable does: the usage of the request that made the round's calls,
+plus estimates of its results. Past 60% of the model's window it asks for a hook task whose terminal commit steers the
+agent: "Your context window is about to be compacted. Call write_handoff now…". The agent answers with `write_handoff`,
+a first-person note of about 300 words on what it is doing, what it just learned, its exact next step and what it is
+unsure of. At the end of that round the hook asks for picloud's compaction task, which runs as the generation's child
+before the round ends. The summarizer writes a checkpoint and chooses the cut. The task's first commit admits a write
+whose entry is a head marker (`picloud.compaction`): its `head` is the cut, its model message is the checkpoint, and its
+`edits` replace the tool results the summarizer condensed. The task's terminal commit admits a resume steer. Writes are
+placed before steers at the round's boundary, so the next request sees the checkpoint, then the kept runway ending with
+the note's call and result, verbatim, then "The context window has just been compacted. Please resume with what you
+were doing." Both steers are inputs of their own kind (`picloud.compaction-note`). The model sees a user message, the
+phone shows a quiet note, and neither is recorded in `doc.words`. If the agent ignores the request, the hook compacts
+at the end of its next round anyway, without a note. There is one request per cycle (`handoff.requestedAt` in the
+session document), and none in a round the spend cap ends, because a steer queued there would start a run of its own.
+The 60% trigger sits 15% of the window below Durable's background threshold, which is 75% with picloud's settings. That
+leaves room for one round of large output (a bash result is capped at 50 KB, about 12k tokens) and for the handoff
+round, so on a real window the cycle runs before Durable's own compaction. A round that already lands past 75% is left
+to Durable.
+
+**Why picloud runs it, and Durable's compaction as the backstop.** Durable's `beforeCompact` hook can supply the
+summary but not the cut: Durable chooses its cut itself (`selectCut`) and places the hook's summary there. A marker
+placed after that summary can move the context's start, with two limits: the cut can only be Durable's or later, within
+the cap; and after a blocking compaction the generation continues at once from Durable's cut, so the summarizer's cut
+applies from the next turn. Compacting from `afterTools` has neither limit, and the agent writes its handoff while its
+context is still whole. Durable's compaction stays on as a rare backstop: its `beforeCompact` hook writes the same
+checkpoint within those limits, with no handoff and no resume turn. *Alternatives:* summaries from the hook alone (the
+previous design, with model-written JSON notes that code merged) left the cut to Durable's token count; a reset handoff
+(`control.handoff`) would drop the verbatim runway.
+
+**The checkpoint follows mirastyle-compaction.** Its section structure, cut strategy and summarizer prompt (the hurdle
+race and its runway, the evidence rules) are ported from the owner's mirastyle-compaction extension for the terminal Pi
+agent, adapted to Durable's entries. The summarizer is the session's model, or `PICLOUD_COMPACTION_MODEL` while Pi can
+sign in to that model, and writes at most 12k tokens or the model's own limit. It is given the previous working state,
+picloud's facts, the agent's note, the newly compacted entries tagged by ID, kind and role, and the kept range, with
+each kept entry marked `valid_cutpoint` by Durable's own rule: never a tool result, never between a call and its
+result. It returns a cut with one sentence of reasoning, optional one-line notes for kept tool results to condense, and
+eight sections: STATE AT COMPACTION BOUNDARY, EVIDENCE TIERS, CODE REFERENCES, DECISIONS AND RATIONALE, COMMANDS, TESTS,
+AND FAILURES, WORK QUEUE, OPEN THREADS, COMPACTED HISTORY SYNOPSIS. Code checks every choice (`cut.ts`). The cut must be
+one of the valid cuts it was shown, keep the note's call and result, and keep at most the cap (25% of the window). A cut
+over the cap moves to the nearest later valid cut within it. Anything else falls back: to the earliest cut within the
+cap in picloud's compaction, to Durable's cut in the backstop. Whenever the summarizer's cut is not used, a note in the
+checkpoint says why. Only tool results are condensed, never the person's messages or the note's result. A condensed
+result keeps its call ID and name, so the pair stays intact, and the stored entry is unchanged, so `recall_history`
+still reads the original. How each principle of the runbook is met:
 
 1. **Ground truth over memory.** The repository section (branch, HEAD, ahead/behind of the base, uncommitted files,
-   the session's commits and changed files), the plan with its progress, and the session's workflow state are
-   recomputed by code from the workspace and the session document at every compaction. The model never writes them.
+   the session's commits and changed files), the plan with its progress, the session's workflow state and the files read
+   and modified through the file tools are recomputed by code (`facts.ts`) at every compaction. They are given to the
+   summarizer as facts not to restate, and placed in the checkpoint unchanged.
 2. **The person's words are never paraphrased.** Every task, answer, approval and message is stored verbatim in the
-   session document as it happens and rendered verbatim in every handoff.
-3. **Accumulate; don't re-summarize.** The model-written notes (resume point, findings, failures, open items) are
-   stored in the session document. At each compaction the model sees the stored notes as JSON plus only the newly
-   compacted entries (the previous summary is excluded) and returns an *update*: a new resume point, items to add,
-   item IDs to resolve. Code merges it; unresolved items persist until resolved.
-4. **Lead with the resume point.** The handoff opens with what was in progress, the latest result and the exact next
-   action, then the instructions for acting on it.
-5. **Keep negative knowledge.** "Tried and failed" is its own accumulated list.
-6. **Point, don't paste.** Long tool results are cut in what the summarizer reads, with the entry number to recall;
-   the handoff lists the compacted tool calls with where their results are, and the repository lists point to
-   `git log` and `git diff --stat` rather than reproducing them.
-7. **Make loss recoverable.** `recall_history` searches and reads every stored entry, and the handoff says it exists.
-8. **Verify before trusting.** "Before you act" tells the agent to run `git status`/`git log`, re-read files before
-   editing, and not redo finished steps or re-ask answered questions.
-9. **Never strand the run.** The model-written notes are memoized on the compaction task before the summary is
-   returned, so a restart mid-compaction reuses them (a test counts the summarizer calls). A failed or unparseable
-   summarization keeps the previous notes, reconstructs a resume point from the last entries, and still returns a full
-   handoff. A run that ends on a compaction error is continued automatically by the supervisor.
-10. **Degrade in a fixed order.** The handoff has a budget; over it, it sheds oldest-first, in this order: history
-    pointers, the changed-file list, the commit list, findings, failed attempts, open items, each with a note of what
-    was left out. It never sheds the resume point, the person's words, the plan, the session state, the repository
-    state or the instructions.
-11. **Size relative to the model.** Compaction thresholds (reserve 15%, keep 25%, background 10%) and the handoff
-    budget (10%) are proportions of the session's model's context window.
+   session document as it happens and rendered verbatim in every checkpoint.
+3. **Accumulate; don't re-summarize.** The summarizer's working state is kept in the session document. At each
+   compaction the summarizer is given it as frozen state, with only the entries compacted since (the previous checkpoint
+   is not among them), and writes a complete successor: it keeps what still holds, corrects what newer entries
+   contradict, and keeps open threads until they are resolved. Code-owned facts are never summarized at all.
+4. **Lead with the resume point.** The agent's own note on where it stands and its exact next step stays verbatim,
+   right before the resume turn. The working state starts with STATE AT COMPACTION BOUNDARY, and its WORK QUEUE names
+   the next exact steps.
+5. **Keep negative knowledge.** COMMANDS, TESTS, AND FAILURES holds current failures; DECISIONS AND RATIONALE holds
+   what was ruled out.
+6. **Point, don't paste.** Long results are cut to their head and tail in what the summarizer reads, with the entry
+   number to recall. Condensed results become a one-line note with that pointer. The repository lists point to
+   `git log` and `git diff --stat`.
+7. **Make loss recoverable.** `recall_history` searches and reads every stored entry. The checkpoint says it exists
+   and names the cut and the range it covered.
+8. **Verify before trusting.** "Before you act" tells the agent to run `git status` and `git log`, re-read files before
+   editing, and not redo finished steps or re-ask answered questions. The header says the checkpoint is historical: the
+   files on disk and later messages win.
+9. **Never strand the run.** The summarizer's reply is memoized on the compaction task (`api.memo`) before anything is
+   placed, so a rerun after a restart never calls it again; a test counts the calls. The marker and the resume turn have
+   fixed request IDs, and each is admitted in its own commit: Durable allows one admission per commit. If the summarizer
+   errors, returns no checkpoint or has no model, the fallback cut is used and the previous working state is carried
+   forward with fresh facts and a "not updated at this compaction" note. A run that ends on a compaction error is
+   continued automatically by the supervisor.
+10. **Degrade in a fixed order.** The code-owned part has a budget. Over it, lists are shed oldest first, in this order:
+    files read, files modified, the changed-file list, the commit list, each with a note of what was left out. The
+    person's words, the plan, the session and repository state, the instructions and the working state are never shed;
+    the working state is bounded by the summarizer's output limit instead.
+11. **Size relative to the model.** Durable's thresholds (reserve 15%, background 10%), the handoff trigger (60%), the
+    cap on what is kept (25%) and the code-owned budget (10%) are proportions of the session model's context window. The
+    summarizer's input is at most 60% of its own model's window.
 
-The phone shows each compaction as a collapsed "Context compacted" row that opens to the handoff. Compaction never
-touches the workflow state.
+**A marker only ever moves the context forward.** Durable places a queued write whose `head` lies before the active
+range as `stale` and never appends it (`isStale` in its inbox). A marker whose cut another compaction has already
+passed therefore never lands, and cannot bring back entries that compaction hid. Only the newest head marker is ever in
+view, so two checkpoints never are. A test holds Durable's background compaction after its summarizer while its
+blocking one completes, then checks that neither the held marker nor Durable's summary for it is placed. The backstop
+also declines when the context has already moved past Durable's own cut, and when its own marker already landed before a
+restart.
+
+The phone shows each compaction as one collapsed "Context compacted" row that opens to the checkpoint and says how many
+messages were kept. When the backstop's marker supersedes Durable's summary of the same compaction, the row shows the
+marker's checkpoint in the summary's place. Compaction never touches the workflow state.
 
 ## References in messages
 
@@ -292,8 +355,9 @@ iOS behaviours above, and of moving every scroll path onto an inner element.
 
 The scripted model is Pi's faux provider with one response factory queued per request, so it never runs dry and every
 response is a function of that request's messages: concurrent sessions cannot steal each other's script. The step a
-conversation is at is read from the ID of its newest tool call, which survives compaction because the kept tail always
-ends with it; directives in the task select variations. Its tokens are priced, because the faux provider reports zero
+conversation is at is read from the ID of its newest scripted tool call (handoff notes and recall lookups aside), which
+survives compaction because the scripted summarizer always cuts at or before it; directives in the task select
+variations, and the scripted summarizer answers picloud's prompt in its format, with directives of its own. Its tokens are priced, because the faux provider reports zero
 cost and the spend cap must be testable. The GitHub stand-in implements the same `RepoHost` interface as `gh`, with
 bare repositories for clone and push (so delivery runs real git) and a JSON file of pull requests. *Alternative:* a
 fake `gh` executable on `PATH` would exercise the real argument building but couple tests to a shell script and to
@@ -303,7 +367,7 @@ fake `gh` executable on `PATH` would exercise the real argument building but cou
 
 Automated tests use `node:test` (no test framework dependency) against the real server and real Durable SQLite
 storage, and wait on Durable watches instead of sleeping. Crash timing is tested with explicit fault seams (`faults` in
-`AppOptions`) that hold code at the exact point a crash matters (after a card's commit, after the handoff notes are
+`AppOptions`) that hold code at the exact point a crash matters (after a card's commit, after the summarizer's reply is
 memoized) until the Harness closes; this is deterministic where killing a process at a random moment is not.
 
 ## The installer

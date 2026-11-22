@@ -1,5 +1,6 @@
 import { isIP } from "node:net";
 import { resolve } from "node:path";
+import type { ModelRef } from "@earendil-works/pi-durable";
 
 export type Config = {
 	/** Database, workspaces, uploads, push keys and (in fake mode) the local GitHub stand-in. */
@@ -14,6 +15,8 @@ export type Config = {
 	maxTurns: number;
 	/** Default per-session spend cap in US dollars; undefined means no cap. */
 	spendCap: number | undefined;
+	/** The model that writes compaction checkpoints; undefined means each session's own model. */
+	compactionModel: ModelRef | undefined;
 	/** Scripted model and a local GitHub stand-in: the whole product without credentials. */
 	fake: boolean;
 };
@@ -44,6 +47,7 @@ export function readConfig(env: NodeJS.ProcessEnv): Config {
 			.filter((login) => login.length > 0),
 		maxTurns: integer(env.PICLOUD_MAX_TURNS, "PICLOUD_MAX_TURNS", 150, 1, 100_000),
 		spendCap: dollars(env.PICLOUD_SPEND_CAP),
+		compactionModel: modelRef(env.PICLOUD_COMPACTION_MODEL),
 		fake,
 	};
 }
@@ -76,6 +80,18 @@ function dollars(value: string | undefined): number | undefined {
 		throw new ConfigError(`PICLOUD_SPEND_CAP must be a positive number of US dollars, not ${JSON.stringify(value)}.`);
 	}
 	return parsed;
+}
+
+/** `provider/modelId`; the model ID may itself contain slashes, as on OpenRouter. */
+function modelRef(value: string | undefined): ModelRef | undefined {
+	if (value === undefined || value.trim() === "") return undefined;
+	const slash = value.indexOf("/");
+	const provider = value.slice(0, slash).trim();
+	const modelId = value.slice(slash + 1).trim();
+	if (slash === -1 || provider === "" || modelId === "") {
+		throw new ConfigError(`PICLOUD_COMPACTION_MODEL must be provider/modelId, as Pi names models (for example anthropic/claude-sonnet-4-5), not ${JSON.stringify(value)}.`);
+	}
+	return { provider, modelId };
 }
 
 function pushSubject(value: string | undefined): string {

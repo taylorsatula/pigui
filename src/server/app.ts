@@ -94,6 +94,7 @@ export async function startApp(options: AppOptions): Promise<App> {
 		harness,
 		models: () => pi.models,
 		model: (provider, modelId) => pi.models.getModel(provider, modelId) as Model<Api> | undefined,
+		compactionModel: config.compactionModel,
 		agentDir: options.agentDir,
 		workspace,
 		faults: options.faults ?? {},

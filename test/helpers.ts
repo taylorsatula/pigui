@@ -7,7 +7,7 @@ import { join } from "node:path";
 import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
 import { type ConversationId, type EntryRecord, LiveDoc, type LiveState } from "@earendil-works/pi-durable";
 import type { ApiError } from "../src/shared/api.ts";
-import type { SessionDoc } from "../src/shared/session.ts";
+import { CHECKPOINT_ENTRY, type SessionDoc } from "../src/shared/session.ts";
 import { type App, type AppOptions, startApp } from "../src/server/app.ts";
 import { readConfig } from "../src/server/config.ts";
 import { SessionDocToken } from "../src/server/docs.ts";
@@ -203,6 +203,7 @@ export function modelText(entry: EntryRecord): string {
 	return content.flatMap((block) => (block.type === "text" ? [block.text] : [])).join("\n");
 }
 
-export function compactions(entries: readonly EntryRecord[]): string[] {
-	return entries.filter((entry) => entry.kind === "pi.compaction").map(modelText);
+/** The text of every compaction in the transcript: picloud's checkpoint markers and Durable's summaries. */
+export function checkpoints(entries: readonly EntryRecord[]): string[] {
+	return entries.filter((entry) => entry.kind === "pi.compaction" || entry.kind === CHECKPOINT_ENTRY).map(modelText);
 }

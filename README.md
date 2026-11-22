@@ -48,8 +48,12 @@ What it runs:
   later message makes a follow-up commit and a new report. Its tokens are priced like a mid-range model so the spend
   cap can be tried. Directives in the task steer it, mostly for tests: `[checklist]` adds a multiple-choice card,
   `[no-report]` and `[never-report]` stop without a report, `[dirty-report]` reports before committing, `[model-error]`
-  fails once, `[spin]` loops until stopped, `[long]` produces verbose output so the context compacts,
-  `[recall]` searches history after a compaction, and `[summarizer-fails]` / `[compaction-fails]` fail summarization.
+  fails once, `[spin]` loops until stopped, and `[long]` produces verbose output so the context compacts: picloud asks
+  for a handoff note, which the scripted model writes, then compacts and resumes. With `[long]`: `[recall]` searches
+  history after a compaction, `[ignore-handoff]` ignores the request for a note, `[backstop]` prints so much in one
+  round that Durable compacts first, and the scripted summarizer answers `[cut-invalid]` with an invalid cut,
+  `[condense]` by condensing long results (which the agent then recalls), `[summarizer-fails]` with an error and
+  `[summarizer-garbage]` with no checkpoint; `[compaction-fails]` fails Durable's own summarizer once.
 - **A local stand-in for GitHub** (`src/server/fake/github.ts`): bare repositories under
   `$PICLOUD_DATA_DIR/fake-github/repos` that workspaces clone from and push to with plain git — `demo/greeter` (a
   small TypeScript library with an `AGENTS.md`, a Pi skill `release-notes`, a binary file, and a second branch
@@ -64,9 +68,9 @@ The automated tests call `startApp()` from `src/server/app.ts` — the same func
 empty Pi configuration directory. Storage is the real SQLite storage of Pi Durable; nothing in Durable is mocked.
 `restart()` closes the server and opens a new one on the same data directory, as a process restart would. Tests wait
 on Durable watches of the session document rather than polling. A few seams in `AppOptions` exist for tests: a clock
-(`now`), a request counter on the scripted model (`fakeModel.onRequest`), a smaller context window
-(`fakeModel.contextWindow`), and `faults`, hooks that hold the code at an exact point so a test can cut it off there
-the way a crash would.
+(`now`), a request observer on the scripted model (`fakeModel.onRequest`, told each request's kind and last user
+message), a smaller context window (`fakeModel.contextWindow`), and `faults`, hooks that hold the code at an exact point
+so a test can cut it off there the way a crash would.
 
 The end-to-end tests (`e2e/`) start `scripts/fake.ts` as a child process per test file, on a free port with temporary
 directories, and drive it with Playwright in Chromium at 390×844 (375 px for the horizontal-scroll check) with touch.
@@ -85,10 +89,12 @@ Configuration is by environment variables. The installer writes them to `/etc/pi
 | `PICLOUD_ALLOWED_LOGINS` | empty | Comma-separated Tailscale logins allowed in, checked against the `Tailscale-User-Login` header that `tailscale serve` adds. Empty allows anyone who reaches the server. |
 | `PICLOUD_MAX_TURNS` | `150` | Tool rounds one run may take before it stops and asks. |
 | `PICLOUD_SPEND_CAP` | none | Default spend cap per session, in US dollars. The person can raise a session's cap from the phone. |
+| `PICLOUD_COMPACTION_MODEL` | each session's model | The model that writes compaction checkpoints, as `provider/modelId` the way Pi names it (for example `anthropic/claude-sonnet-4-5`). It must be one Pi has credentials for; while it is not, picloud logs a warning and uses the session's model. Its spend counts toward the session's cap. |
 | `PICLOUD_FAKE` | `0` | `1` runs fake mode. |
 | `PI_CODING_AGENT_DIR` | `~/.pi/agent` | Pi's own variable: where Pi's configuration (models, sign-in, global skills, global `AGENTS.md`) is read from. |
 
-Models, sign-in and the default model come from Pi's configuration; picloud has no settings of its own for them. In
+Models, sign-in and the default model come from Pi's configuration; picloud's only setting of its own for them is
+which model writes compaction checkpoints (`PICLOUD_COMPACTION_MODEL`). In
 real mode, picloud exits with code 78 and instructions if Pi has no default model with credentials, before it touches
 the data directory.
 
@@ -213,7 +219,7 @@ three 10 MB files.
 ```
 src/shared/     shapes shared by server and phone: API payloads, documents, live protocol, reference syntax
 src/server/     the server: app assembly, HTTP, sessions, supervisor, delivery, notifications, maintenance
-src/server/agent/  what picloud adds to Pi: tools, prompt sections, spend cap, compaction handoff
+src/server/agent/  what picloud adds to Pi: tools, prompt sections, spend cap, compaction cycle and checkpoints
 src/server/fake/   fake mode: scripted model, stand-in GitHub, fixture repositories
 src/client/     the phone app (Preact), bundled by scripts/build.ts
 src/sw/         the service worker

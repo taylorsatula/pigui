@@ -1,5 +1,5 @@
 // The transcript. Detail is collapsed until asked for: thinking, tool activity (one line per stretch of work, then each
-// call, then its full input and output) and compaction handoffs all open on a tap. Failures show while collapsed.
+// call, then its full input and output) and compaction checkpoints all open on a tap. Failures show while collapsed.
 import type { JSX } from "preact";
 import { useLayoutEffect, useRef, useState } from "preact/hooks";
 import type { SessionDoc } from "../../shared/session.ts";
@@ -185,7 +185,8 @@ export function Transcript(props: {
 							<details key={block.key} class="compaction">
 								<summary>
 									<Icon name="chevron" size={16} />
-									Context compacted · see what was carried forward
+									Context compacted ·{" "}
+									{block.retained === undefined ? "see what was carried forward" : `kept ${block.retained} message${block.retained === 1 ? "" : "s"}`}
 								</summary>
 								<Markdown text={block.summary} />
 							</details>

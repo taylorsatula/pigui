@@ -62,6 +62,7 @@ services:
       PICLOUD_ALLOWED_LOGINS: ${PICLOUD_ALLOWED_LOGINS:-}
       PICLOUD_SPEND_CAP: ${PICLOUD_SPEND_CAP:-}
       PICLOUD_MAX_TURNS: ${PICLOUD_MAX_TURNS:-150}
+      PICLOUD_COMPACTION_MODEL: ${PICLOUD_COMPACTION_MODEL:-}
     volumes:
       - data:/data
       - home:/home/picloud

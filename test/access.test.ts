@@ -41,11 +41,18 @@ describe("access and configuration", () => {
 		assert.throws(() => readConfig({ PICLOUD_DATA_DIR: "/tmp/x", PICLOUD_SPEND_CAP: "-1" }), ConfigError);
 		assert.throws(() => readConfig({ PICLOUD_DATA_DIR: "/tmp/x", PICLOUD_PUSH_SUBJECT: "picloud" }), ConfigError);
 		assert.throws(() => readConfig({}), ConfigError);
+		assert.throws(() => readConfig({ PICLOUD_DATA_DIR: "/tmp/x", PICLOUD_COMPACTION_MODEL: "claude-sonnet" }), ConfigError);
+		assert.throws(() => readConfig({ PICLOUD_DATA_DIR: "/tmp/x", PICLOUD_COMPACTION_MODEL: "anthropic/" }), ConfigError);
+		assert.deepEqual(readConfig({ PICLOUD_DATA_DIR: "/tmp/x", PICLOUD_COMPACTION_MODEL: "openrouter/anthropic/claude-sonnet-4.5" }).compactionModel, {
+			provider: "openrouter",
+			modelId: "anthropic/claude-sonnet-4.5",
+		});
 		const config = readConfig({ PICLOUD_DATA_DIR: "/tmp/x", PICLOUD_HOST: "::1", PICLOUD_SPEND_CAP: "5", PICLOUD_ALLOWED_LOGINS: "A@b.c" });
 		assert.equal(config.host, "::1");
 		assert.equal(config.spendCap, 5);
 		assert.deepEqual(config.allowedLogins, ["a@b.c"]);
 		assert.equal(config.port, 8787);
+		assert.equal(config.compactionModel, undefined, "each session's own model by default");
 	});
 
 	test("real mode without a Pi sign-in exits with instructions before touching the data directory", async () => {
