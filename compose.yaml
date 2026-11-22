@@ -54,6 +54,7 @@ services:
       context: .
       args:
         PICLOUD_SPEECH: ${PICLOUD_SPEECH:-on}
+        PICLOUD_MEMORY_LOCAL: ${PICLOUD_MEMORY_LOCAL:-off}
     image: picloud:local
     # picloud listens on the loopback of the Tailscale container's network, so `tailscale serve` is the only way in.
     network_mode: service:tailscale
@@ -67,6 +68,9 @@ services:
       PICLOUD_ALLOWED_LOGINS: ${PICLOUD_ALLOWED_LOGINS:-}
       PICLOUD_SPEND_CAP: ${PICLOUD_SPEND_CAP:-}
       PICLOUD_COMPACTION_MODEL: ${PICLOUD_COMPACTION_MODEL:-}
+      PICLOUD_MEMORY_PROVIDER: ${PICLOUD_MEMORY_PROVIDER:-lunaroute}
+      PICLOUD_MEMORY_EMBED_MODEL: ${PICLOUD_MEMORY_EMBED_MODEL:-emb-qwen3}
+      PICLOUD_MEMORY_EMBED_URL: ${PICLOUD_MEMORY_EMBED_URL:-}
     volumes:
       - data:/data
       - home:/home/picloud

@@ -37,6 +37,7 @@ through small typed interfaces (`AgentServices`, `SessionsDeps`, `RepoHost`, `Pu
 - `picloud.index` (session scope, one per Harness): one drawer row per session, plus the last repository and recent
   session-creation request IDs.
 - `picloud.repo-memory` (session-scoped family keyed by repository): what reports learned about building and testing.
+- `picloud.memory` (session scope): long-term memory, when it is on (see "Long-term memory").
 - `picloud.push-subscriptions` (session scope).
 
 The drawer row is a *projection* of the session document (`sessionRow()` in `src/shared/session.ts`), recomputed by
@@ -71,7 +72,8 @@ also how the server knows whether the person is looking (presence, used to suppr
 
 ## Agent tools and prompt
 
-Seven tools, in `src/server/agent`:
+Seven tools, in `src/server/agent`, and an eighth, `surface_memories`, while long-term memory is on (see "Long-term
+memory"):
 
 - `ask_single_choice` and `ask_multiple_choice`: several questions per card; the single-choice one requires a
   recommended option (shown first and pre-selected), and every question accepts free text. Two tools rather than one
@@ -82,7 +84,8 @@ Seven tools, in `src/server/agent`:
 - `update_progress`: step numbers done.
 - `file_report`: a structured report (below), and `learned` (which replaces the repository's memory). It checks the
   workspace itself: refused with uncommitted changes, refused when the branch is behind `origin/<base>` after
-  a fetch. A successful report ends the run (`terminate`), so no tokens are spent on a sign-off.
+  a fetch. A successful report ends the run (`terminate`), so no tokens are spent on a sign-off. While long-term memory
+  is on, it also takes a required `memory` part.
 - `recall_history`: search or read the full history, including what compaction removed from view.
 - `write_handoff`: a short first-person note, only when picloud asks for one before it compacts the context (see
   "Compaction handoff").
@@ -104,6 +107,8 @@ from that list rather than editing sentences. It is organised around the moments
 - **After approval.** Run the tests first, stay in scope, and settle open points yourself. If blocked, file the report
   instead of asking.
 - **Verifying.** Never weaken a check to make it pass.
+- **Long-term memory**, while it is on: one search once the work's machinery can be named, more only for machinery
+  that search missed or for a surprise, and the report records and grades.
 - **Git and this machine.** Commits are added, never rewritten. Nothing changes on GitHub. The shell is
   non-interactive. Touch only your own workspace. These rules beat a repository's own instructions.
 
@@ -135,6 +140,80 @@ document, then returns `{ sleep: { signals: [picloud.card-answer] } }`; the call
 is delivered with `tx.signal()` in the same commit that clears the card and records their words, so the answer and the
 state change cannot separate. A rerun of the tool before its park was stored finds its card (keyed by call ID) and
 neither shows a second card nor notifies again; the card's revision and time are memoized for the same reason.
+
+## Long-term memory
+
+**The pi-durable-memory extension's memory, rebuilt on Durable and recorded by the report.** Pi keeps what no file
+states (a host's state, a harness's behaviour, a measurement that cannot be repeated) and finds it again in later
+sessions, in any repository, by embedding similarity. The original's directive for writing a memory (its eleven rules
+and four worked examples, directive v3), its ranking (a cosine floor of 0.44, the best eight, ratings moving the rank
+by at most 0.25) and the text of a search result are ported verbatim (`src/server/memory`), changing only wording that
+named its tool or its `checkpoint` op. What differs, and why:
+- **A Durable document** (`picloud.memory`) instead of the original's own SQLite file: changes commit with the report
+  that makes them, and restarts and backups cover memory like everything else. Vectors are stored as base64 and
+  searched in memory, as the original did; fine up to a few thousand memories.
+- **Pi's credentials.** pi-ai has no embeddings API, so picloud posts to the original's OpenAI-compatible endpoint
+  itself, signed with the key Pi resolves for `PICLOUD_MEMORY_PROVIDER` (a provider in its models.json) or stores for it
+  (auth.json). With neither and no explicit URL, memory is off and nothing of it reaches the agent. A re-embedding,
+  after a model change or golden-vector drift, goes in batches of 128 rather than one request a large store outgrows.
+- **Recorded and graded in the report.** The original returned instructions from a `checkpoint` call and asked for a
+  second call to record, which models skip. Filing a report is the finalization picloud's agent already does
+  reliably, part by part, so `memory` is a required part of `file_report` (`create`, `helpful`, `edit`, `delete`, each
+  required, each may be empty), applied in the report's own commit inside its rerun guard. The ids a search showed are
+  kept on the session (`memoryShown`), so the report is refused while one is unrated, naming each with its text even
+  after a compaction. A failed embedding still files the report, with a note: the work matters more.
+- **Fewer, later searches.** The original asked for a search before the first state-changing action, again on every
+  pivot to another subsystem, file or mechanism, and for every task. That searched too early, before the model could
+  name the machinery, so the query matched nothing and it searched again; and too often, on every file. picloud's flow
+  has natural moments instead: once the files and commands are known, before asking or planning; when the work reaches
+  machinery that search did not cover; and when something behaves unexpectedly, with the error text. The search
+  result's "surface again on every new subsystem" line is replaced to match.
+- **Not ported:** encryption at rest and the read-only global store (one person, one store, in a data directory only
+  the service user reads), the refinement pass with its byline and legacy migration (no older rows exist), release
+  notes, the settings menu, `/durable-memory` and its config.json (configuration is environment variables, as for the
+  rest of picloud), and the `checkpoint` op, which the report replaces. Repo memory (`learned`) stays apart: a short
+  build-and-test note read into every session on its repository, not a searched store.
+
+*Alternatives:* installing the extension unchanged would keep a second store outside Durable's commits, its own key
+and settings, and the checkpoint call models skip; a store per repository would lose what holds across repositories,
+such as a host's state; reading the surfaced ids back from the transcript would miss those a compaction removed. Fake
+mode embeds by hashing words into counts, seeded by the model's name, so tests search and re-embed without a network.
+The compaction tests run with memory off, because their context windows are calibrated to the prompt without it.
+
+**LEAF on the server, as a build-time switch (`PICLOUD_MEMORY_LOCAL`, default off).** Memory without a key or a
+network: [mdbr-leaf-ir-asym](https://huggingface.co/MongoDB/mdbr-leaf-ir-asym), run through transformers.js on the CPU,
+8-bit. The asymmetric model is packaged from two others whose weights it repeats byte for byte, so picloud loads their
+ONNX exports: `MongoDB/mdbr-leaf-ir` (23M parameters, with the query prompt) for searches, and
+`Snowflake/snowflake-arctic-embed-m-v1.5`, the space LEAF was distilled into, for memories, which are embedded once and
+searched many times. Each export ends in the model's own pooling, projection and normalisation, so a vector is its
+`sentence_embedding` output as it stands. The embedder is told which side a text is on (`query` or `document`); the
+endpoint ignores it. Measured here: half a second to load, 23 ms a search, 29 ms a memory, about 300 MB resident,
+released after five idle minutes as Kokoro is. Three choices in it:
+- **One text per forward pass.** The 8-bit exports quantize activations with one scale per tensor, taken over the whole
+  batch with its padding, so a memory embedded beside others came out at cosine 0.990 to itself embedded alone. Stored
+  vectors must reproduce (the golden check depends on it), so every text runs alone; re-embedding a thousand memories
+  takes about 30 seconds, once.
+- **A floor per model.** The cosine floor moved from the store onto the embedder: 0.44 for `emb-qwen3`, as the original
+  measured, and 0.28 for LEAF, measured with the original's method on 14 memories written to its rules, each with a
+  distill sharing no content word, and its 12 off-topic queries. LEAF's ranges overlap (off-topic peak 0.275, weakest
+  matches 0.263 and 0.286), so the floor sits just above the off-topic peak, since its job is to keep off-topic work
+  from surfacing anything: 13 of 14 targets clear it, 12 rank first. Thin; to re-measure on a real store.
+- **Which embedder.** An explicit `PICLOUD_MEMORY_EMBED_URL` wins, then LEAF where it is built in, then the provider's
+  endpoint with Pi's key. Building LEAF in is a choice made for this server, so it comes before a key that may be there
+  for other reasons. Off by default, so an existing setup keeps `emb-qwen3`, the better-measured model; speech stays on
+  by default because it has no alternative.
+
+`deploy/models.sh DIR [speech] [memory]` replaces the speech model's own script: one download loop and checksum list
+for both, and it removes the model of a feature not named, because picloud turns a feature on wherever it finds its
+model, so a model left from an earlier install would overrule the switch. The optional packages are pruned only when
+both switches are off, since they run both models; with speech off and LEAF on, `kokoro-js` stays (about 33 MB),
+unused without its model.
+
+**Memory off is said in the sidebar.** A server without an embedder runs, without memory, and the sessions look the
+same, so nothing else would show that it is off. `Bootstrap.memory` carries `{ on: true, model }` or `{ on: false, reason }`, the
+reason naming the cause and how to turn memory on, and the sidebar shows it in the banner's warning style, outside the
+scrolling list, for as long as memory is off. Not a toast or a dismissible banner: it is a standing condition of the
+server, not an event.
 
 ## When a run ends: the supervisor and continuation
 
@@ -677,13 +756,17 @@ also used by the phone): transformers.js's `toWav` writes 32-bit float, twice th
 package directory with `fs`; its Hugging Face URL is the browser's path only. That `af_heart.bin` is byte-identical
 (sha256 `d583ccff…`) to the one at the pinned model revision, and the lockfile pins the package by integrity. Fetching
 it again would bake in a second copy nothing reads, and making kokoro-js read another would mean patching it, so
-`deploy/speech-model.sh` fetches the configuration, the tokenizer and the q8 weights only.
+`deploy/models.sh` fetches the configuration, the tokenizer and the q8 weights only.
 
 **Offline and read-only at run time.** transformers.js is told to load local files only, from `models/` beside the
-sources, and to keep no file cache (`env.allowRemoteModels = false`, `env.useFSCache = false`), so the container's
-read-only root is never written. The image's model was checked to synthesize under `--network none` with compose's
-hardening. The model itself comes from a pinned Hugging Face commit, each file checked against its sha256, by one
-script that the Dockerfile and the installer both run.
+sources (`env.allowRemoteModels = false`), once for the process in `src/server/transformers.ts`, which speech and local
+memory share. Its file cache stays on (`env.useFSCache = true`) because that is what makes it hand ONNX Runtime a path
+rather than bytes, and a model with external weights, as LEAF's query model has, loads only from a path. It writes
+nothing: the cache stores only what came over the network, and a local file arrives as a `FileResponse`, which it
+skips, so the container's read-only root is never written. Kokoro was checked to read aloud with the setting changed.
+The image's model was checked to synthesize under `--network none` with compose's hardening. The models come from
+pinned Hugging Face commits, each file checked against its sha256, by one script (`deploy/models.sh`) that the
+Dockerfile and the installer both run.
 
 **A build-time switch, `PICLOUD_SPEECH`.** `kokoro-js` and `@huggingface/transformers` (whose `env` picloud sets) are
 optional dependencies, pinned exactly. picloud reads aloud when `kokoro-js` resolves and the weights are in place, or

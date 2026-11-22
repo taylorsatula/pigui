@@ -194,6 +194,15 @@ export function Drawer(): JSX.Element {
 						</details>
 					)}
 				</div>
+				{/* Outside the scrolling listing, so it stays in view while memory is off: sessions still run, without it. */}
+				{bootstrap?.memory.on === false ? (
+					<div class="banner warn drawer-notice" role="status">
+						<p>
+							<strong>Memory is off</strong>
+							{bootstrap.memory.reason}
+						</p>
+					</div>
+				) : null}
 				{notifications === "default" || notifications === "denied" ? (
 					<footer class="drawer-footer">
 						<button type="button" class="link" onClick={() => void turnOn()}>

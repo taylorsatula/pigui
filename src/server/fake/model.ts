@@ -2,6 +2,7 @@
 // zero-shot flow (explore, questions, plan, edits, commits, progress, report) the same way in every conversation at
 // once. The step a request is at is read from the ID of the newest scripted tool call, which survives compaction because
 // the scripted summarizer always keeps it. Directives in the task, such as [no-report], steer the scenario for tests.
+// With long-term memory on, every report states its memory part; [memory] also searches memory after exploring.
 import {
 	type AssistantMessage,
 	type AssistantMessageEventStream,
@@ -28,6 +29,7 @@ import { ASK_MULTIPLE, ASK_SINGLE } from "../agent/questions.ts";
 import { RECALL } from "../agent/recall.ts";
 import { FILE_REPORT } from "../agent/report.ts";
 import { SUMMARIZER_PROMPT } from "../agent/summarizer.ts";
+import { SURFACE_MEMORIES } from "../memory/directives.ts";
 import { SPEECH_PROMPT } from "../speech/script.ts";
 
 const FAKE_PROVIDER = "picloud-fake";
@@ -35,6 +37,7 @@ const FAKE_MODEL = "scripted";
 
 type Step =
 	| "explore"
+	| "surface"
 	| "ask"
 	| "checklist"
 	| "plan"
@@ -58,7 +61,7 @@ type Step =
 	| "probe";
 
 const STEPS = new Set<string>([
-	"explore", "ask", "checklist", "plan", "write-src", "progress-1", "write-test", "progress-2", "commit", "progress-3",
+	"explore", "surface", "ask", "checklist", "plan", "write-src", "progress-1", "write-test", "progress-2", "commit", "progress-3",
 	"report", "fix-commit", "follow-edit", "follow-commit", "follow-report", "recall", "handoff", "spin", "build-1", "build-2", "build-3",
 	"probe",
 ]);
@@ -196,7 +199,34 @@ function respond(context: TranscriptContext, options: SimpleStreamOptions | unde
 	if (directives.includes("[condense]") && pointer !== undefined && !recalled) {
 		return tools(call("recall", RECALL, { entry: Number(pointer) }));
 	}
-	return next(previous, messages, directives, nudged);
+	return next(previous, messages, directives, nudged, memoryOffered(system));
+}
+
+/** Whether the request offers surface_memories, and so whether a report must state its memory part. */
+function memoryOffered(system: string): boolean {
+	return system.includes(`"name":"${SURFACE_MEMORIES}"`);
+}
+
+/** The [memory] scenario's search: a distill naming the fixture's machinery, as the prompt asks. */
+const MEMORY_QUERY =
+	"Add shout() to demo/greeter, built on greet() in src/greet.ts, with a test. The surrounding work: src/greet.ts and test/greet.test.ts, run by the node:test suite with `node --test test/*.test.ts` through Node's type stripping.";
+
+/** What a [memory] report records when its search found nothing: one row, written to the create rules. */
+export const SCRIPTED_MEMORY =
+	"`node --test test/*.test.ts` in demo/greeter runs src/greet.ts and test/greet.test.ts through Node's type stripping with no build or install step, so an import without its `.ts` extension fails with ERR_MODULE_NOT_FOUND. Verify stale by: running the node:test suite after removing the `.ts` extension from the import in test/greet.test.ts.";
+
+/**
+ * A report's memory part: empty, or for [memory] the surfaced ids rated helpful and, when nothing was found, one new
+ * memory. [unrated] leaves the ratings out until a report has been refused for it.
+ */
+function memoryPart(messages: readonly Message[], directives: string) {
+	const empty = { create: [] as string[], helpful: [] as { id: string; helpful: boolean }[], edit: [], delete: [] };
+	if (!directives.includes("[memory]")) return empty;
+	const surfaced = messages.find((message) => message.role === "toolResult" && message.toolCallId.startsWith("surface:"));
+	const ids = surfaced === undefined ? [] : [...textOf(surfaced).matchAll(/^\[\d+\] id: ([0-9a-f]+)/gm)].map((match) => match[1]!);
+	const refused = messages.some((message) => message.role === "toolResult" && message.toolName === FILE_REPORT && message.isError);
+	const rated = directives.includes("[unrated]") && !refused ? [] : ids.map((id) => ({ id, helpful: true }));
+	return { ...empty, create: ids.length === 0 ? [SCRIPTED_MEMORY] : [], helpful: rated };
 }
 
 function spin(turn: number): AssistantMessage {
@@ -219,7 +249,7 @@ function probe(directives: string, messages: readonly Message[]): AssistantMessa
 	return next === undefined ? fauxAssistantMessage("Probed.") : tools(call("probe", ...next));
 }
 
-function next(previous: StepResult, messages: readonly Message[], directives: string, nudged: boolean): AssistantMessage {
+function next(previous: StepResult, messages: readonly Message[], directives: string, nudged: boolean, memory: boolean): AssistantMessage {
 	const long = directives.includes("[long]");
 	const build = (step: "build-1" | "build-2" | "build-3") => {
 		const bulk = step === "build-2" && directives.includes("[backstop]") ? FLOOD : BULK;
@@ -237,26 +267,10 @@ function next(previous: StepResult, messages: readonly Message[], directives: st
 		case "probe":
 			return probe(directives, messages);
 		case "explore":
-			return tools(
-				fauxText("I have two questions before I plan."),
-				call("ask", ASK_SINGLE, {
-					questions: [
-						{
-							question: "How should the new shout() function end its greeting?",
-							options: [
-								{ label: "One !", description: "HELLO, ADA!" },
-								{ label: "Three !!!", description: "HELLO, ADA!!!" },
-							],
-							recommended: "One !",
-						},
-						{
-							question: "Where should it live?",
-							options: [{ label: "src/shout.ts" }, { label: "src/greet.ts" }],
-							recommended: "src/shout.ts",
-						},
-					],
-				}),
-			);
+			if (memory && directives.includes("[memory]")) return tools(call("surface", SURFACE_MEMORIES, { query: MEMORY_QUERY }));
+			return questions();
+		case "surface":
+			return questions();
 		case "ask":
 			if (directives.includes("[checklist]")) {
 				return tools(
@@ -302,11 +316,11 @@ function next(previous: StepResult, messages: readonly Message[], directives: st
 			if (directives.includes("[never-report]") || (directives.includes("[no-report]") && !nudged)) {
 				return fauxAssistantMessage("All steps are done.");
 			}
-			return report(messages);
+			return report(messages, directives, memory);
 		case "report":
 			return tools(call("fix-commit", "bash", { command: 'git add -A && git commit -q -m "Add shout()" && git status --short' }));
 		case "fix-commit":
-			return report(messages);
+			return report(messages, directives, memory);
 		case "follow-edit":
 			return tools(call("follow-commit", "bash", { command: 'git add -A && git commit -q -m "Follow-up" && git log --oneline -1' }));
 		case "follow-commit":
@@ -321,6 +335,7 @@ function next(previous: StepResult, messages: readonly Message[], directives: st
 					deviations: [],
 					notes: [],
 					learned: "Run the tests with `node --test test/*.test.ts`.",
+					...(memory ? { memory: memoryPart(messages, directives) } : {}),
 				}),
 			);
 		case "recall":
@@ -328,6 +343,29 @@ function next(previous: StepResult, messages: readonly Message[], directives: st
 		case "follow-report":
 			return fauxAssistantMessage("Done.");
 	}
+}
+
+function questions(): AssistantMessage {
+	return tools(
+		fauxText("I have two questions before I plan."),
+		call("ask", ASK_SINGLE, {
+			questions: [
+				{
+					question: "How should the new shout() function end its greeting?",
+					options: [
+						{ label: "One !", description: "HELLO, ADA!" },
+						{ label: "Three !!!", description: "HELLO, ADA!!!" },
+					],
+					recommended: "One !",
+				},
+				{
+					question: "Where should it live?",
+					options: [{ label: "src/shout.ts" }, { label: "src/greet.ts" }],
+					recommended: "src/shout.ts",
+				},
+			],
+		}),
+	);
 }
 
 function plan(feedback: string | undefined): AssistantMessage {
@@ -360,7 +398,7 @@ function plan(feedback: string | undefined): AssistantMessage {
 	);
 }
 
-function report(messages: readonly Message[]): AssistantMessage {
+function report(messages: readonly Message[], directives: string, memory: boolean): AssistantMessage {
 	const recalled = messages.find((message) => message.role === "toolResult" && message.toolCallId.startsWith("recall:"));
 	const id = recalled === undefined ? undefined : textOf(recalled).match(/build id: (\d+)/)?.[1];
 	return tools(
@@ -381,6 +419,7 @@ function report(messages: readonly Message[]): AssistantMessage {
 			deviations: [],
 			notes: id === undefined ? [] : [`The build id from the start of the session was ${id}.`],
 			learned: "Run the tests with `node --test test/*.test.ts`; no install step is needed.",
+			...(memory ? { memory: memoryPart(messages, directives) } : {}),
 		}),
 	);
 }

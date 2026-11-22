@@ -10,7 +10,14 @@ const dataDir = process.env.PICLOUD_DATA_DIR ?? (await mkdtemp(join(tmpdir(), "p
 const agentDir = process.env.PI_CODING_AGENT_DIR ?? (await mkdtemp(join(tmpdir(), "picloud-pi-")));
 const config = readConfig({ ...process.env, PICLOUD_FAKE: "1", PICLOUD_DATA_DIR: dataDir, PICLOUD_PORT: process.env.PICLOUD_PORT ?? "0" });
 const tokensPerSecond = Number(process.env.PICLOUD_FAKE_TOKENS_PER_SECOND ?? 60);
-const app = await startApp({ config, agentDir, fakeModel: { tokensPerSecond } });
+// PICLOUD_FAKE_MEMORY=off shows the app as a server without an embedder shows it.
+const memoryOff = process.env.PICLOUD_FAKE_MEMORY === "off";
+const app = await startApp({
+	config,
+	agentDir,
+	fakeModel: { tokensPerSecond },
+	...(memoryOff ? { embedder: { off: "This fake server was started with PICLOUD_FAKE_MEMORY=off." } } : {}),
+});
 process.stdout.write(`picloud fake mode on ${app.url}\ndata: ${dataDir}\n`);
 
 const stop = () => {

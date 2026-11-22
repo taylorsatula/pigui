@@ -8,6 +8,8 @@ Titles, buttons and your own messages are set in a serif, the agent's replies in
 line each, and the app follows the phone's light or dark mode. A sidebar lists the sessions under way, each with a
 coloured mark for its status.
 A speaker under each reply reads it aloud, with a speech model that runs on the server ([Reading aloud](#reading-aloud)).
+With an embedding key, or a local embedding model built in, Pi also remembers across sessions what no file states
+([Long-term memory](#long-term-memory)).
 
 It is thin glue around [Pi Durable](https://www.npmjs.com/package/@earendil-works/pi-durable), which owns the agent
 loop, persistence, compaction and recovery. Tailscale provides access and TLS, `gh` and `git` talk to GitHub, Web
@@ -31,7 +33,7 @@ npm run build        # bundles the phone app into dist/public, draws its icons, 
 npm test             # automated tests (node:test), real Durable storage, fake mode
 npm run e2e          # builds, then runs the Playwright tests in a phone-sized Chromium
 npm run check        # all of the above
-deploy/speech-model.sh models   # optional: the speech model, for real speech here and the test that uses it
+deploy/models.sh models speech memory   # optional: the local models, for real speech and embeddings here and their tests
 ```
 
 ### Fake mode
@@ -59,7 +61,11 @@ What it runs:
   history after a compaction, `[ignore-handoff]` ignores the request for a note, `[backstop]` prints so much in one
   round that Durable compacts first, and the scripted summarizer answers `[cut-invalid]` with an invalid cut,
   `[condense]` by condensing long results (which the agent then recalls), `[summarizer-fails]` with an error and
-  `[summarizer-garbage]` with no checkpoint; `[compaction-fails]` fails Durable's own summarizer once.
+  `[summarizer-garbage]` with no checkpoint; `[compaction-fails]` fails Durable's own summarizer once. With
+  long-term memory on, every report states its memory part; `[memory]` searches memory after exploring, rates what it
+  found and, when it found nothing, records one memory, and `[unrated]` leaves the ratings out of its first report.
+- **Embeddings without a network:** long-term memory is on, with a stand-in embedder that hashes words into counts,
+  so texts sharing most of their words find each other.
 - **A local stand-in for GitHub** (`src/server/fake/github.ts`): bare repositories under
   `$PICLOUD_DATA_DIR/fake-github/repos` that workspaces clone from and push to with plain git — `demo/greeter` (a
   small TypeScript library with an `AGENTS.md`, a Pi skill `release-notes`, a binary file, and a second branch
@@ -81,9 +87,12 @@ empty Pi configuration directory. Storage is the real SQLite storage of Pi Durab
 `restart()` closes the server and opens a new one on the same data directory, as a process restart would. Tests wait
 on Durable watches of the session document rather than polling. A few seams in `AppOptions` exist for tests: a clock
 (`now`), a request observer on the scripted model (`fakeModel.onRequest`, told each request's kind and last user
-message), a smaller context window (`fakeModel.contextWindow`), `speech: false` for a build without speech, and
+message), a smaller context window (`fakeModel.contextWindow`), `speech: false` for a build without speech,
+`embedder` (`{ off: reason }` turns long-term memory off; a stand-in with another model name stands for a model change), and
 `faults`, hooks that hold the code at an exact point so a test can cut it off there the way a crash would. The test that
-reads with the real speech model runs only where `deploy/speech-model.sh models` has fetched it.
+reads with the real speech model runs only where `deploy/models.sh models speech` has fetched it, and those that embed
+with LEAF only where `deploy/models.sh models memory` has. `PICLOUD_FAKE_MEMORY=off` starts `npm run fake` as a server
+without an embedder, as `e2e/memory.spec.ts` does to see the sidebar's notice.
 
 The end-to-end tests (`e2e/`) start `scripts/fake.ts` as a child process per test file, on a free port with temporary
 directories, and drive it with Playwright in Chromium at 390×844 (375 px for the horizontal-scroll check) with touch.
@@ -105,10 +114,13 @@ Configuration is by environment variables. The installer writes them to `/etc/pi
 | `PICLOUD_FAKE` | `0` | `1` runs fake mode. |
 | `PICLOUD_AGENT_GH_TOKEN` | required in real mode | The agent's read-only GitHub token (Contents and Metadata: read). Agent commands get it as `GH_TOKEN` and `GITHUB_TOKEN`, never picloud's own. |
 | `PICLOUD_SANDBOX` | `on` | `on` confines every agent command and file tool with Landlock; `off` runs them unconfined, for a kernel without Landlock. |
+| `PICLOUD_MEMORY_PROVIDER` | `lunaroute` | The Pi provider whose key signs long-term memory's embedding requests ([Long-term memory](#long-term-memory)). |
+| `PICLOUD_MEMORY_EMBED_MODEL` | `emb-qwen3` | The embedding model. Memory's search thresholds are tuned for `emb-qwen3`; changing it re-embeds every memory once. |
+| `PICLOUD_MEMORY_EMBED_URL` | the provider's | An OpenAI-compatible embeddings URL. By default, the provider's base URL in Pi's catalog plus `/embeddings`; for `lunaroute` without one there, `https://gw.lunaroute.com/v1/embeddings`. Set without a key, requests go unsigned, as to a local server. |
 | `PI_CODING_AGENT_DIR` | `~/.pi/agent` | Pi's own variable: where Pi's configuration (models, sign-in, global skills, global `AGENTS.md`) is read from. |
 
-Models, sign-in and the default model come from Pi's configuration; picloud's only setting of its own for them is
-which model writes compaction checkpoints (`PICLOUD_COMPACTION_MODEL`). In
+Models, sign-in and the default model come from Pi's configuration; picloud's only settings of its own for them are
+which model writes compaction checkpoints (`PICLOUD_COMPACTION_MODEL`) and memory's embeddings (`PICLOUD_MEMORY_*`). In
 real mode, picloud exits with code 78 and instructions if Pi has no default model with credentials, before it touches
 the data directory.
 
@@ -140,11 +152,47 @@ stops. Reading goes on with the phone locked.
   sentence is written, and then stays ahead. One segment is read at a time.
 - **Nothing leaves the machine for speech** apart from the rewrite, which goes to the session's model provider like
   the reply itself. The model is fetched at build or install time, from a pinned Hugging Face revision with checked
-  checksums (`deploy/speech-model.sh`); at run time picloud loads it from `models/` beside the sources and touches no
+  checksums (`deploy/models.sh`); at run time picloud loads it from `models/` beside the sources and touches no
   network for it.
-- **It is a build-time choice.** With Docker, `PICLOUD_SPEECH=off` in `.env` builds an image without `kokoro-js`, its
-  runtime packages or the model; the installer takes `--speech off`. picloud reads aloud when `kokoro-js` is installed
-  and the model is in place, and logs `speech` at startup; otherwise the speaker does not appear.
+- **It is a build-time choice.** With Docker, `PICLOUD_SPEECH=off` in `.env` builds an image without the model, and,
+  unless local memory is on, without `kokoro-js` and the runtime packages it shares with LEAF; the installer takes
+  `--speech off`. picloud reads aloud when `kokoro-js` is installed and the model is in place, and logs `speech` at
+  startup; otherwise the speaker does not appear.
+
+## Long-term memory
+
+Pi remembers across sessions, and across repositories, what no file states: how a host is set up, how a tool really
+behaves on this machine, a measurement that cannot be repeated. It is the
+[pi-durable-memory](https://github.com/taylorsatula/pi-durable-memory) extension's memory, kept in picloud's own
+database.
+
+- **Searching.** Once Pi can name the files and commands a piece of work touches, before it asks or plans, it searches
+  memory with a short description of the work (`surface_memories`). It searches again only when the work reaches
+  machinery that search did not cover, or when something fails in a way it cannot explain.
+- **Recording.** Every report records what the work established, corrects or removes what proved wrong, and rates each
+  memory the search showed: helpful ones rank higher next time. The report is refused until every memory shown is
+  rated. The report card lists what was remembered under **Remembered**, with one line for the ratings; neither the pull
+  request nor what is read aloud includes it.
+- **Embeddings** come from one of two places, chosen at startup:
+  - **On this server,** when it is built with the local model: [LEAF](https://huggingface.co/MongoDB/mdbr-leaf-ir-asym)
+    (`mdbr-leaf-ir-asym`), 8-bit on the CPU, with no key and no network. A search is embedded by the 23M-parameter
+    `mdbr-leaf-ir`; a memory, embedded once and searched many times, by `snowflake-arctic-embed-m-v1.5`, whose vector
+    space LEAF was distilled into. It loads on first use (half a second), takes about 300 MB while it embeds and gives
+    it back after five idle minutes; a search embeds in about 25 ms. With Docker, `PICLOUD_MEMORY_LOCAL=on` in `.env`
+    builds it in (about 135 MB of models); the installer takes `--memory-local on`. Its similarity floor was measured
+    on a small set, so its search is less proven than `emb-qwen3`'s.
+  - **From an OpenAI-compatible endpoint** otherwise, by default `emb-qwen3` through LunaRoute, signed with the key Pi
+    holds for `PICLOUD_MEMORY_PROVIDER`. Each search sends its query there, and each report what it records. Setting
+    `PICLOUD_MEMORY_EMBED_URL` chooses the endpoint even in a build with the local model.
+- **Turning it on** without the local model: give Pi a key for the provider, an entry in its `auth.json`
+  (`"lunaroute": { "type": "api_key", "key": "…" }`, beside what is there), or the provider registered in its
+  `models.json`. Pi's configuration is the service user's `~/.pi/agent` (with Docker, in the `home` volume). Then
+  restart picloud; its `started` log line names the embedding model.
+- **Off otherwise.** With neither, picloud logs `memory.off` with the reason and runs without memory: no search tool,
+  no memory part in the report and nothing about it in the prompt. The sidebar says memory is off, why, and how to
+  turn it on, for as long as it stays off.
+- **When embedding fails,** a search returns the error to Pi, and a report is filed anyway, records nothing in memory
+  and says why in its notes. After a model change, the first search or report re-embeds every memory.
 
 ## Security model
 
@@ -195,6 +243,7 @@ sudo deploy/install.sh \
   --agent-github-token-file /root/agent-github-token \
   --allowed-logins you@example.com
 # --speech off leaves out reading replies aloud: about 550 MB of packages and model, and 650 MB of memory while reading.
+# --memory-local on embeds long-term memory on this machine: about 135 MB of models, and 300 MB of memory while embedding.
 ```
 
 - **Why Debian 13.** Its 6.12 kernel has Landlock ABI 6, so agent commands cannot signal picloud's or other
@@ -219,7 +268,7 @@ runs in one and serves picloud over HTTPS to your tailnet only. picloud runs in 
 network and listening on its loopback. Nothing is exposed on the machine's own ports. From a checkout of picloud:
 
 ```bash
-cp .env.example .env              # fill in TS_AUTHKEY, GH_TOKEN and AGENT_GH_TOKEN; the rest is optional (PICLOUD_SPEECH too)
+cp .env.example .env              # fill in TS_AUTHKEY, GH_TOKEN and AGENT_GH_TOKEN; the rest is optional (PICLOUD_SPEECH and PICLOUD_MEMORY_LOCAL too)
 docker compose build
 docker compose run --rm picloud pi   # once: /login, then /model, then /quit
 docker compose up -d
@@ -301,13 +350,14 @@ src/shared/     shapes shared by server and phone: API payloads, documents, live
 src/server/     the server: app assembly, HTTP, sessions, supervisor, delivery, notifications, maintenance
 src/server/agent/  what picloud adds to Pi: tools, prompt sections, spend cap, compaction cycle and checkpoints
 src/server/speech/ reading aloud: the speakable script, Kokoro, and what the HTTP boundary calls
+src/server/memory/ long-term memory: what the agent is told, the embeddings, the search and the report's changes
 src/server/fake/   fake mode: scripted model, stand-in synthesizer, stand-in GitHub, fixture repositories
 src/sandbox/    the agent sandbox's launcher (C), compiled by scripts/build.ts
 src/client/     the phone app (Preact), bundled by scripts/build.ts
 src/sw/         the service worker
 test/           automated tests (node:test)
 e2e/            end-to-end tests (Playwright)
-deploy/         the installer, the speech model's download, and the serve config for the Docker setup (Dockerfile and
+deploy/         the installer, the local models' download, and the serve config for the Docker setup (Dockerfile and
                 compose.yaml are at the root)
-models/         the speech model, once deploy/speech-model.sh has fetched it (not in git)
+models/         the local models, once deploy/models.sh has fetched them (not in git)
 ```

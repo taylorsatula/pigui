@@ -4,7 +4,17 @@
 import type { JSX } from "preact";
 import { useState } from "preact/hooks";
 import type { ComponentChildren } from "preact";
-import { type CardAnswer, type Plan, type PlanCard, planOf, type QuestionAnswer, type QuestionCard, type Report, type SessionDoc } from "../../shared/session.ts";
+import {
+	type CardAnswer,
+	type Plan,
+	type PlanCard,
+	planOf,
+	type QuestionAnswer,
+	type QuestionCard,
+	type Report,
+	type ReportMemory,
+	type SessionDoc,
+} from "../../shared/session.ts";
 import { Icon } from "./Icons.tsx";
 import { Inline, Markdown } from "./Markdown.tsx";
 import { Speak } from "./Speak.tsx";
@@ -348,6 +358,41 @@ function reportProse(report: Report): string {
 		.join("\n\n");
 }
 
+/** How a report graded long-term memory, in one line: "Rated 3 memories: 2 helpful, 1 not. Removed 1." */
+function grading(memory: ReportMemory): string {
+	const rated = memory.helpful + memory.unhelpful;
+	return [
+		rated === 0 ? "" : `Rated ${rated === 1 ? "1 memory" : `${rated} memories`}: ${memory.helpful} helpful, ${memory.unhelpful} not.`,
+		memory.deleted.length === 0 ? "" : `Removed ${memory.deleted.length}.`,
+	]
+		.filter((part) => part !== "")
+		.join(" ");
+}
+
+/** What the report recorded in long-term memory, and its grading of what it was shown. Not part of what is read aloud. */
+function Remembered(props: { memory: ReportMemory }): JSX.Element {
+	const { memory } = props;
+	const graded = grading(memory);
+	const written = [...memory.created.map((item) => ({ ...item, edited: false })), ...memory.edited.map((item) => ({ ...item, edited: true }))];
+	return (
+		<Part title="Remembered" count={written.length + (graded === "" ? 0 : 1)}>
+			{written.length === 0 ? null : (
+				<ul class="items dashed">
+					{written.map((item) => (
+						<li key={item.id}>
+							<span class="item-text">
+								<Inline text={item.text} />
+								{item.edited ? <span class="item-detail">Corrected</span> : null}
+							</span>
+						</li>
+					))}
+				</ul>
+			)}
+			{graded === "" ? null : <p class="item-detail grading">{graded}</p>}
+		</Part>
+	);
+}
+
 const OUTCOME: Record<Report["outcome"], { label: string; tone: string }> = {
 	complete: { label: "Complete", tone: "good" },
 	partial: { label: "Partly done", tone: "warn" },
@@ -430,6 +475,7 @@ export function ReportCard(props: { report: Report; latest: boolean; session?: S
 			<Part title="Notes" count={report.notes.length}>
 				<Lines lines={report.notes} />
 			</Part>
+			{report.memory === undefined ? null : <Remembered memory={report.memory} />}
 			{report.learned.trim() === "" ? null : (
 				<details class="part more">
 					<summary>

@@ -4,6 +4,7 @@ import type { Context } from "@earendil-works/chord/context";
 import { type PromptInput, type PromptSection, section } from "@earendil-works/pi-durable";
 import type { SessionDoc } from "../../shared/session.ts";
 import { RepoMemoryToken, SessionDocToken } from "../docs.ts";
+import { SURFACE_MEMORIES } from "../memory/directives.ts";
 import { describeEndState, describePlan, SUBMIT_PLAN, UPDATE_PROGRESS } from "./plan.ts";
 import { ASK_MULTIPLE, ASK_SINGLE } from "./questions.ts";
 import { FILE_REPORT } from "./report.ts";
@@ -12,7 +13,19 @@ import type { AgentServices } from "./services.ts";
 
 export const ATTACHMENTS_DIR = ".picloud/attachments";
 
-const PREAMBLE = `You are Pi, a coding agent running on its owner's server through picloud. The person sends you work from their phone and is usually away: they read what you write hours later, in short glances on a small screen, and answer by tapping cards. Write short, plain Markdown.
+// Long-term memory has a few natural moments in this flow. Searching earlier, before the agent can name the machinery,
+// matches nothing; searching on every move to another file or step costs turns for no new memories.
+const SEARCH_BEFORE_PLAN = `
+- Once you can name the files, components and commands the work touches, search long-term memory once with ${SURFACE_MEMORIES}, giving a distill that names them, before you ask or plan: what it returns can change both.`;
+
+const MEMORY = `
+
+Long-term memory:
+- ${SURFACE_MEMORIES} finds what earlier sessions recorded that no file states. After the first search, search again only when the work reaches machinery it did not cover (a different subsystem, service or toolchain, not another file of the same one), or when something behaves in a way you did not expect (a command or check fails for a reason you cannot see, a tool or the environment does something odd); then search with the error text and the component before spending turns debugging it.
+- Never search before you have read anything (a query that names only the goal matches nothing), for every file or step, or again for machinery already searched. A small change with nothing to decide needs at most one search, once the code is found.
+- Your report records and grades memory: rate every memory surfaced in the session, record what the work established that no file states, and correct or remove what was wrong.`;
+
+const preamble = (memory: boolean) => `You are Pi, a coding agent running on its owner's server through picloud. The person sends you work from their phone and is usually away: they read what you write hours later, in short glances on a small screen, and answer by tapping cards. Write short, plain Markdown.
 
 How a turn ends:
 - A reply without a tool call ends your turn, and its opening words become the person's notification, so lead with the answer.
@@ -25,7 +38,7 @@ Choose the path the request needs:
 - Anything bigger, or with a choice the person might disagree with: explore, ask if you must, then plan and wait for approval. Skip the plan only if the person says to.
 
 Before the plan:
-- Read the project instructions and repo memory below, and the relevant code, tests and history, until you can name the files you will change.
+- Read the project instructions and repo memory below, and the relevant code, tests and history, until you can name the files you will change.${memory ? SEARCH_BEFORE_PLAN : ""}
 - Ask only what the repository cannot tell you and only the person can decide: what an ambiguous request means, behaviour users will see, public interfaces, new dependencies, anything destructive. Ask it all at once, on one card.
 - Decide the rest yourself, following the codebase's conventions, and state those decisions in the plan so that approving it approves them.
 
@@ -38,7 +51,7 @@ After approval:
 
 Verifying:
 - Prove the change with the project's own checks (tests, typecheck, build, lint), read the output, and claim only what you saw.
-- Never make a check pass by skipping, deleting or weakening it. Report what still fails, and whether it failed before you started, with the command that shows it.
+- Never make a check pass by skipping, deleting or weakening it. Report what still fails, and whether it failed before you started, with the command that shows it.${memory ? MEMORY : ""}
 
 Git and this machine:
 - Commit as you go, with messages that say what changed and why. Add commits rather than rewriting them (no rebase, amend or reset): picloud pushes without force.
@@ -93,9 +106,10 @@ function renderSession(doc: SessionDoc, workspace: string): string {
 }
 
 export function promptSections(services: AgentServices): PromptSection[] {
+	const text = preamble(services.memory !== undefined);
 	const session = (input: PromptInput, context: Context) => input.read.snapshot(SessionDocToken, input.conversationId, context);
 	return [
-		section("picloud", () => PREAMBLE, { tag: false }),
+		section("picloud", () => text, { tag: false }),
 		section("session", async (input, context) => {
 			const doc = await session(input, context);
 			return doc?.id === undefined ? undefined : renderSession(doc, services.workspace(doc.id));

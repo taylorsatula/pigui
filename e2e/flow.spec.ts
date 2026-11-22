@@ -84,6 +84,21 @@ test.describe("the tap flow", () => {
 		await expect(page.getByRole("textbox", { name: "Ask for changes to the plan…" })).toBeVisible();
 	});
 
+	test("a report shows what it remembered, and the search is one line of the work", async ({ page }) => {
+		await startSession(page, "Add a shout() function [memory]");
+		await approveThrough(page);
+		const report = page.getByRole("region", { name: "Report" });
+		await expect(report).toBeVisible({ timeout: 30_000 });
+		const remembered = report.getByRole("region", { name: "Remembered" });
+		await expect(remembered.locator(".items > li")).toHaveCount(1);
+		await expect(remembered).toContainText("node --test test/*.test.ts");
+		await expect(remembered).toContainText("Verify stale by:");
+		const search = page.locator("details.work", { has: page.locator(".work-summary", { hasText: "Ran 1 command, searched memory" }) });
+		await expect(search).toHaveCount(1);
+		await search.locator(":scope > summary").tap();
+		await expect(search.locator(".call-summary").nth(1)).toHaveText(/^Searched memory: “Add shout\(\) to demo\/greeter/);
+	});
+
 	test("the diff lists each file with its counts and opens to its patch", async ({ page }) => {
 		await startSession(page, "Add a shout() function");
 		await approveThrough(page);

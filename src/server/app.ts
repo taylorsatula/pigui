@@ -25,6 +25,9 @@ import { createHttpServer } from "./http.ts";
 import { Uploads } from "./input.ts";
 import { createLogger, type Logger } from "./log.ts";
 import { Maintenance } from "./maintenance.ts";
+import type { MemoryStatus } from "../shared/api.ts";
+import { type Embedder, fakeEmbedder } from "./memory/embedder.ts";
+import { Memory } from "./memory/store.ts";
 import { Notifications } from "./notify.ts";
 import { Presence } from "./presence.ts";
 import { openSandbox, readableGrants, type Sandbox } from "./sandbox.ts";
@@ -41,6 +44,11 @@ export type AppOptions = {
 	agentDir: string;
 	/** Real mode: Pi's models and default model. Fake mode builds the scripted ones. */
 	pi?: { models: Models; defaultModel: () => ModelRef };
+	/**
+	 * Long-term memory's embeddings, or why memory is off (shown in the sidebar). Real mode: what main.ts chose; absent
+	 * reads as off. Fake mode: a stand-in that needs no network unless one is given.
+	 */
+	embedder?: Embedder | { off: string };
 	fakeModel?: ScriptedModelOptions;
 	log?: Logger;
 	faults?: Faults;
@@ -106,6 +114,9 @@ export async function startApp(options: AppOptions): Promise<App> {
 		return opened;
 	};
 	const notifications = new Notifications({ sender: push, presence, log, harness });
+	const chosen = options.embedder ?? (config.fake ? fakeEmbedder() : { off: "No embedder was configured." });
+	const memory = "off" in chosen ? undefined : new Memory(chosen, harness);
+	const memoryStatus: MemoryStatus = "off" in chosen ? { on: false, reason: chosen.off } : { on: true, model: chosen.model };
 	const services: AgentServices = {
 		now,
 		log,
@@ -116,6 +127,7 @@ export async function startApp(options: AppOptions): Promise<App> {
 		compactionModel: config.compactionModel,
 		agentDir: options.agentDir,
 		workspace,
+		memory,
 		faults: options.faults ?? {},
 	};
 	const sessions = new Sessions({
@@ -215,6 +227,7 @@ export async function startApp(options: AppOptions): Promise<App> {
 		workspace,
 		staticDir: options.staticDir ?? join(import.meta.dirname, "..", "..", "dist", "public"),
 		speech,
+		memory: memoryStatus,
 	});
 	await new Promise<void>((resolve, reject) => {
 		server.once("error", reject);
@@ -222,7 +235,7 @@ export async function startApp(options: AppOptions): Promise<App> {
 	});
 	const address = server.address() as AddressInfo;
 	const url = `http://${config.host.includes(":") ? `[${config.host}]` : config.host}:${address.port}`;
-	log.info("started", { port: address.port, fake: config.fake, speech: speech !== undefined });
+	log.info("started", { port: address.port, fake: config.fake, speech: speech !== undefined, memory: memory?.embedder.model });
 
 	return {
 		url,

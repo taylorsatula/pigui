@@ -47,7 +47,7 @@ async function post(server: TestServer, path: string, body: string): Promise<Res
 	return fetch(server.app.url + path, { method: "POST", headers: { "content-type": "application/json" }, body });
 }
 
-/** The real model is tried only where this checkout has it (npm ci, then deploy/speech-model.sh models). */
+/** The real model is tried only where this checkout has it (npm ci, then deploy/models.sh models speech). */
 const installed = await kokoroInstalled();
 
 const REPLY = [
@@ -190,7 +190,7 @@ describe("reading a reply aloud", () => {
 		}
 	});
 
-	test("real Kokoro reads a short phrase", { skip: installed ? false : "the speech model is not installed: deploy/speech-model.sh models" }, async () => {
+	test("real Kokoro reads a short phrase", { skip: installed ? false : "the speech model is not installed: deploy/models.sh models speech" }, async () => {
 		const wav = readWav(await kokoroSynthesizer(silentLogger).synthesize("picloud reads replies aloud.", new AbortController().signal));
 		assert.equal(wav.rate, 24_000);
 		assert.ok(wav.seconds > 1 && wav.seconds < 6, `${wav.seconds} s`);

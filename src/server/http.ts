@@ -13,6 +13,7 @@ import {
 	ArchiveBody,
 	type ApiError,
 	type Bootstrap,
+	type MemoryStatus,
 	BudgetBody,
 	CreateSessionBody,
 	DeliverBody,
@@ -54,6 +55,8 @@ export type HttpDeps = {
 	staticDir: string;
 	/** Undefined when this server does not read aloud. */
 	speech: Speech | undefined;
+	/** Long-term memory's state, shown in the sidebar while it is off. */
+	memory: MemoryStatus;
 	/** Real mode: refuses connections opened by picloud's own user, as the agent's commands are (see callers.ts). */
 	callerCheck?: (socket: Socket) => Promise<boolean>;
 };
@@ -206,7 +209,7 @@ export function createHttpServer(deps: HttpDeps): Server {
 
 		if (is("GET", "bootstrap") && parts.length === 2) {
 			const index = await harness.snapshot(SessionIndexToken, context);
-			const body: Bootstrap = { fake: deps.fake, vapidPublicKey: deps.vapidPublicKey, speech: deps.speech !== undefined };
+			const body: Bootstrap = { fake: deps.fake, vapidPublicKey: deps.vapidPublicKey, speech: deps.speech !== undefined, memory: deps.memory };
 			if (index?.lastRepo !== undefined) body.lastRepo = index.lastRepo;
 			return send(response, 200, body);
 		}

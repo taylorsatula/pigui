@@ -2,6 +2,15 @@ import { isIP } from "node:net";
 import { resolve } from "node:path";
 import type { ModelRef } from "@earendil-works/pi-durable";
 
+/** Long-term memory's embeddings; memory is on only where a key or an explicit URL makes them reachable. */
+export type MemoryConfig = {
+	/** The Pi provider whose stored credential signs embedding requests. */
+	provider: string;
+	embedModel: string;
+	/** Undefined: the provider's base URL in Pi's catalog plus /embeddings. */
+	embedUrl: string | undefined;
+};
+
 export type Config = {
 	/** Database, workspaces, uploads, push keys and (in fake mode) the local GitHub stand-in. */
 	dataDir: string;
@@ -21,6 +30,7 @@ export type Config = {
 	agentGitHubToken: string | undefined;
 	/** Landlock around every agent command and file tool (`PICLOUD_SANDBOX`, on unless `off`). */
 	sandbox: boolean;
+	memory: MemoryConfig;
 };
 
 export class ConfigError extends Error {}
@@ -52,6 +62,11 @@ export function readConfig(env: NodeJS.ProcessEnv): Config {
 		fake,
 		agentGitHubToken: agentToken(env.PICLOUD_AGENT_GH_TOKEN, fake),
 		sandbox: onOff(env.PICLOUD_SANDBOX, "PICLOUD_SANDBOX"),
+		memory: {
+			provider: env.PICLOUD_MEMORY_PROVIDER?.trim() || "lunaroute",
+			embedModel: env.PICLOUD_MEMORY_EMBED_MODEL?.trim() || "emb-qwen3",
+			embedUrl: httpUrl(env.PICLOUD_MEMORY_EMBED_URL, "PICLOUD_MEMORY_EMBED_URL"),
+		},
 	};
 }
 
@@ -110,6 +125,18 @@ function onOff(value: string | undefined, name: string): boolean {
 	if (value === undefined || value === "" || value === "on") return true;
 	if (value === "off") return false;
 	throw new ConfigError(`${name} must be on or off, not ${JSON.stringify(value)}.`);
+}
+
+function httpUrl(value: string | undefined, name: string): string | undefined {
+	if (value === undefined || value.trim() === "") return undefined;
+	let url: URL;
+	try {
+		url = new URL(value.trim());
+	} catch {
+		throw new ConfigError(`${name} must be an http: or https: URL, not ${JSON.stringify(value)}.`);
+	}
+	if (url.protocol !== "http:" && url.protocol !== "https:") throw new ConfigError(`${name} must be an http: or https: URL, not ${JSON.stringify(value)}.`);
+	return url.href;
 }
 
 function pushSubject(value: string | undefined): string {

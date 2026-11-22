@@ -26,6 +26,8 @@ export function describeCall(name: string, args: Args): string {
 			return "Wrote a handoff note";
 		case "recall_history":
 			return args.entry !== undefined ? `Looked up history entry ${String(args.entry)}` : `Searched history for “${firstLine(args.query, 40)}”`;
+		case "surface_memories":
+			return `Searched memory: “${firstLine(args.query, 40)}”`;
 		default:
 			return name.replace(/_/g, " ");
 	}
@@ -38,6 +40,7 @@ const NOUNS: Record<string, [string, string, string]> = {
 	edit: ["Edited", "file", "files"],
 	update_progress: ["Updated", "progress", "progress"],
 	recall_history: ["Searched", "history", "history"],
+	surface_memories: ["Searched", "memory", "memory"],
 	write_handoff: ["Wrote", "handoff note", "handoff notes"],
 };
 

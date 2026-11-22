@@ -147,6 +147,19 @@ export type ReportChange = { change: string; files: string[] };
 /** A check the agent ran, as the exact command, and what it showed. */
 export type ReportCheck = { command: string; result: "passed" | "failed" | "not run"; detail: string };
 
+/** A memory as the report recorded it: its id in long-term memory and its text. */
+export type RememberedMemory = { id: string; text: string };
+
+/** What a report did to long-term memory: the memories it recorded and corrected, those it removed, and its ratings. */
+export type ReportMemory = {
+	created: RememberedMemory[];
+	edited: RememberedMemory[];
+	deleted: string[];
+	/** Surfaced memories rated as having changed what the agent did, and as not. */
+	helpful: number;
+	unhelpful: number;
+};
+
 /**
  * A report, as the agent files it with file_report, set against the plan: each end-state condition with its evidence,
  * the changes by file, the checks run, and where the work departed from the plan. A new part goes here, in the tool's
@@ -165,6 +178,8 @@ export type Report = {
 	/** What the agent is unsure of, could not do, or noticed and left alone. */
 	notes: string[];
 	learned: string;
+	/** Absent when long-term memory was off, or the report changed and rated nothing in it. */
+	memory?: ReportMemory;
 	/** HEAD when the report was filed. */
 	commit: string;
 	filedAt: number;
@@ -322,6 +337,11 @@ export type SessionDoc = {
 		/** When picloud asked the agent for a handoff note; cleared by the compaction that follows. */
 		requestedAt?: number;
 	};
+	/**
+	 * Long-term memories surface_memories showed since the last report, which the next report must rate or delete. Kept
+	 * here rather than read from the transcript, so a compaction cannot hide one.
+	 */
+	memoryShown?: string[];
 	/** The first message, kept until setup submits it, so a failed setup can be retried. */
 	pendingTask?: { text: string; attachments: string[] };
 	archived: boolean;

@@ -2,28 +2,36 @@
 # and Pi's CLI for signing in, run as an unprivileged user. compose.yaml runs it behind Tailscale; README.md, "Run
 # with Docker", has the steps.
 
-# Reading replies aloud with Kokoro, a speech model run on the CPU: on, or off to leave its packages and model out.
+# Reading replies aloud with Kokoro, a speech model run on the CPU: on, or off to leave its model out.
 ARG PICLOUD_SPEECH=on
+# Embedding long-term memory on the CPU with LEAF (mdbr-leaf-ir-asym), with no key and no network: on, or off to leave
+# its model out, so memory embeds with the provider's endpoint and Pi's key, or stays off.
+ARG PICLOUD_MEMORY_LOCAL=off
 
-# Build: install every dependency, build the phone app, then drop the packages only development needs. Without speech,
-# its packages go too: they are the only optional ones the server could load.
+# Build: install every dependency, build the phone app, then drop the packages only development needs. With speech and
+# local memory both off, the optional packages go too: they run those models, and nothing else loads them.
 FROM node:22.23.4-bookworm-slim AS build
 ARG PICLOUD_SPEECH
+ARG PICLOUD_MEMORY_LOCAL
 WORKDIR /app
 COPY package.json package-lock.json .npmrc ./
-RUN case "$PICLOUD_SPEECH" in on | off) ;; *) echo "PICLOUD_SPEECH must be on or off, not '$PICLOUD_SPEECH'." >&2; exit 1 ;; esac \
+RUN for switch in "PICLOUD_SPEECH=$PICLOUD_SPEECH" "PICLOUD_MEMORY_LOCAL=$PICLOUD_MEMORY_LOCAL"; do \
+		case "${switch#*=}" in on | off) ;; *) echo "${switch%%=*} must be on or off, not '${switch#*=}'." >&2; exit 1 ;; esac; done \
 	&& npm ci --no-audit --no-fund \
 	&& if [ "$PICLOUD_SPEECH" = on ] && [ ! -d node_modules/kokoro-js ]; then \
-		echo "npm left out kokoro-js, which speech needs: an install script under it failed (see above)." >&2; exit 1; fi
+		echo "npm left out kokoro-js, which speech needs: an install script under it failed (see above)." >&2; exit 1; fi \
+	&& if [ "$PICLOUD_MEMORY_LOCAL" = on ] && [ ! -d node_modules/@huggingface/transformers ]; then \
+		echo "npm left out @huggingface/transformers, which local memory needs: an install script under it failed (see above)." >&2; exit 1; fi
 COPY . .
 RUN npm run build \
-	&& npm prune --omit=dev $([ "$PICLOUD_SPEECH" = off ] && echo --omit=optional) --no-audit --no-fund
+	&& npm prune --omit=dev $([ "$PICLOUD_SPEECH" = off ] && [ "$PICLOUD_MEMORY_LOCAL" = off ] && echo --omit=optional) --no-audit --no-fund
 
 # Run: an Ubuntu 24.04 userland, which the installer supports too, so the agent works in the same environment either
 # way. The agent sandbox is Landlock, which lives in the host's kernel rather than in the image: what it enforces
 # depends on the host, and a Debian 13 host is the recommended one.
 FROM ubuntu:noble-20261024.1
 ARG PICLOUD_SPEECH
+ARG PICLOUD_MEMORY_LOCAL
 RUN apt-get update \
 	&& DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
 		build-essential ca-certificates curl gh git ripgrep unzip \
@@ -39,10 +47,10 @@ RUN ln -s ../lib/node_modules/npm/bin/npm-cli.js /usr/local/bin/npm \
 # agent's read-only one for agent commands, which get it as their GH_TOKEN.
 RUN git config --system credential.https://github.com.helper '!gh auth git-credential'
 
-# The speech model, downloaded at build time and checked against pinned checksums: at runtime picloud reaches no network
-# for it. A layer of its own, before the app's, so a change to the code does not download it again.
-COPY deploy/speech-model.sh /app/deploy/speech-model.sh
-RUN if [ "$PICLOUD_SPEECH" = on ]; then /app/deploy/speech-model.sh /app/models; fi
+# The models switched on, downloaded at build time and checked against pinned checksums: at runtime picloud reaches no
+# network for them. A layer of its own, before the app's, so a change to the code does not download them again.
+COPY deploy/models.sh /app/deploy/models.sh
+RUN /app/deploy/models.sh /app/models $([ "$PICLOUD_SPEECH" = on ] && echo speech) $([ "$PICLOUD_MEMORY_LOCAL" = on ] && echo memory)
 
 COPY --from=build /app /app
 # The launcher every agent command starts through, built with this stage's toolchain (the build stage has none).

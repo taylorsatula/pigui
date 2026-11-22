@@ -11,7 +11,7 @@ import type { Ground } from "../src/server/agent/facts.ts";
 import { RESUME, WRITE_HANDOFF } from "../src/server/agent/handoff.ts";
 import type { RequestKind } from "../src/server/fake/model.ts";
 import { CHECKPOINT_ENTRY, type CheckpointEntryData, COMPACTION_NOTE_ENTRY, type CompactionNoteData, reportOf, type SessionDoc } from "../src/shared/session.ts";
-import { checkpoints, context, modelText, TestServer } from "./helpers.ts";
+import { checkpoints, context, modelText, TestServer, type TestOptions } from "./helpers.ts";
 
 /**
  * Context windows for the [long] scenario, whose builds print about 4k tokens each beside a system prompt of about 4k.
@@ -22,6 +22,9 @@ import { checkpoints, context, modelText, TestServer } from "./helpers.ts";
 const ONE_COMPACTION = 24_000;
 const SEVERAL_COMPACTIONS = 19_000;
 const BACKGROUND_THEN_BLOCKING = 33_000;
+
+/** These windows are calibrated to the prompt without long-term memory, whose tool, report part and prompt text add about 2k tokens. */
+const start = (options: TestOptions) => TestServer.start({ embedder: { off: "Off in these tests." }, ...options });
 
 function hangUntilAborted(context: Context): Promise<void> {
 	return new Promise((_resolve, reject) => {
@@ -72,7 +75,7 @@ async function contextAfter(server: TestServer, id: number, entries: readonly En
 describe("compaction", () => {
 	test("picloud asks for a handoff note at the trigger, compacts after it, and the run reaches its report on its own", async () => {
 		// An unusable summarizer model falls back to the session's.
-		const server = await TestServer.start({ fakeModel: { contextWindow: ONE_COMPACTION }, env: { PICLOUD_COMPACTION_MODEL: "nowhere/none" } });
+		const server = await start({ fakeModel: { contextWindow: ONE_COMPACTION }, env: { PICLOUD_COMPACTION_MODEL: "nowhere/none" } });
 		try {
 			const id = await server.createSession("Add a shout() function [long]");
 			await server.approveThrough(id);
@@ -107,7 +110,7 @@ describe("compaction", () => {
 	});
 
 	test("after it, the model sees the checkpoint at the summarizer's cut, the runway ending with the handoff note, then the resume turn", async () => {
-		const server = await TestServer.start({ fakeModel: { contextWindow: ONE_COMPACTION } });
+		const server = await start({ fakeModel: { contextWindow: ONE_COMPACTION } });
 		try {
 			const id = await server.createSession("Add a shout() function [long]");
 			await server.approveThrough(id);
@@ -134,7 +137,7 @@ describe("compaction", () => {
 	});
 
 	test("a handoff request the agent ignores still compacts at the end of its next round", async () => {
-		const server = await TestServer.start({ fakeModel: { contextWindow: ONE_COMPACTION } });
+		const server = await start({ fakeModel: { contextWindow: ONE_COMPACTION } });
 		try {
 			const id = await server.createSession("Add a shout() function [long] [ignore-handoff]");
 			await server.approveThrough(id);
@@ -156,7 +159,7 @@ describe("compaction", () => {
 	});
 
 	test("an invalid cut falls back to the earliest allowed cut, with a note", async () => {
-		const server = await TestServer.start({ fakeModel: { contextWindow: ONE_COMPACTION } });
+		const server = await start({ fakeModel: { contextWindow: ONE_COMPACTION } });
 		try {
 			const id = await server.createSession("Add a shout() function [long] [cut-invalid]");
 			await server.approveThrough(id);
@@ -174,7 +177,7 @@ describe("compaction", () => {
 	});
 
 	test("condensing replaces a kept tool result in what the model sees, while recall_history still returns the original", async () => {
-		const server = await TestServer.start({ fakeModel: { contextWindow: ONE_COMPACTION } });
+		const server = await start({ fakeModel: { contextWindow: ONE_COMPACTION } });
 		try {
 			const id = await server.createSession("Add a shout() function [long] [condense]");
 			await server.approveThrough(id);
@@ -203,7 +206,7 @@ describe("compaction", () => {
 
 	test("successive compactions evolve the checkpoint, and the person's words and the plan stay verbatim", async () => {
 		const prompts: string[] = [];
-		const server = await TestServer.start({
+		const server = await start({
 			fakeModel: { contextWindow: SEVERAL_COMPACTIONS, onRequest: (kind, text) => void (kind === "summary" && prompts.push(text)) },
 		});
 		try {
@@ -247,7 +250,7 @@ describe("compaction", () => {
 		let reached!: () => void;
 		const held = new Promise<void>((resolve) => (reached = resolve));
 		const count = { contextWindow: ONE_COMPACTION, onRequest: (kind: RequestKind) => void (kind === "summary" && summaries++) };
-		const server = await TestServer.start({
+		const server = await start({
 			fakeModel: count,
 			faults: {
 				afterSummarizer: async (context) => {
@@ -278,7 +281,7 @@ describe("compaction", () => {
 
 	test("a summarizer failure or a reply without a checkpoint still yields a usable checkpoint, and the run continues", async () => {
 		for (const directive of ["[summarizer-fails]", "[summarizer-garbage]"]) {
-			const server = await TestServer.start({ fakeModel: { contextWindow: ONE_COMPACTION } });
+			const server = await start({ fakeModel: { contextWindow: ONE_COMPACTION } });
 			try {
 				const id = await server.createSession(`Add a shout() function [long] ${directive}`);
 				await server.approveThrough(id);
@@ -299,7 +302,7 @@ describe("compaction", () => {
 	});
 
 	test("a detail that exists only before a compaction can be recalled", async () => {
-		const server = await TestServer.start({ fakeModel: { contextWindow: ONE_COMPACTION } });
+		const server = await start({ fakeModel: { contextWindow: ONE_COMPACTION } });
 		try {
 			const id = await server.createSession("Add a shout() function [long] [recall]");
 			await server.approveThrough(id);
@@ -318,7 +321,7 @@ describe("compaction", () => {
 	});
 
 	test("the backstop: a round that passes Durable's thresholds at once is compacted by Durable, with picloud's checkpoint", async () => {
-		const server = await TestServer.start({ fakeModel: { contextWindow: ONE_COMPACTION } });
+		const server = await start({ fakeModel: { contextWindow: ONE_COMPACTION } });
 		try {
 			const id = await server.createSession("Add a shout() function [long] [backstop]");
 			await server.approveThrough(id);
@@ -338,7 +341,7 @@ describe("compaction", () => {
 
 	test("a run that ends on a compaction error is resumed automatically", async () => {
 		let thrown = false;
-		const server = await TestServer.start({
+		const server = await start({
 			fakeModel: { contextWindow: ONE_COMPACTION },
 			faults: {
 				beforeBackstop: async () => {
@@ -364,7 +367,7 @@ describe("compaction", () => {
 		let first = true;
 		let release!: () => void;
 		const released = new Promise<void>((resolve) => (release = resolve));
-		const server = await TestServer.start({
+		const server = await start({
 			fakeModel: { contextWindow: BACKGROUND_THEN_BLOCKING },
 			faults: {
 				// Holds Durable's background compaction after its summarizer, until the blocking one has finished.

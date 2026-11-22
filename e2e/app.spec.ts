@@ -52,6 +52,8 @@ test.describe("the app around a session", () => {
 		await startSession(page, "What is in src?");
 		const sidebar = page.getByRole("navigation", { name: "Sessions" });
 		await expect(sidebar).toBeVisible();
+		// Memory is on in this server, so nothing in the sidebar speaks of it (memory.spec.ts has it off).
+		await expect(sidebar.getByText("Memory is off")).toHaveCount(0);
 		await page.getByRole("button", { name: "Hide the sidebar" }).click();
 		await expect(sidebar).toBeHidden();
 		await page.reload();

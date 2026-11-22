@@ -3,6 +3,7 @@
 import type { Draft } from "@earendil-works/chord/delta";
 import { type ConversationId, defineDoc, defineDocFamily, type Tx } from "@earendil-works/pi-durable";
 import { type SessionDoc, type SessionIndex, sessionRow } from "../shared/session.ts";
+import { DIRECTIVE_VERSION } from "./memory/directives.ts";
 
 // Store a full base every 50 deltas, so loading a long-lived document never replays an unbounded chain.
 const checkpointWhen = (_value: unknown, _ops: unknown, info: { deltasSinceBase: number }): boolean => info.deltasSinceBase >= 50;
@@ -42,6 +43,42 @@ export const RepoMemoryToken = defineDocFamily<RepoMemory, null>({
 	family: true,
 	initial: () => ({ notes: "", updatedAt: 0 }),
 	checkpointWhen: () => true,
+});
+
+/** One long-term memory. */
+export type MemoryRow = {
+	text: string;
+	/** Its embedding: a Float32 vector, base64. */
+	emb: string;
+	/** Moved by ratings; it nudges the memory up or down the ranking. */
+	score: number;
+	/** Provenance: the sessions that wrote it, as picloud session ids, oldest first. */
+	sessions: string[];
+	createdAt: number;
+	updatedAt: number;
+};
+
+export type MemoryDoc = {
+	/** Keyed by id: four random bytes, hex. */
+	rows: Record<string, MemoryRow>;
+	/** The embedding model the vectors were made with; absent until they were first checked. */
+	embedder?: string;
+	/** The golden text's vector under that model (base64), which shows the model changing under its own name. */
+	golden?: string;
+	/** The create directive in force when the store began, so a later pass can tell which rows predate a newer one. */
+	directive: number;
+};
+
+/**
+ * Long-term memory, shared by every session and repository: what earlier sessions recorded that no file states,
+ * searched by embedding similarity in memory, which is fine up to a few thousand rows.
+ */
+export const MemoryToken = defineDoc<MemoryDoc>({
+	kind: "picloud.memory",
+	version: 1,
+	scope: "session",
+	initial: () => ({ rows: {}, directive: DIRECTIVE_VERSION }),
+	checkpointWhen,
 });
 
 export type StoredPushSubscription = {

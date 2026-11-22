@@ -19,13 +19,15 @@ async function freePort(): Promise<number> {
 	});
 }
 
+type ServerOptions = { tokensPerSecond: number; memory: "on" | "off" };
+
 export class FakeServer {
 	readonly url: string;
 	readonly #env: NodeJS.ProcessEnv;
 	readonly #dirs: string[];
 	#child: ChildProcess | undefined;
 
-	private constructor(port: number, dataDir: string, agentDir: string, tokensPerSecond: number) {
+	private constructor(port: number, dataDir: string, agentDir: string, options: ServerOptions) {
 		this.url = `http://127.0.0.1:${port}`;
 		this.#dirs = [dataDir, agentDir];
 		this.#env = {
@@ -33,12 +35,13 @@ export class FakeServer {
 			PICLOUD_PORT: String(port),
 			PICLOUD_DATA_DIR: dataDir,
 			PI_CODING_AGENT_DIR: agentDir,
-			PICLOUD_FAKE_TOKENS_PER_SECOND: String(tokensPerSecond),
+			PICLOUD_FAKE_TOKENS_PER_SECOND: String(options.tokensPerSecond),
+			PICLOUD_FAKE_MEMORY: options.memory,
 		};
 	}
 
-	static async start(tokensPerSecond: number): Promise<FakeServer> {
-		const server = new FakeServer(await freePort(), await mkdtemp(join(tmpdir(), "picloud-e2e-")), await mkdtemp(join(tmpdir(), "picloud-pi-")), tokensPerSecond);
+	static async start(options: ServerOptions): Promise<FakeServer> {
+		const server = new FakeServer(await freePort(), await mkdtemp(join(tmpdir(), "picloud-e2e-")), await mkdtemp(join(tmpdir(), "picloud-pi-")), options);
 		await server.#spawn();
 		return server;
 	}
@@ -78,12 +81,14 @@ export class FakeServer {
 	}
 }
 
-export const test = base.extend<{ errors: string[] }, { server: FakeServer; tokensPerSecond: number }>({
+export const test = base.extend<{ errors: string[] }, { server: FakeServer; tokensPerSecond: number; memory: "on" | "off" }>({
 	/** How fast the scripted model writes; a test file that needs to watch text arrive slows it. */
 	tokensPerSecond: [300, { scope: "worker", option: true }],
+	/** Off starts the server as one without an embedder. */
+	memory: ["on", { scope: "worker", option: true }],
 	server: [
-		async ({ tokensPerSecond }, use) => {
-			const server = await FakeServer.start(tokensPerSecond);
+		async ({ tokensPerSecond, memory }, use) => {
+			const server = await FakeServer.start({ tokensPerSecond, memory });
 			await use(server);
 			await server.dispose();
 		},

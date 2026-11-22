@@ -16,6 +16,7 @@
 #   --port PORT                     loopback port picloud listens on (default 8787)  [PICLOUD_PORT]
 #   --hostname NAME                 Tailscale machine name (default picloud)         [PICLOUD_TS_HOSTNAME]
 #   --speech on|off                 read replies aloud with Kokoro (default on)      [PICLOUD_SPEECH]
+#   --memory-local on|off           embed memory on this machine (default off)       [PICLOUD_MEMORY_LOCAL]
 #   -h, --help                      show this help
 set -euo pipefail
 
@@ -41,6 +42,7 @@ SPEND_CAP=${PICLOUD_SPEND_CAP:-}
 PORT_OPTION=${PICLOUD_PORT:-}
 TS_HOSTNAME=${PICLOUD_TS_HOSTNAME:-picloud}
 SPEECH=${PICLOUD_SPEECH:-on}
+MEMORY_LOCAL=${PICLOUD_MEMORY_LOCAL:-off}
 HUMAN_STEPS=()
 # Tests point this at a stand-in, to see what the installer chooses on each system.
 OS_RELEASE=${PICLOUD_OS_RELEASE:-/etc/os-release}
@@ -59,6 +61,7 @@ while [[ $# -gt 0 ]]; do
 		--port) PORT_OPTION=${2:?}; shift ;;
 		--hostname) TS_HOSTNAME=${2:?}; shift ;;
 		--speech) SPEECH=${2:?}; shift ;;
+		--memory-local) MEMORY_LOCAL=${2:?}; shift ;;
 		-h | --help) usage; exit 0 ;;
 		*) echo "Unknown option: $1 (see --help)" >&2; exit 2 ;;
 	esac
@@ -97,6 +100,7 @@ fi
 [[ -f $SOURCE_DIR/package.json && -f $SOURCE_DIR/package-lock.json ]] || { echo "Run the installer from a picloud checkout." >&2; exit 1; }
 [[ -z $PORT_OPTION || $PORT_OPTION =~ ^[0-9]+$ ]] || { echo "--port must be a number." >&2; exit 2; }
 [[ $SPEECH == on || $SPEECH == off ]] || { echo "--speech must be on or off." >&2; exit 2; }
+[[ $MEMORY_LOCAL == on || $MEMORY_LOCAL == off ]] || { echo "--memory-local must be on or off." >&2; exit 2; }
 if [[ -n $PUSH_SUBJECT && ! $PUSH_SUBJECT =~ ^(mailto:|https://) ]]; then
 	echo "--push-subject must start with mailto: or https://" >&2
 	exit 2
@@ -206,20 +210,27 @@ else
 	human "Sandbox: this kernel has no Landlock, so picloud will not start. Use Debian 13 (recommended), or set PICLOUD_SANDBOX=off in $ENV_FILE to run agent commands unconfined, then 'sudo systemctl restart picloud'."
 fi
 
-step "Install speech ($SPEECH)"
-# The same switch as the Docker image's PICLOUD_SPEECH: on fetches the model, checked against pinned checksums, so
-# picloud reaches no network for it; off removes kokoro-js, the only optional package the server could load, and the
-# model. picloud reads aloud only when both are in place.
+step "Install the local models (speech $SPEECH, memory $MEMORY_LOCAL)"
+# The same switches as the Docker image's PICLOUD_SPEECH and PICLOUD_MEMORY_LOCAL: on fetches a model, checked against
+# pinned checksums, so picloud reaches no network for it; off removes it, since picloud turns a feature on wherever it
+# finds the model. With both off, the optional packages that run the models go too: nothing else loads them.
+models=()
 if [[ $SPEECH == on ]]; then
 	if [[ $DRY_RUN != 1 && ! -d $APP_DIR/node_modules/kokoro-js ]]; then
 		echo "npm left out kokoro-js, which speech needs: an install script under it failed (see above). Re-run, or use --speech off." >&2
 		exit 1
 	fi
-	run "$APP_DIR/deploy/speech-model.sh" "$APP_DIR/models"
-else
-	run sh -c "cd '$APP_DIR' && npm prune --omit=optional --no-audit --no-fund"
-	run rm -rf "$APP_DIR/models"
+	models+=(speech)
 fi
+if [[ $MEMORY_LOCAL == on ]]; then
+	if [[ $DRY_RUN != 1 && ! -d $APP_DIR/node_modules/@huggingface/transformers ]]; then
+		echo "npm left out @huggingface/transformers, which local memory needs: an install script under it failed (see above). Re-run, or use --memory-local off." >&2
+		exit 1
+	fi
+	models+=(memory)
+fi
+run "$APP_DIR/deploy/models.sh" "$APP_DIR/models" ${models[@]+"${models[@]}"}
+[[ ${#models[@]} -gt 0 ]] || run sh -c "cd '$APP_DIR' && npm prune --omit=optional --no-audit --no-fund"
 
 step "Write the configuration ($ENV_FILE)"
 # Existing values are kept; options given now replace them.
@@ -242,6 +253,9 @@ PICLOUD_ALLOWED_LOGINS=$(choose "$ALLOWED_LOGINS" PICLOUD_ALLOWED_LOGINS "")
 PICLOUD_SPEND_CAP=$(choose "$SPEND_CAP" PICLOUD_SPEND_CAP "")
 PICLOUD_COMPACTION_MODEL=$(choose "" PICLOUD_COMPACTION_MODEL "")
 PICLOUD_SANDBOX=$(choose "" PICLOUD_SANDBOX on)
+PICLOUD_MEMORY_PROVIDER=$(choose "" PICLOUD_MEMORY_PROVIDER lunaroute)
+PICLOUD_MEMORY_EMBED_MODEL=$(choose "" PICLOUD_MEMORY_EMBED_MODEL emb-qwen3)
+PICLOUD_MEMORY_EMBED_URL=$(choose "" PICLOUD_MEMORY_EMBED_URL "")
 PICLOUD_AGENT_GH_TOKEN=$shown_token
 EOF
 [[ -n $agent_token ]] || human "GitHub: create a second fine-grained token for the agent, read-only (Contents and Metadata: read) for the same repositories, then re-run with --agent-github-token-file FILE. picloud does not start without it."

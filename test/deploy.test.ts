@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { chmodSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
@@ -15,7 +15,7 @@ test("the installer passes a syntax check", () => {
 test("its dry run lists every step and changes nothing", () => {
 	const result = spawnSync("bash", [script, "--dry-run", "--push-subject", "mailto:owner@example.com", "--spend-cap", "5"], {
 		encoding: "utf8",
-		env: { ...process.env, PICLOUD_DRY_RUN: "", PICLOUD_SPEECH: "" },
+		env: { ...process.env, PICLOUD_DRY_RUN: "", PICLOUD_SPEECH: "", PICLOUD_MEMORY_LOCAL: "" },
 	});
 	assert.equal(result.status, 0, result.stderr);
 	const steps = [...result.stdout.matchAll(/^== \d+\. (.+)$/gm)].map((match) => match[1]);
@@ -29,7 +29,7 @@ test("its dry run lists every step and changes nothing", () => {
 		"Create the data, install and configuration directories",
 		"Install the pi CLI (1.6.0)",
 		"Install the picloud app into /opt/picloud/app",
-		"Install speech (on)",
+		"Install the local models (speech on, memory off)",
 		"Write the configuration (/etc/picloud/picloud.env)",
 		"Sign gh in for the service user",
 		"Install the systemd service",
@@ -48,20 +48,51 @@ test("its dry run lists every step and changes nothing", () => {
 	assert.match(result.stdout, /PICLOUD_AGENT_GH_TOKEN=$/m);
 	assert.match(result.stdout, /read-only \(Contents and Metadata: read\).*--agent-github-token-file FILE/);
 	assert.match(result.stdout, /RestartPreventExitStatus=78 2/);
-	// Speech is on by default: its model is fetched by the script the Docker image uses too.
-	assert.match(result.stdout, /\[dry run\] \/opt\/picloud\/app\/deploy\/speech-model\.sh \/opt\/picloud\/app\/models$/m);
+	// Speech is on and local memory off by default: the models are fetched by the script the Docker image uses too.
+	assert.match(result.stdout, /\[dry run\] \/opt\/picloud\/app\/deploy\/models\.sh \/opt\/picloud\/app\/models speech$/m);
+	assert.doesNotMatch(result.stdout, /npm prune --omit=optional/);
 });
 
-test("its dry run with --speech off removes speech's packages and model instead", () => {
-	const result = spawnSync("bash", [script, "--dry-run", "--speech", "off"], { encoding: "utf8", env: { ...process.env, PICLOUD_DRY_RUN: "", PICLOUD_SPEECH: "" } });
-	assert.equal(result.status, 0, result.stderr);
-	assert.match(result.stdout, /^== \d+\. Install speech \(off\)$/m);
-	assert.match(result.stdout, /npm prune --omit=optional/);
-	assert.match(result.stdout, /\[dry run\] rm -rf \/opt\/picloud\/app\/models$/m);
-	assert.doesNotMatch(result.stdout, /speech-model\.sh/);
-	const refused = spawnSync("bash", [script, "--dry-run", "--speech", "maybe"], { encoding: "utf8", env: { ...process.env, PICLOUD_DRY_RUN: "" } });
-	assert.equal(refused.status, 2);
-	assert.match(refused.stderr, /--speech must be on or off/);
+test("its dry run switches the local models: memory on, speech off, or both off with their packages", () => {
+	const install = (...args: string[]) =>
+		spawnSync("bash", [script, "--dry-run", ...args], { encoding: "utf8", env: { ...process.env, PICLOUD_DRY_RUN: "", PICLOUD_SPEECH: "", PICLOUD_MEMORY_LOCAL: "" } });
+	const memory = install("--speech", "off", "--memory-local", "on");
+	assert.equal(memory.status, 0, memory.stderr);
+	assert.match(memory.stdout, /^== \d+\. Install the local models \(speech off, memory on\)$/m);
+	assert.match(memory.stdout, /\[dry run\] \/opt\/picloud\/app\/deploy\/models\.sh \/opt\/picloud\/app\/models memory$/m);
+	assert.doesNotMatch(memory.stdout, /npm prune --omit=optional/);
+	const none = install("--speech", "off");
+	assert.equal(none.status, 0, none.stderr);
+	// The script with no model named removes those an earlier install fetched.
+	assert.match(none.stdout, /\[dry run\] \/opt\/picloud\/app\/deploy\/models\.sh \/opt\/picloud\/app\/models$/m);
+	assert.match(none.stdout, /npm prune --omit=optional/);
+	for (const [flag, message] of [
+		["--speech", /--speech must be on or off/],
+		["--memory-local", /--memory-local must be on or off/],
+	] as const) {
+		const refused = install(flag, "maybe");
+		assert.equal(refused.status, 2);
+		assert.match(refused.stderr, message);
+	}
+});
+
+test("the models script removes the model of a feature not named, and refuses a feature it does not know", () => {
+	const dir = mkdtempSync(join(tmpdir(), "picloud-models-"));
+	const models = join(import.meta.dirname, "..", "deploy", "models.sh");
+	try {
+		// A speech model an earlier install fetched: left in place, picloud would read aloud with speech switched off.
+		mkdirSync(join(dir, "onnx-community", "Kokoro-82M-v1.0-ONNX"), { recursive: true });
+		writeFileSync(join(dir, "onnx-community", "Kokoro-82M-v1.0-ONNX", "config.json"), "{}");
+		const none = spawnSync("bash", [models, dir], { encoding: "utf8" });
+		assert.equal(none.status, 0, none.stderr);
+		assert.equal(none.stdout, "   removing onnx-community/Kokoro-82M-v1.0-ONNX (speech is off)\n");
+		assert.deepEqual(readdirSync(dir), []);
+		const unknown = spawnSync("bash", [models, dir, "vision"], { encoding: "utf8" });
+		assert.equal(unknown.status, 2);
+		assert.match(unknown.stderr, /There is no model set 'vision'; the sets are: speech memory\./);
+	} finally {
+		rmSync(dir, { recursive: true, force: true });
+	}
 });
 
 test("its dry run on Debian 13 picks Tailscale's trixie source and writes the agent's token where only root reads it", () => {

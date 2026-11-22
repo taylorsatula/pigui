@@ -1,11 +1,14 @@
 // The report tool: the end of a piece of work. It checks the workspace itself instead of trusting the model, refusing
-// uncommitted changes and a branch behind its base, then files the report, updates repo memory and notifies.
+// uncommitted changes and a branch behind its base, then files the report, updates repo memory and notifies. With
+// long-term memory on, it also records and grades memory, in the same commit.
 import { defineTool, type ToolExecutionResult } from "@earendil-works/pi-durable";
-import { arr, bool, obj, oneOf, str } from "@earendil-works/pi-schema";
-import type { Report } from "../../shared/session.ts";
-import { editSession, RepoMemoryToken } from "../docs.ts";
+import { arr, bool, obj, oneOf, type Static, str, unsafe } from "@earendil-works/pi-schema";
+import { type Report, reportOf } from "../../shared/session.ts";
+import { editSession, MemoryToken, RepoMemoryToken } from "../docs.ts";
 import { fetchBranch, head, isAncestor, refExists, uncommitted } from "../git.ts";
+import { applyChanges } from "../memory/store.ts";
 import { sessionOf } from "./cards.ts";
+import { MemoryPart, type MemoryOutcome, prepareMemory } from "./memory.ts";
 import type { AgentServices } from "./services.ts";
 
 export const FILE_REPORT = "file_report";
@@ -13,7 +16,7 @@ export const FILE_REPORT = "file_report";
 const line = (description: string) => str({ minLength: 1, maxLength: 300, description });
 
 // Set against the plan, part by part, so the card can show what was asked beside what was done.
-const ReportParameters = obj({
+const reportParts = {
 	headline: str({
 		minLength: 1,
 		maxLength: 100,
@@ -62,7 +65,13 @@ const ReportParameters = obj({
 		description:
 			"Everything a later session needs to build and test this repository on this machine: commands, setup, pitfalls. Include what you were told under repo memory that is still true; this replaces it.",
 	}),
-});
+};
+
+const ReportParameters = obj(reportParts);
+const MemoryReportParameters = obj({ ...reportParts, memory: MemoryPart });
+
+/** The arguments either schema gives: `memory` is there exactly when long-term memory is on. */
+type ReportArgs = Static<typeof ReportParameters> & { memory?: Static<typeof MemoryPart> };
 
 const refuse = (text: string): ToolExecutionResult => ({ output: [{ type: "text", text }], isError: true });
 
@@ -71,10 +80,13 @@ export function reportTool(services: AgentServices) {
 		name: FILE_REPORT,
 		description:
 			"File a report after any change to the repository: when the work is done, or when you cannot go further. The person reviews it beside the plan: each end-state condition with its evidence, the changes by file, the checks you ran, and where you departed from the plan. Write each item as one short line. It ends your turn, and it becomes the pull request's description if the person opens one. Refused while there are uncommitted changes or the branch is behind its base.",
-		parameters: ReportParameters,
+		parameters: unsafe<ReportArgs>(services.memory === undefined ? ReportParameters : MemoryReportParameters),
 		replay: "safe",
 		async execute(args, api, context): Promise<ToolExecutionResult> {
 			const session = await sessionOf(api, context);
+			const key = `report:${api.callId}`;
+			// A rerun of this call after a crash, once the report is filed: return it as it was filed, checking nothing again.
+			if (session.notified.includes(key) && session.report !== undefined) return filed(reportOf(session.report));
 			const workspace = services.workspace(session.id);
 			const dirty = await uncommitted(workspace);
 			if (dirty.length > 0) {
@@ -90,13 +102,32 @@ export function reportTool(services: AgentServices) {
 					`Report refused: ${session.branch} is behind origin/${session.base}. Merge it (git merge origin/${session.base}), resolve any conflicts, run the tests again, commit, then file the report.`,
 				);
 			}
-			const notes = fetchError === undefined ? args.notes : [...args.notes, `Could not fetch origin/${session.base} to check the branch is up to date.`];
+			const { memory: memoryPart, ...parts } = args;
+			const notes = fetchError === undefined ? [...parts.notes] : [...parts.notes, `Could not fetch origin/${session.base} to check the branch is up to date.`];
+			const shown = session.memoryShown ?? [];
+			let remembering: MemoryOutcome | undefined;
+			if (services.memory !== undefined) {
+				remembering = await prepareMemory(services.memory, memoryPart ?? { create: [], helpful: [], edit: [], delete: [] }, shown, context);
+				if (remembering.kind === "refused") return refuse(remembering.text);
+				if (remembering.kind === "failed") notes.push(remembering.note);
+			}
 			const commit = await head(workspace);
-			const report: Report = { ...args, notes, commit, filedAt: services.now() };
+			const report: Report = { ...parts, notes, commit, filedAt: services.now() };
+			let missing: string[] = [];
 			await api.commit(async (tx) => {
 				await editSession(tx, api.conversationId, services.now(), async (doc) => {
 					// A rerun of this call after a crash: the report is already filed.
-					if (doc.notified.includes(`report:${api.callId}`)) return;
+					if (doc.notified.includes(key)) return;
+					if (remembering?.kind === "apply") {
+						const applied = applyChanges(await tx.doc(MemoryToken), remembering.changes, String(doc.id), report.filedAt);
+						if (applied.done !== undefined) report.memory = applied.done;
+						missing = applied.missing;
+						// What this report was checked against is settled. Memories a failed embedding left unapplied stay to be
+						// rated again, and so would any a search in the same round showed after this call read the session.
+						const remaining = (doc.memoryShown ?? []).filter((id) => !shown.includes(id));
+						if (remaining.length > 0) doc.memoryShown = remaining;
+						else delete doc.memoryShown;
+					}
 					doc.report = report;
 					doc.workflow = "reported";
 					doc.outcome = { kind: "reported", at: report.filedAt };
@@ -106,14 +137,27 @@ export function reportTool(services: AgentServices) {
 						memory.notes = args.learned.trim();
 						memory.updatedAt = report.filedAt;
 					}
-					await services.notifications.enqueue(tx, doc, { key: `report:${api.callId}`, title: "Report ready", body: args.headline });
+					await services.notifications.enqueue(tx, doc, { key, title: "Report ready", body: args.headline });
 				});
 			}, context);
-			return {
-				output: [{ type: "text", text: "Report filed. The person will review it and choose to push the branch, open a pull request, or ask for more." }],
-				details: { report },
-				control: { terminate: true },
-			};
+			return filed(report, missing);
 		},
 	});
+}
+
+function filed(report: Report, missing: string[] = []): ToolExecutionResult {
+	const text = [
+		"Report filed. The person will review it and choose to push the branch, open a pull request, or ask for more.",
+		...(missing.length === 0
+			? []
+			: [
+					`These memory ids matched nothing and were not rated: ${missing.join(", ")}.`,
+					"They may have been from an earlier session and since deleted. Nothing else failed.",
+				]),
+	].join("\n");
+	return {
+		output: [{ type: "text", text }],
+		details: { report },
+		control: { terminate: true },
+	};
 }

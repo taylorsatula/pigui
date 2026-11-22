@@ -7,6 +7,8 @@ import { getAgentDir } from "@earendil-works/pi-coding-agent";
 import { startApp } from "./app.ts";
 import { ConfigError, readConfig } from "./config.ts";
 import { createLogger, errorKind } from "./log.ts";
+import { type Embedder, piEmbedder } from "./memory/embedder.ts";
+import { leafEmbedder, leafInstalled } from "./memory/leaf.ts";
 import { loadPiModels, NotSignedIn } from "./pi.ts";
 
 async function main(): Promise<void> {
@@ -18,6 +20,7 @@ async function main(): Promise<void> {
 		exitOnConfigError(error);
 	}
 	let pi;
+	let embedder: Embedder | { off: string } | undefined;
 	let agentDir: string;
 	if (config.fake) {
 		// Fake mode never reads the operator's Pi configuration: it gets an empty one of its own.
@@ -35,10 +38,20 @@ async function main(): Promise<void> {
 			}
 			throw error;
 		}
+		// An endpoint set explicitly is the operator's choice. Otherwise a build with LEAF embeds on this server, and one
+		// without it signs the provider's endpoint with Pi's key. Memory is optional: without either, picloud runs as it
+		// would without memory, and the sidebar says why and how to turn it on.
+		const memory = config.memory.embedUrl === undefined && (await leafInstalled()) ? { embedder: leafEmbedder(log) } : await piEmbedder(pi.models, agentDir, config.memory);
+		if ("off" in memory) {
+			log.info("memory.off", { reason: memory.off });
+			embedder = {
+				off: `${memory.off}. To embed on this server, build with PICLOUD_MEMORY_LOCAL=on (the installer: --memory-local on); or give Pi a key for ${config.memory.provider}.`,
+			};
+		} else embedder = memory.embedder;
 	}
 	let app;
 	try {
-		app = await startApp(pi === undefined ? { config, agentDir } : { config, agentDir, pi });
+		app = await startApp(pi === undefined ? { config, agentDir } : { config, agentDir, pi, embedder });
 	} catch (error) {
 		// A sandbox that does not work on this machine is a configuration problem too: restarting cannot fix it.
 		exitOnConfigError(error);

@@ -833,6 +833,15 @@ details > summary:active {
 		0 0 0 3.5px var(--bg);
 }
 
+/* The banner's look, set in the sidebar's margins. */
+.banner.drawer-notice {
+	margin: 0 16px 8px;
+}
+
+.banner.drawer-notice p {
+	font-size: var(--footnote);
+}
+
 .drawer-footer {
 	padding: 4px 16px 8px;
 	border-top: var(--hairline) solid var(--separator);
@@ -1573,6 +1582,15 @@ select:focus-visible {
 .item-detail {
 	font-size: var(--footnote);
 	color: var(--text-2);
+}
+
+/* The line under what a report remembered: how it rated what memory showed it. */
+.grading {
+	margin: 0;
+}
+
+.items + .grading {
+	margin-top: 10px;
 }
 
 /* A decision reads as the choice, with its reason under it. */

@@ -87,12 +87,16 @@ export type ApiError = {
 	hint?: string;
 };
 
+/** Whether long-term memory is on, with what model; or why it is off, worded for the person who can turn it on. */
+export type MemoryStatus = { on: true; model: string } | { on: false; reason: string };
+
 export type Bootstrap = {
 	fake: boolean;
 	vapidPublicKey: string;
 	lastRepo?: string;
 	/** Whether this server reads replies aloud: built with speech and its model in place, or in fake mode. */
 	speech: boolean;
+	memory: MemoryStatus;
 };
 
 export type RepoSummary = {

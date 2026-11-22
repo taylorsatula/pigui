@@ -2,6 +2,7 @@ import type { Context } from "@earendil-works/chord/context";
 import type { Api, Model, Models } from "@earendil-works/pi-ai";
 import type { Harness, ModelRef } from "@earendil-works/pi-durable";
 import type { Logger } from "../log.ts";
+import type { Memory } from "../memory/store.ts";
 import type { Notifications } from "../notify.ts";
 
 /** Test seams: points where a test can hold the code still to simulate a crash at an exact moment. */
@@ -29,5 +30,7 @@ export type AgentServices = {
 	/** Pi's configuration directory, read by Pi's loaders for global context files and skills. */
 	agentDir: string;
 	workspace(session: number): string;
+	/** Long-term memory; undefined when it is off, and then no tool, report part or prompt text mentions it. */
+	memory: Memory | undefined;
 	faults: Faults;
 };
