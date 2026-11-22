@@ -4,7 +4,8 @@ picloud runs the [Pi](https://www.npmjs.com/package/@earendil-works/pi-coding-ag
 and lets you drive it from your phone. Pick a repository, describe a task, answer Pi's questions with a few taps,
 approve its plan, and put the phone away. Pi implements, verifies and commits on its own branch; you get a
 notification and a report, and you choose whether to push the branch, open a pull request, or keep working.
-The app follows the phone's light or dark mode, or keeps the theme chosen in its drawer: Light, Dark or Terminal.
+A session reads as a log the agent keeps, set in a serif with the time of each entry in the margin. The app follows the
+phone's light or dark mode, or keeps the theme chosen in its drawer: Light, Dark or Terminal.
 A speaker under each reply reads it aloud, with a speech model that runs on the server ([Reading aloud](#reading-aloud)).
 
 It is thin glue around [Pi Durable](https://www.npmjs.com/package/@earendil-works/pi-durable), which owns the agent

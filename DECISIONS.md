@@ -296,18 +296,38 @@ How the Human Interface Guidelines shaped it:
 - **Clarity:** the composer's placeholder says what sending will do now ("Answer in your own words…", "Steer Pi while
   it works…"); tool activity is one plain sentence ("Ran 2 commands, edited 1 file"); failures name the problem and
   offer the next step (Continue, Raise to $X and continue, Retry setup).
-- **Deference:** content first — status and spend are a quiet line under the title; thinking, tool calls and handoffs
-  are collapsed until asked for; the agent's prose is ordinary text, the person's words are bubbles.
+- **Deference:** content first — status and spend are one line of record under the title; thinking, tool calls and
+  handoffs are collapsed until asked for; the agent's prose is set to be read, the person's words in its italic.
 - **Sensible defaults:** the last repository, a new branch from its default branch, recommended options pre-selected
   so accepting them is one tap.
 - **Familiar navigation:** a ☰ drawer (and an edge swipe) on phones, a persistent sidebar on wide screens; the drawer
   groups sessions as "Needs you", "Working", "Done", and a dot on ☰ means another session needs you.
 - **Feedback and forgiveness:** archive is immediate with an Undo toast instead of a confirmation dialog; drafts are
   saved as they are typed.
-- **Accessibility:** the system font at the person's text size (`-apple-system-body`), system-like colours in light and
-  dark with sufficient contrast, 44 pt targets (checked by an end-to-end test), safe areas, the keyboard resizing the
+- **Accessibility:** type at the person's text size (`-apple-system-body`, which every size is a fraction of), light
+  and dark colours with sufficient contrast, 44 pt targets (checked by an end-to-end test), safe areas, the keyboard resizing the
   layout (`interactive-widget=resizes-content`), reduced motion respected, and roles, labels and live regions for
   screen readers.
+
+**The look: a logbook, set in a serif.** The first look followed the guidelines and nothing else, and read as every
+chat app averaged: blue bubbles, a "Message…" pill, grey pills for status, the system sans at two sizes, everything at
+one radius and one spacing. It was replaced by a point of view. A session is a log the agent keeps: each entry has its
+time in a margin ruled down the page (a time only when the minute changes, as a hand-kept log does, and a date heading
+when the day does), the agent's prose is set in Source Serif 4 at a reading size, measure and leading, and what is
+recorded (times, labels, status, tool lines, paths, sums) is in IBM Plex Mono. The person's words are the serif's
+italic, marked "you" in the margin, not a coloured bubble. Status is a word, not a pill. The plan is a ruled checklist
+whose boxes hold step numbers and fill with ticks as steps finish; the report opens under a double rule, as a ledger's
+total does, with its commit and a lede. Colour is paper and ink in both themes (Dark is warm graphite and cream, not
+blue-black), with one highlighter, kept for what needs the person: the status word in the title bar and the drawer,
+the heading of a waiting card, drawn across once as a pen would, and the margin rule beside it thickened in yellow. The
+main action is filled with ink, others are outlined in it, links are underlined; the send button is a return key
+rather than a chat app's up arrow. The input stays a text field with an attachment button and a send button, written
+on the log's next line. The fonts are pinned dev dependencies (`@fontsource-variable/source-serif-4`,
+`@fontsource/ibm-plex-mono`) whose Latin files `scripts/build.ts` copies into the app with their licences (about
+290 KB, precached by the service worker), so they work offline and the CSP needs no font host. *Alternatives:* a pure
+editorial page (serif, no log structure) read well but lost the sense of watching work happen; a newspaper layout made
+the waiting moment loud but everything else too graphic for something read every day; the system sans with a stronger
+accent kept the hollowness, which came from the defaults, not the colour.
 
 **One small set of values, declared once at the top of `app.css`.** Spacing comes from 2/4/8/12/16/24 px, radii from
 four tokens, type from Apple's text styles expressed as fractions of Body (so Dynamic Type scales all of it), colour
@@ -330,20 +350,19 @@ for Dark, because a selector cannot test a media query (`light-dark()` would avo
 with no colours at all), and an end-to-end test keeps the two equal. The Terminal block sets a monospace font, square
 corners, 1 px lines, terminal line heights, no shadows, blur or translucency, and one fluorescent colour per meaning:
 lime for done, approved and added lines; red for errors, failures and removed lines; orange for warnings and the
-budget raise; magenta for what needs the person (waiting cards, the attention dot, "Needs you" labels); cyan for work
-in progress (status, progress, spinners, and Continue and Retry, which start work); blue for GitHub (Open, Update and
+budget raise; magenta for what needs the person (its highlighter: waiting cards, the attention dot, "Needs you"
+labels); cyan for work in progress (Continue and Retry, which start work); blue for GitHub (Open, Update and
 View PR, Push); yellow for the person (their messages, Send, links, their choices, focus); grey for the rest. A
 short section at the end of `app.css` draws what values cannot: outlines in place of fills, each control in the
 colour of what it does (`--tone`, from classes such as `approve` and `deliver` that say what a button does), the
-primary action and the current row in inverse video, and a block cursor. *Alternative:* a second stylesheet for the
-terminal would restate every component and drift from it; ASCII frames, braille spinners and a blinking cursor were
-left out as decoration.
+primary action and the current row in inverse video, and the person's words after a `>` prompt. *Alternative:* a
+second stylesheet for the terminal would restate every component and drift from it; ASCII frames and braille spinners
+were left out as decoration.
 
 **A wide screen gets the same app, laid out for its width.** It has no extra features, only a layout for the
 space:
 - From 900 px the drawer becomes a persistent sidebar.
-- Every band of a page runs the full width of its pane: title bar, status line, transcript, composer bar, setup
-  form. So the bars and their hairlines meet the pane's edges, while the content keeps to a centred 760 px reading
+- Every band of a page runs the full width of its pane: title bar, transcript, composer bar, setup form. So the bars and their hairlines meet the pane's edges, while the content keeps to a centred 760 px reading
   column. This is padding computed from the pane width, so no wrapper elements are needed.
 - Without the menu button, the title lines up with the content.
 - Toasts centre on the conversation, not on the window.
@@ -655,4 +674,6 @@ Pinned exactly, with the lockfile committed: the five `@earendil-works/*` packag
 `dompurify` for the client; `esbuild`, `typescript`, `@types/node` and `@playwright/test` (matching the installed
 Chromium) for building and testing. Apart from the `@earendil-works/*` versions the runbook fixes, each version was at
 least two weeks old when it was chosen. Reading aloud adds two optional dependencies, `kokoro-js` 1.2.1 and
-`@huggingface/transformers` 3.8.1 (the version kokoro-js's range resolved to), which a build can leave out.
+`@huggingface/transformers` 3.8.1 (the version kokoro-js's range resolved to), which a build can leave out. The two
+faces are dev dependencies, `@fontsource-variable/source-serif-4` 5.3.1 and `@fontsource/ibm-plex-mono` 5.3.0: the
+build copies their files, so nothing of them is needed at runtime.

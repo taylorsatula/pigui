@@ -1,44 +1,91 @@
-/* picloud's look follows Apple's Human Interface Guidelines: the system font at the person's text size, system
-   colours in light and dark, content first with quiet chrome, 44 pt targets, and motion only where it explains.
+/* picloud is kept like a logbook in a well-set book: the agent's prose in a serif with room to read, everything
+   recorded (times, tools, paths, status, sums) in a monospace beside it, and the time of each entry in a margin ruled
+   down the page. Ink on paper, and one highlighter, kept for what needs the person.
+
+   Apple's Human Interface Guidelines still hold underneath: the person's text size (Dynamic Type), 44 pt targets,
+   readable light and dark themes, motion only where it explains.
 
    Everything below draws on one small set of values:
-   - spacing: 2, 4, 8, 12, 16 and 24 px;
-   - radii: --radius-s (inline code), -m (controls, rows, code), -l (cards, bubbles, panels, sheets), -full (pills
-     and discs);
-   - type: Apple's text styles as fractions of Body, so they follow Dynamic Type;
-   - colour: surfaces and text, plus one token per meaning (done, warn, error, waiting, working, deliver, neutral,
-     person), which every theme defines;
+   - type: --serif says, --mono records. Sizes are fractions of Body, so they follow Dynamic Type;
+   - spacing: 2, 4, 6, 8, 12, 16 and 24 px;
+   - radii: --radius-s (code, fields, buttons, the toast), --radius-l (sheets), --radius-full (discs);
+   - colour: paper and ink, a margin rule, the highlighter (--mark), plus one token per meaning (done, warn, error,
+     waiting, working, deliver, neutral, person), which every theme defines;
    - motion: three durations and two curves. Frequent actions (send, pick, disclose) are not animated; presses give
-     feedback at once; feedback on an interaction stays within 200 ms; sheets, the drawer and toasts enter with
-     --present and leave faster with --quick.
+     feedback at once; sheets, the drawer and toasts enter with --present and leave faster with --quick. The one
+     flourish is the highlighter drawn across what waits for the person.
 
    Themes: System (no data-theme on <html>) follows the OS between Light and Dark; Light, Dark and Terminal are chosen
    in the drawer (theme.ts). A theme is a block of these values; only the Terminal also has a short section of its
    own, at the end, for the few things it draws differently. */
 
+/* The two faces, served with the app (scripts/build.ts copies their Latin files from the pinned Fontsource packages),
+   so they work offline and the CSP needs no font host. Characters outside Latin fall back to the next face listed. */
+@font-face {
+	font-family: "Source Serif 4";
+	font-style: normal;
+	font-weight: 200 900;
+	font-display: swap;
+	src: url(/fonts/source-serif-4-latin-opsz-normal.woff2) format("woff2-variations");
+	unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+
+@font-face {
+	font-family: "Source Serif 4";
+	font-style: italic;
+	font-weight: 200 900;
+	font-display: swap;
+	src: url(/fonts/source-serif-4-latin-opsz-italic.woff2) format("woff2-variations");
+	unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+
+@font-face {
+	font-family: "IBM Plex Mono";
+	font-style: normal;
+	font-weight: 400;
+	font-display: swap;
+	src: url(/fonts/ibm-plex-mono-latin-400-normal.woff2) format("woff2");
+	unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+
+@font-face {
+	font-family: "IBM Plex Mono";
+	font-style: normal;
+	font-weight: 500;
+	font-display: swap;
+	src: url(/fonts/ibm-plex-mono-latin-500-normal.woff2) format("woff2");
+	unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+
 :root {
-	--font: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
-	--mono: ui-monospace, "SF Mono", Menlo, monospace;
-	/* Title 3 20 pt, Subheadline 15 pt, Footnote 13 pt, against Body 17 pt. Headline is Body in semibold. */
-	--title: 1.1765rem;
-	--subhead: 0.8824rem;
-	--footnote: 0.7647rem;
-	/* Prose; titles, labels and rows, which sit on one or two lines; a patch's lines. */
-	--leading: 1.45;
+	--serif: "Source Serif 4", "Iowan Old Style", "Palatino Linotype", Georgia, serif;
+	--mono: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, monospace;
+	--font: var(--serif);
+	/* Prose sits a step above Body: a serif reads smaller than the system sans at the same size. */
+	--prose: 1.0625rem;
+	--title: 1.375rem;
+	--subhead: 0.9375rem;
+	--footnote: 0.8125rem;
+	/* What the log records: times, labels, tool lines. Labels are capitals, opened up. */
+	--record: 0.75rem;
+	--label: 0.6875rem;
+	--label-tracking: 0.08em;
+	--leading: 1.55;
 	--leading-tight: 1.3;
 	--leading-code: 1.5;
-	--caps-tracking: 0.02em;
 
-	--radius-s: 4px;
-	--radius-m: 12px;
-	--radius-l: 16px;
+	--radius-s: 3px;
+	--radius-l: 12px;
 	--radius-full: 999px;
-	/* The width of separators and of the line around cards and fields. */
-	--hairline: 0.5px;
+	/* Separators, and the margin rule between the times and the entries. */
+	--hairline: 1px;
 	--target: 44px;
 	/* The reading column, and the sidebar the drawer becomes on a wide screen. */
 	--column: 760px;
 	--sidebar: 340px;
+	/* The log's margin: wide enough for "14:02", and the space between the rule and an entry. */
+	--stamp: 3.25rem;
+	--stamp-gap: 12px;
 
 	--ease-out: cubic-bezier(0.23, 1, 0.32, 1);
 	/* The curve iOS sheets move on: quick to start, long to settle. */
@@ -53,46 +100,57 @@
 	--safe-right: env(safe-area-inset-right, 0px);
 }
 
+/* On a phone the margin narrows and the page edge comes in, so the prose keeps about forty characters a line. */
+@media (max-width: 520px) {
+	:root {
+		--stamp: 2.875rem;
+		--stamp-gap: 10px;
+	}
+}
+
 /* ---- Colour themes. Light's colours are :root's own, so they serve System in light mode and the Light theme. */
 
 :root {
 	color-scheme: light dark;
-	--bg: #f6f6f8;
-	--surface: #ffffff;
-	--surface-2: #efeff4;
-	/* Panels that float over content: toasts, the picker, the chosen segment. */
-	--raised: #ffffff;
-	/* A translucent fill laid over any background: pressed and hovered rows, tracks. */
-	--fill: rgba(120, 120, 128, 0.12);
-	--text: #111114;
-	--text-2: #55555c;
-	--separator: rgba(60, 60, 67, 0.22);
-	/* What can be tapped: links, the send button, primary buttons, focus. */
-	--accent: #0a64d8;
-	--accent-text: #ffffff;
-	--accent-tint: color-mix(in srgb, var(--accent) 12%, transparent);
+	/* Paper, a lighter sheet for panels (the drawer, fields), and a darker one for code. */
+	--bg: #f3f0e7;
+	--surface: #f9f7f1;
+	--surface-2: #e8e4d8;
+	--raised: #fcfbf7;
+	--fill: rgba(70, 58, 34, 0.08);
+	/* Ink, and the pencil it is annotated in. */
+	--text: #1b1915;
+	--text-2: #67625a;
+	--separator: rgba(44, 38, 26, 0.16);
+	/* A rule drawn on purpose: the outline of a secondary button, the double rule over a report. */
+	--rule: rgba(44, 38, 26, 0.55);
+	/* The margin, ruled in red as a notebook's is, faint enough to be paper rather than signal. */
+	--margin: rgba(176, 64, 48, 0.36);
+	/* The highlighter, and the ink over it. */
+	--mark: #f2d85c;
+	--mark-text: #1b1915;
+	/* What can be tapped is drawn in ink: filled for the main action, outlined or underlined otherwise. */
+	--accent: #1b1915;
+	--accent-text: #f3f0e7;
 	/* What things mean. Done, approved and added; a warning; an error, a failure, a removed line; needs the person;
-	   at work; delivers to GitHub; nothing in particular; the person's own words. Light and Dark keep iOS's habits
-	   where the Terminal is literal: "Needs you" reads in the warning colour, and the attention dot is a red badge. */
-	--done: #1c7c3a;
-	--warn: #9a5b00;
-	--error: #c4271d;
-	--waiting: #9a5b00;
-	--working: #0a64d8;
-	--deliver: #0a64d8;
-	--neutral: #55555c;
-	--person: #0a64d8;
-	--person-text: #ffffff;
-	--badge: #c4271d;
-	--code: #f2f2f6;
-	--add: rgba(28, 124, 58, 0.14);
-	--del: rgba(196, 39, 29, 0.12);
-	--scrim: rgba(0, 0, 0, 0.32);
-	--shadow: 0 1px 3px rgba(0, 0, 0, 0.08), 0 8px 32px rgba(0, 0, 0, 0.14);
-	--lift: 0 1px 3px rgba(0, 0, 0, 0.12);
-	/* The title bar and composer bar: the page showing through, frosted. */
-	--bar: color-mix(in srgb, var(--bg) 88%, transparent);
-	--bar-blur: saturate(180%) blur(16px);
+	   at work; delivers to GitHub; nothing in particular; the person's own words. */
+	--done: #2e6a38;
+	--warn: #8a5600;
+	--error: #a62f1f;
+	--waiting: #1b1915;
+	--working: #67625a;
+	--deliver: #1b1915;
+	--neutral: #67625a;
+	--person: #1b1915;
+	--badge: #f2d85c;
+	--code: rgba(70, 58, 34, 0.07);
+	--add: rgba(46, 106, 56, 0.14);
+	--del: rgba(166, 47, 31, 0.12);
+	--scrim: rgba(24, 20, 12, 0.32);
+	--shadow: 0 1px 2px rgba(44, 34, 14, 0.08), 0 10px 30px rgba(44, 34, 14, 0.16);
+	/* The title bar and composer bar: the paper showing through, frosted. */
+	--bar: color-mix(in srgb, var(--bg) 90%, transparent);
+	--bar-blur: saturate(140%) blur(16px);
 }
 
 :root[data-theme="light"] {
@@ -100,83 +158,90 @@
 }
 
 /* Dark's colours are written twice, for System in dark mode and for the Dark theme: a selector cannot test a media
-   query. An end-to-end test checks the two stay the same. */
+   query. An end-to-end test checks the two stay the same. Dark is the same book read by lamplight: warm graphite
+   paper, cream ink, the highlighter as bright as it is on paper. */
 @media (prefers-color-scheme: dark) {
 	:root:not([data-theme]) {
-		--bg: #111113;
-		--surface: #1c1c1f;
-		--surface-2: #2a2a2e;
-		--raised: #333338;
-		--fill: rgba(120, 120, 128, 0.2);
-		--text: #f4f4f6;
-		--text-2: #a9a9b2;
-		--separator: rgba(235, 235, 245, 0.2);
-		--accent: #4c9bff;
-		--accent-text: #06101f;
-		--done: #4fd07a;
-		--warn: #f2b14c;
-		--error: #ff6b60;
-		--waiting: #f2b14c;
-		--working: #4c9bff;
-		--deliver: #4c9bff;
-		--neutral: #a9a9b2;
-		--person: #2f6fd6;
-		--person-text: #ffffff;
-		--badge: #ff6b60;
-		--code: #232327;
-		--add: rgba(79, 208, 122, 0.16);
-		--del: rgba(255, 107, 96, 0.16);
+		--bg: #181714;
+		--surface: #1f1e1a;
+		--surface-2: #2a2823;
+		--raised: #2c2a25;
+		--fill: rgba(235, 225, 200, 0.08);
+		--text: #ebe5d5;
+		--text-2: #a49e8f;
+		--separator: rgba(235, 225, 200, 0.15);
+		--rule: rgba(235, 225, 200, 0.5);
+		--margin: rgba(222, 112, 92, 0.42);
+		--mark: #e3c84c;
+		--mark-text: #181714;
+		--accent: #ebe5d5;
+		--accent-text: #181714;
+		--done: #82c48c;
+		--warn: #e0a64a;
+		--error: #ef7a66;
+		--waiting: #ebe5d5;
+		--working: #a49e8f;
+		--deliver: #ebe5d5;
+		--neutral: #a49e8f;
+		--person: #ebe5d5;
+		--badge: #e3c84c;
+		--code: rgba(235, 225, 200, 0.06);
+		--add: rgba(130, 196, 140, 0.16);
+		--del: rgba(239, 122, 102, 0.16);
 		--scrim: rgba(0, 0, 0, 0.5);
-		--shadow: 0 1px 3px rgba(0, 0, 0, 0.3), 0 8px 32px rgba(0, 0, 0, 0.5);
+		--shadow: 0 1px 3px rgba(0, 0, 0, 0.3), 0 10px 30px rgba(0, 0, 0, 0.5);
 	}
 }
 
 :root[data-theme="dark"] {
 	color-scheme: dark;
-	--bg: #111113;
-	--surface: #1c1c1f;
-	--surface-2: #2a2a2e;
-	--raised: #333338;
-	--fill: rgba(120, 120, 128, 0.2);
-	--text: #f4f4f6;
-	--text-2: #a9a9b2;
-	--separator: rgba(235, 235, 245, 0.2);
-	--accent: #4c9bff;
-	--accent-text: #06101f;
-	--done: #4fd07a;
-	--warn: #f2b14c;
-	--error: #ff6b60;
-	--waiting: #f2b14c;
-	--working: #4c9bff;
-	--deliver: #4c9bff;
-	--neutral: #a9a9b2;
-	--person: #2f6fd6;
-	--person-text: #ffffff;
-	--badge: #ff6b60;
-	--code: #232327;
-	--add: rgba(79, 208, 122, 0.16);
-	--del: rgba(255, 107, 96, 0.16);
+	--bg: #181714;
+	--surface: #1f1e1a;
+	--surface-2: #2a2823;
+	--raised: #2c2a25;
+	--fill: rgba(235, 225, 200, 0.08);
+	--text: #ebe5d5;
+	--text-2: #a49e8f;
+	--separator: rgba(235, 225, 200, 0.15);
+	--rule: rgba(235, 225, 200, 0.5);
+	--margin: rgba(222, 112, 92, 0.42);
+	--mark: #e3c84c;
+	--mark-text: #181714;
+	--accent: #ebe5d5;
+	--accent-text: #181714;
+	--done: #82c48c;
+	--warn: #e0a64a;
+	--error: #ef7a66;
+	--waiting: #ebe5d5;
+	--working: #a49e8f;
+	--deliver: #ebe5d5;
+	--neutral: #a49e8f;
+	--person: #ebe5d5;
+	--badge: #e3c84c;
+	--code: rgba(235, 225, 200, 0.06);
+	--add: rgba(130, 196, 140, 0.16);
+	--del: rgba(239, 122, 102, 0.16);
 	--scrim: rgba(0, 0, 0, 0.5);
-	--shadow: 0 1px 3px rgba(0, 0, 0, 0.3), 0 8px 32px rgba(0, 0, 0, 0.5);
+	--shadow: 0 1px 3px rgba(0, 0, 0, 0.3), 0 10px 30px rgba(0, 0, 0, 0.5);
 }
 
-/* Terminal, ANSI dark neon: light grey on near-black in a monospace font, square, outlined in one pixel, flat, and
-   each meaning in one fluorescent colour wherever it appears. Yellow is the person: their words and what they can
-   tap. Magenta needs them, cyan is at work, lime is done, orange warns, red is an error, blue goes to GitHub. Every
-   colour, as text or as a fill under near-black text, has at least 6:1 contrast. */
+/* Terminal, ANSI dark neon: light grey on near-black, everything in the monospace, square, outlined in one pixel,
+   flat, and each meaning in one fluorescent colour wherever it appears. Yellow is the person: their words and what they
+   can tap. Magenta needs them (the Terminal's highlighter), cyan is at work, lime is done, orange warns, red is an
+   error, blue goes to GitHub. Every colour, as text or as a fill under near-black text, has at least 6:1 contrast. */
 :root[data-theme="terminal"] {
 	color-scheme: dark;
-	--font: var(--mono);
+	--serif: var(--mono);
+	--prose: 1rem;
 	--title: 1rem;
-	--leading: 1.3;
+	--subhead: 0.875rem;
+	--leading: 1.35;
 	--leading-tight: 1.25;
 	--leading-code: 1.25;
-	--caps-tracking: 0;
+	--label-tracking: 0;
 	--radius-s: 0;
-	--radius-m: 0;
 	--radius-l: 0;
 	--radius-full: 0;
-	--hairline: 1px;
 
 	--bg: #0a0a0a;
 	--surface: #0a0a0a;
@@ -186,9 +251,12 @@
 	--text: #d4d4d4;
 	--text-2: #949494;
 	--separator: #646464;
+	--rule: #949494;
+	--margin: #3a3a3a;
+	--mark: #ff4fe0;
+	--mark-text: #0a0a0a;
 	--accent: #ffe83b;
 	--accent-text: #0a0a0a;
-	--accent-tint: transparent;
 	--done: #a6ff2e;
 	--warn: #ff9d2e;
 	--error: #ff5252;
@@ -197,14 +265,12 @@
 	--deliver: #4aa3ff;
 	--neutral: #949494;
 	--person: #ffe83b;
-	--person-text: #d4d4d4;
 	--badge: #ff4fe0;
 	--code: transparent;
 	--add: transparent;
 	--del: transparent;
 	--scrim: #0a0a0a;
 	--shadow: none;
-	--lift: none;
 	--bar: #0a0a0a;
 	--bar-blur: none;
 }
@@ -215,6 +281,7 @@ html {
 	font-family: var(--font);
 	-webkit-text-size-adjust: 100%;
 	text-size-adjust: 100%;
+	font-optical-sizing: auto;
 	background: var(--bg);
 	color: var(--text);
 	/* clip, not hidden: hidden would make the page a scroll container and stop the header and composer sticking. */
@@ -227,6 +294,7 @@ body {
 	overflow-x: clip;
 	line-height: var(--leading);
 	-webkit-tap-highlight-color: transparent;
+	-webkit-font-smoothing: antialiased;
 }
 
 /* While a sheet or the phone drawer is open, the page under it stays put. */
@@ -264,6 +332,8 @@ textarea {
 
 a {
 	color: var(--accent);
+	text-decoration-thickness: 1px;
+	text-underline-offset: 0.18em;
 }
 
 :focus-visible {
@@ -275,14 +345,15 @@ a {
 	flex: none;
 }
 
-/* ---- Buttons. Every target is at least 44 pt. Filled buttons shrink a little under the finger; text and icon
-   buttons dim at once and recover as the finger lifts; list rows highlight. */
+/* ---- Buttons. Every target is at least 44 pt. The main action is filled with ink, the others are outlined in it,
+   links are underlined. Filled and outlined buttons shrink a little under the finger; links and icons dim at once and
+   recover as the finger lifts; list rows highlight. */
 
 button,
 .button {
 	min-height: var(--target);
 	min-width: var(--target);
-	border-radius: var(--radius-m);
+	border-radius: var(--radius-s);
 	border: none;
 	background: none;
 	padding: 0 16px;
@@ -303,7 +374,7 @@ button,
 }
 
 button:disabled {
-	opacity: 0.45;
+	opacity: 0.4;
 	cursor: default;
 }
 
@@ -313,8 +384,8 @@ button:disabled {
 }
 
 .secondary {
-	background: var(--surface-2);
 	color: var(--text);
+	box-shadow: inset 0 0 0 1px var(--rule);
 }
 
 :is(.primary, .secondary):active:not(:disabled) {
@@ -325,11 +396,10 @@ button:disabled {
 	color: var(--accent);
 	padding: 0 8px;
 	font-weight: 400;
-}
-
-.link.center {
-	display: flex;
-	margin: 8px auto;
+	text-decoration: underline;
+	text-decoration-thickness: 1px;
+	text-decoration-color: var(--rule);
+	text-underline-offset: 0.2em;
 }
 
 .icon-button {
@@ -350,12 +420,13 @@ details > summary:active {
 @media (hover: hover) and (pointer: fine) {
 	.icon-button:hover:not(:disabled),
 	.row:hover:not(.current),
-	.picker button:hover {
+	.picker button:hover,
+	.option:hover {
 		background-color: var(--fill);
 	}
 
-	.option:hover {
-		box-shadow: inset 0 0 0 100vmax var(--fill);
+	.link:hover {
+		text-decoration-color: currentColor;
 	}
 }
 
@@ -363,7 +434,7 @@ details > summary:active {
 	width: 1em;
 	height: 1em;
 	border-radius: var(--radius-full);
-	border: 2px solid color-mix(in srgb, currentColor 25%, transparent);
+	border: 1.5px solid color-mix(in srgb, currentColor 25%, transparent);
 	border-top-color: currentColor;
 	animation: spin 0.7s linear infinite;
 	flex: none;
@@ -375,16 +446,55 @@ details > summary:active {
 	}
 }
 
-/* Small labels above a group: card titles, drawer sections, a call's input and output. */
+/* The log's cursor: a block that blinks slowly while something is still being written. */
+.cursor {
+	display: inline-block;
+	width: 0.55em;
+	height: 1.05em;
+	vertical-align: -0.15em;
+	background: currentColor;
+	opacity: 0.7;
+	animation: blink 1.1s steps(1, end) infinite;
+	flex: none;
+}
+
+@keyframes blink {
+	50% {
+		opacity: 0;
+	}
+}
+
+/* Labels: what a card is, a drawer section, a field, a call's input and output. Recorded, so monospace capitals. */
 .card-title,
 .group h3,
 .group > summary,
-.io-label {
-	font-size: var(--footnote);
-	font-weight: 600;
+.io-label,
+.field > span,
+.theme-choice > span {
+	font-family: var(--mono);
+	font-size: var(--label);
+	font-weight: 500;
 	color: var(--text-2);
 	text-transform: uppercase;
-	letter-spacing: var(--caps-tracking);
+	letter-spacing: var(--label-tracking);
+	line-height: var(--leading-tight);
+}
+
+/* The highlighter, drawn once across what waits for the person, left to right, as a pen would. */
+.mark {
+	color: var(--mark-text);
+	background: linear-gradient(var(--mark), var(--mark)) no-repeat 0 0 / 100% 100%;
+	padding: 2px 6px;
+	margin: 0 -2px;
+	-webkit-box-decoration-break: clone;
+	box-decoration-break: clone;
+	animation: highlight 520ms var(--ease-out) 120ms backwards;
+}
+
+@keyframes highlight {
+	from {
+		background-size: 0% 100%;
+	}
 }
 
 /* ---- Layout */
@@ -407,11 +517,10 @@ details > summary:active {
 	padding-right: var(--safe-right);
 }
 
-/* Each band of a page (title bar, status line, transcript, composer bar, form) runs the full width of its pane, so
-   bars and their hairlines meet the pane's edges, while its content sits in a centred column of --column at most.
-   --inset is the band's own side padding inside that column. */
+/* Each band of a page (title bar, transcript, composer bar, form) runs the full width of its pane, so bars and their
+   rules meet the pane's edges, while its content sits in a centred column of --column at most. --inset is the band's
+   own side padding inside that column. */
 .topbar,
-.status-line,
 .transcript,
 .composer-dock,
 .setup-form,
@@ -421,7 +530,7 @@ details > summary:active {
 	padding-right: calc(var(--gutter) + var(--inset));
 }
 
-/* The title bar, and the status line under it when a session is open, stay in view while the transcript scrolls. */
+/* The title bar stays in view while the transcript scrolls. */
 .pinned,
 .new-session > .topbar {
 	position: sticky;
@@ -442,19 +551,15 @@ details > summary:active {
 	padding-bottom: 4px;
 }
 
-.pinned .topbar {
-	padding-bottom: 0;
-}
-
 .title-block {
 	flex: 1;
 	min-width: 0;
-	line-height: var(--leading-tight);
+	padding: 2px 0;
 }
 
 .title {
 	margin: 0;
-	font-size: 1rem;
+	font-size: 1.0625rem;
 	font-weight: 600;
 	line-height: var(--leading-tight);
 	overflow: hidden;
@@ -464,82 +569,66 @@ details > summary:active {
 	min-width: 0;
 }
 
+/* One line of record under the title: status first, then where the work is, then what it has cost. */
 .subtitle {
-	margin: 0;
-	font-size: var(--footnote);
+	margin: 2px 0 0;
+	font-family: var(--mono);
+	font-size: var(--label);
+	line-height: var(--leading-tight);
 	color: var(--text-2);
 	display: flex;
+	align-items: baseline;
 	gap: 8px;
 	min-width: 0;
-	overflow: hidden;
 	white-space: nowrap;
 }
 
-.subtitle span {
+.where {
+	flex: 1 1 auto;
+	min-width: 0;
 	overflow: hidden;
 	text-overflow: ellipsis;
 }
 
-.subtitle .repo {
+.session-status {
 	flex: none;
-}
-
-.branch {
-	display: inline-flex;
-	align-items: center;
-	gap: 4px;
-}
-
-.status-line {
-	--inset: 16px;
-	display: flex;
-	align-items: center;
-	gap: 12px;
-	padding-top: 4px;
-	padding-bottom: 8px;
-	font-size: var(--footnote);
-	color: var(--text-2);
-}
-
-.status-pill {
-	padding: 2px 8px;
-	border-radius: var(--radius-full);
-	background: var(--fill);
-	white-space: nowrap;
+	text-transform: uppercase;
+	letter-spacing: var(--label-tracking);
 	font-weight: 500;
+	color: var(--text);
 }
 
-.status-pill.attention {
-	color: var(--waiting);
+.session-status.attention {
+	color: var(--mark-text);
+	background: var(--mark);
+	padding: 0 4px;
+	margin: 0 -4px;
 }
 
-.status-pill.working {
-	color: var(--working);
+.session-status.working::after {
+	content: "";
+	display: inline-block;
+	width: 0.5em;
+	height: 1em;
+	margin-left: 4px;
+	vertical-align: -0.15em;
+	background: currentColor;
+	opacity: 0.7;
+	animation: blink 1.1s steps(1, end) infinite;
 }
 
-.progress {
-	flex: 0 1 128px;
-	height: 4px;
-	border-radius: var(--radius-full);
-	background: var(--fill);
-	overflow: hidden;
-}
-
-/* Scaled rather than sized, so a step completing moves the bar without laying the page out again. */
-.progress-bar {
-	display: block;
-	height: 100%;
-	background: var(--working);
-	transform-origin: left;
-	transition: transform var(--present) var(--ease-out);
+.session-status.done {
+	color: var(--done);
 }
 
 .spend {
+	flex: none;
 	margin-left: auto;
 	font-variant-numeric: tabular-nums;
 }
 
-/* ---- Drawer. On a phone it slides over the session and follows the finger; on a wide screen it stays. */
+/* ---- Drawer: the index of sessions. On a phone it slides over the session and follows the finger; on a wide screen
+   it stays. */
 
 .drawer {
 	position: fixed;
@@ -619,20 +708,20 @@ details > summary:active {
 	.topbar {
 		--inset-left: 16px;
 	}
-
 }
 
 .drawer-header {
 	display: flex;
 	align-items: center;
 	justify-content: space-between;
-	padding: 8px 4px 8px 16px;
+	padding: 12px 4px 8px 16px;
 }
 
 .drawer-header h2 {
 	margin: 0;
 	font-size: var(--title);
-	font-weight: 700;
+	font-weight: 600;
+	letter-spacing: -0.005em;
 }
 
 .drawer-body {
@@ -642,7 +731,9 @@ details > summary:active {
 }
 
 .group h3 {
-	margin: 16px 16px 4px;
+	margin: 16px 16px 0;
+	padding-bottom: 6px;
+	border-bottom: var(--hairline) solid var(--separator);
 }
 
 .group > summary {
@@ -660,7 +751,7 @@ details > summary:active {
 	display: flex;
 	gap: 12px;
 	align-items: center;
-	padding: 12px 16px;
+	padding: 10px 16px;
 	line-height: var(--leading-tight);
 	color: var(--text);
 	text-decoration: none;
@@ -689,8 +780,10 @@ li:last-child > .row::after {
 	transition: none;
 }
 
+/* The open session: a bar of ink at the edge, as a finger keeps a place in an index. */
 .row.current {
-	background-color: var(--surface-2);
+	background-color: var(--fill);
+	box-shadow: inset 3px 0 0 var(--text);
 }
 
 .row-main {
@@ -698,7 +791,7 @@ li:last-child > .row::after {
 	min-width: 0;
 	display: flex;
 	flex-direction: column;
-	gap: 2px;
+	gap: 4px;
 }
 
 .row-title {
@@ -711,7 +804,8 @@ li:last-child > .row::after {
 .row-meta {
 	display: flex;
 	gap: 8px;
-	font-size: var(--footnote);
+	font-family: var(--mono);
+	font-size: var(--label);
 	color: var(--text-2);
 	min-width: 0;
 }
@@ -722,12 +816,22 @@ li:last-child > .row::after {
 	white-space: nowrap;
 }
 
-.row-label.attention {
-	color: var(--waiting);
+.row-label {
+	flex: none;
+	max-width: 60%;
+	text-transform: uppercase;
+	letter-spacing: var(--label-tracking);
 }
 
-.row-label.working {
-	color: var(--working);
+.row-label.attention {
+	color: var(--mark-text);
+	background: var(--mark);
+	padding: 0 4px;
+	margin: 0 -4px;
+}
+
+.row-label.done {
+	color: var(--done);
 }
 
 .row-side {
@@ -735,27 +839,32 @@ li:last-child > .row::after {
 	flex-direction: column;
 	align-items: flex-end;
 	gap: 8px;
-	font-size: var(--footnote);
+	font-family: var(--mono);
+	font-size: var(--label);
 	color: var(--text-2);
 	font-variant-numeric: tabular-nums;
 }
 
+/* The highlighter's colour, ringed in ink so it reads on paper. */
 .dot {
 	width: 10px;
 	height: 10px;
 	border-radius: var(--radius-full);
 	background: var(--badge);
+	box-shadow: 0 0 0 1.5px var(--text);
 	display: inline-block;
 }
 
-/* On the menu button, ringed in the bar's colour so it reads as a badge. */
+/* On the menu button, ringed in the paper's colour too, so it reads as a badge. */
 .badge-dot {
 	position: absolute;
-	top: 8px;
-	right: 8px;
-	border: 2px solid var(--bg);
-	width: 12px;
-	height: 12px;
+	top: 9px;
+	right: 9px;
+	width: 11px;
+	height: 11px;
+	box-shadow:
+		0 0 0 1.5px var(--text),
+		0 0 0 3.5px var(--bg);
 }
 
 .drawer-footer {
@@ -774,12 +883,11 @@ li:last-child > .row::after {
 	display: flex;
 	align-items: center;
 	gap: 12px;
-	font-size: var(--footnote);
-	color: var(--text-2);
 }
 
 .connection {
-	font-size: var(--footnote);
+	font-family: var(--mono);
+	font-size: var(--label);
 	color: var(--text-2);
 }
 
@@ -790,6 +898,7 @@ li:last-child > .row::after {
 .empty {
 	--inset: 16px;
 	color: var(--text-2);
+	font-style: italic;
 	padding: 16px;
 	margin: 0;
 }
@@ -803,7 +912,7 @@ details > summary {
 	user-select: none;
 	display: flex;
 	align-items: center;
-	gap: 8px;
+	gap: 6px;
 	min-height: var(--target);
 	min-width: 0;
 	transition: opacity var(--quick) var(--ease-out);
@@ -822,35 +931,111 @@ details[open] > summary > .icon:first-child {
 	transform: rotate(90deg);
 }
 
-/* ---- Transcript */
+/* ---- Transcript: the log. Each entry is a row of two columns, its time in the margin and the entry beside it; the
+   entries' left borders join into the margin rule running down the page. */
 
 .transcript {
 	--inset: 16px;
+	--inset-left: 8px;
 	flex: 1;
 	display: flex;
 	flex-direction: column;
-	gap: 12px;
-	padding-top: 8px;
-	padding-bottom: 16px;
+	padding-top: 4px;
+	padding-bottom: 12px;
 	min-width: 0;
 	/* Loading earlier messages keeps the reading position by hand, the same way in every browser. */
 	overflow-anchor: none;
+	/* The height of an entry's first line, which the time beside it centres on. */
+	--first-line: calc(var(--prose) * var(--leading));
 }
 
-.person {
-	align-self: flex-end;
-	max-width: 85%;
+.entry {
+	display: grid;
+	grid-template-columns: var(--stamp) minmax(0, 1fr);
+	min-width: 0;
+}
+
+.stamp {
 	display: flex;
 	flex-direction: column;
 	align-items: flex-end;
-	gap: 4px;
+	padding: 8px 8px 0 0;
+	font-family: var(--mono);
+	font-size: var(--label);
+	line-height: var(--first-line);
+	color: var(--text-2);
+	font-variant-numeric: tabular-nums;
+	white-space: nowrap;
 }
 
-.bubble {
-	background: var(--person);
-	color: var(--person-text);
-	padding: 8px 12px;
-	border-radius: var(--radius-l);
+.stamp .who {
+	line-height: var(--leading-tight);
+	color: var(--text);
+	font-weight: 500;
+}
+
+.entry > .body {
+	min-width: 0;
+	padding: 8px 0 8px var(--stamp-gap);
+	border-left: var(--hairline) solid var(--margin);
+}
+
+/* Entries that are one line of record: a disclosure or a note, 44 pt tall, with the time on their middle. */
+.entry:is(.is-activity, .is-thinking, .is-compaction, .is-nudge, .is-notice, .is-earlier, .is-gap) {
+	--first-line: var(--target);
+}
+
+.entry:is(.is-activity, .is-thinking, .is-compaction, .is-nudge, .is-notice, .is-earlier, .is-gap) > .body {
+	padding-top: 0;
+	padding-bottom: 0;
+}
+
+.entry:is(.is-activity, .is-thinking, .is-compaction, .is-nudge, .is-notice, .is-earlier, .is-gap) > .stamp {
+	padding-top: 0;
+}
+
+/* The speaker belongs to the reply above it and has no time of its own. */
+.entry.is-speak > .body {
+	padding-top: 0;
+	padding-bottom: 0;
+}
+
+/* What waits for the person: the margin flagged with the highlighter beside it, the rule thickened in place. */
+.entry.waiting > .body {
+	border-left: 3px solid var(--mark);
+	padding-left: calc(var(--stamp-gap) - 2px);
+}
+
+/* A new day in the log: its date, set across the page. */
+.day {
+	display: flex;
+	align-items: center;
+	gap: 12px;
+	margin: 16px 0 8px;
+	font-size: var(--subhead);
+	font-weight: 400;
+	font-style: italic;
+	color: var(--text-2);
+	line-height: var(--leading-tight);
+}
+
+.day::before,
+.day::after {
+	content: "";
+	flex: 1;
+	border-top: var(--hairline) solid var(--separator);
+}
+
+.day::before {
+	flex: 0 0 calc(var(--stamp) - 4px);
+}
+
+/* The person's words: in the serif's italic, the other hand in the book. */
+.said {
+	margin: 0;
+	font-size: var(--prose);
+	font-style: italic;
+	color: var(--person);
 	white-space: pre-wrap;
 	overflow-wrap: anywhere;
 }
@@ -859,18 +1044,17 @@ details[open] > summary > .icon:first-child {
 .attachments {
 	display: flex;
 	flex-wrap: wrap;
-	gap: 8px;
-	justify-content: flex-end;
+	gap: 4px 12px;
+	margin-top: 6px;
 }
 
+/* A reference or a file: recorded, so monospace, and quiet. */
 .chip {
 	display: inline-flex;
 	align-items: center;
 	gap: 4px;
-	padding: 2px 8px;
-	border-radius: var(--radius-full);
-	background: var(--surface-2);
-	font-size: var(--footnote);
+	font-family: var(--mono);
+	font-size: var(--record);
 	color: var(--text-2);
 	max-width: 100%;
 	overflow-wrap: anywhere;
@@ -878,14 +1062,26 @@ details[open] > summary > .icon:first-child {
 
 /* A full 44 pt target that does not make the chip taller: the margins give back what the target adds. */
 .chip-remove {
-	margin: -12px -12px -12px -4px;
+	margin: -14px -12px -14px -8px;
 	padding: 0;
 	color: var(--text-2);
 }
 
+/* ---- Prose: the agent's Markdown, set to be read. */
+
 .markdown {
+	font-size: var(--prose);
 	overflow-wrap: anywhere;
 	min-width: 0;
+	font-variant-numeric: oldstyle-nums proportional-nums;
+	hanging-punctuation: first;
+}
+
+/* About seventy characters a line at most: past that, the eye loses its way back to the next line. */
+.markdown.agent,
+.said,
+.lede {
+	max-width: 34em;
 }
 
 .markdown > :first-child {
@@ -897,26 +1093,38 @@ details[open] > summary > .icon:first-child {
 }
 
 .markdown :is(p, ul, ol, pre, blockquote, table) {
-	margin: 12px 0;
+	margin: 0.7em 0;
 }
 
 .markdown :is(h1, h2, h3, h4, h5, h6) {
-	margin: 16px 0 8px;
-	font-size: 1rem;
+	margin: 1.2em 0 0.4em;
+	font-size: 1em;
 	font-weight: 600;
 	line-height: var(--leading-tight);
 }
 
 .markdown h1 {
-	font-size: var(--title);
+	font-size: 1.3em;
+}
+
+.markdown h2 {
+	font-size: 1.15em;
 }
 
 .markdown :is(ul, ol) {
-	padding-left: 24px;
+	padding-left: 1.4em;
+}
+
+.markdown ul {
+	list-style: "–  ";
 }
 
 .markdown li + li {
-	margin-top: 4px;
+	margin-top: 0.25em;
+}
+
+.markdown li::marker {
+	color: var(--text-2);
 }
 
 .markdown blockquote {
@@ -925,65 +1133,88 @@ details[open] > summary > .icon:first-child {
 	padding-left: 12px;
 	border-left: 2px solid var(--separator);
 	color: var(--text-2);
+	font-style: italic;
 }
 
 .markdown hr {
 	border: none;
 	border-top: var(--hairline) solid var(--separator);
-	margin: 16px 0;
+	margin: 1.2em 0;
+}
+
+.markdown strong {
+	font-weight: 650;
 }
 
 .markdown pre,
 .io {
 	background: var(--code);
-	border-radius: var(--radius-m);
-	padding: 8px 12px;
+	border-radius: var(--radius-s);
+	padding: 10px 12px;
 	overflow-x: auto;
 	max-width: 100%;
-	font-size: var(--footnote);
+	font-size: var(--record);
+	line-height: var(--leading-code);
 	font-family: var(--mono);
+	font-variant-numeric: normal;
 	white-space: pre;
 }
 
+/* Inline code needs no box beside a serif: the monospace already sets it apart. */
 .markdown code {
 	font-family: var(--mono);
-	/* Monospace runs large beside proportional text; this brings it back to the line's size. */
-	font-size: 0.875em;
-	background: var(--code);
-	border-radius: var(--radius-s);
-	padding: 2px 4px;
+	/* Monospace runs large beside the serif; this brings it back to the line's size. */
+	font-size: 0.84em;
+	font-variant-numeric: normal;
 }
 
 .markdown pre code {
 	font-size: inherit;
-	background: none;
-	padding: 0;
 }
 
+/* Tables ruled as a ledger: across, never down. */
 .markdown table {
 	display: block;
 	overflow-x: auto;
 	border-collapse: collapse;
 	font-size: var(--subhead);
+	font-variant-numeric: lining-nums tabular-nums;
 }
 
 .markdown th,
 .markdown td {
-	border: var(--hairline) solid var(--separator);
-	padding: 4px 8px;
+	border-bottom: var(--hairline) solid var(--separator);
+	padding: 6px 12px 6px 0;
+	text-align: left;
+	vertical-align: top;
 }
 
-.agent.streaming::after {
-	content: "▍";
+.markdown th {
+	font-family: var(--mono);
+	font-size: var(--label);
+	font-weight: 500;
+	text-transform: uppercase;
+	letter-spacing: var(--label-tracking);
 	color: var(--text-2);
+	border-bottom-color: var(--rule);
+}
+
+.agent.streaming > :last-child::after {
+	content: "";
+	display: inline-block;
+	width: 0.5em;
+	height: 1em;
+	margin-left: 2px;
+	vertical-align: -0.12em;
+	background: var(--text-2);
+	animation: blink 1.1s steps(1, end) infinite;
 }
 
 /* The speaker under a finished reply: quiet, its icon in line with the text and close under it. The margins give back
-   what the 44 pt target adds around the icon. While it reads it is a stop button like the composer's, outlined rather
-   than filled to stay quiet, in the accent of a control that is on; its ring is the preparing spinner's, come to rest. */
+   what the 44 pt target adds around the icon. While it reads it is a stop button, outlined rather than filled to stay
+   quiet; its ring is the preparing spinner's, come to rest. */
 .speak {
-	align-self: flex-start;
-	margin: -10px 0 -6px -12px;
+	margin: -4px 0 -6px -13px;
 	color: var(--text-2);
 }
 
@@ -993,14 +1224,14 @@ details[open] > summary > .icon:first-child {
 }
 
 .speak.playing {
-	color: var(--accent);
+	color: var(--text);
 }
 
 .speak.playing::before {
 	content: "";
 	position: absolute;
 	inset: 13px;
-	border: 2px solid currentColor;
+	border: 1.5px solid currentColor;
 	border-radius: var(--radius-full);
 }
 
@@ -1010,22 +1241,26 @@ details[open] > summary > .icon:first-child {
 
 /* On the report card it ends the title row, without making the row taller. */
 .card-title .speak {
-	margin: -12px -12px -12px auto;
+	margin: -14px -12px -14px auto;
+	text-transform: none;
 }
 
+/* Lines of record: what the agent thought and did, one monospace line each until opened. */
 .thinking > summary,
 .activity > summary,
-.compaction > summary {
+.compaction > summary,
+.call > summary {
+	font-family: var(--mono);
+	font-size: var(--record);
 	color: var(--text-2);
-	font-size: var(--subhead);
 }
 
-/* Indented to line up with the summary's text, past the 16 px chevron and its 8 px gap. */
 .thinking p {
-	margin: 0 0 0 24px;
+	margin: 0 0 8px 20px;
 	color: var(--text-2);
 	white-space: pre-wrap;
 	font-size: var(--subhead);
+	font-style: italic;
 }
 
 .activity-summary,
@@ -1038,27 +1273,21 @@ details[open] > summary > .icon:first-child {
 
 .failed-tag {
 	color: var(--error);
-	font-weight: 600;
-	font-size: var(--footnote);
+	font-weight: 500;
 	white-space: nowrap;
 }
 
-.activity .spinner,
-.call .spinner {
-	color: var(--working);
+.has-failure > summary .activity-summary {
+	color: var(--text);
 }
 
 /* The calls in a stretch of work hang from a line under the group's chevron. */
 .calls {
 	display: flex;
 	flex-direction: column;
-	margin-left: 8px;
-	border-left: 2px solid var(--separator);
-	padding-left: 12px;
-}
-
-.call > summary {
-	font-size: var(--subhead);
+	margin: 0 0 6px 6px;
+	border-left: var(--hairline) solid var(--separator);
+	padding-left: 10px;
 }
 
 .call.failed .call-summary {
@@ -1067,7 +1296,7 @@ details[open] > summary > .icon:first-child {
 
 /* Lined up with the call's text, past its chevron. */
 .call-body {
-	padding: 0 0 8px 24px;
+	padding: 0 0 8px 20px;
 	min-width: 0;
 }
 
@@ -1084,11 +1313,14 @@ details[open] > summary > .icon:first-child {
 }
 
 .system-note {
-	align-self: center;
-	text-align: center;
+	display: flex;
+	align-items: center;
+	min-height: var(--target);
+	margin: 0;
+	font-family: var(--mono);
+	font-size: var(--record);
 	color: var(--text-2);
-	font-size: var(--footnote);
-	margin: 4px 0;
+	line-height: var(--leading-tight);
 }
 
 .system-note.error {
@@ -1097,53 +1329,54 @@ details[open] > summary > .icon:first-child {
 
 .compaction .markdown {
 	font-size: var(--subhead);
-	background: var(--surface);
-	border: var(--hairline) solid var(--separator);
-	border-radius: var(--radius-l);
-	padding: 12px 16px;
+	padding: 4px 0 12px 20px;
+	color: var(--text-2);
 }
 
-/* ---- Cards */
+.entry:is(.is-earlier, .is-gap) .link {
+	padding: 0;
+	font-family: var(--mono);
+	font-size: var(--record);
+}
+
+/* ---- Cards: questions, plans and reports, set as parts of the page rather than boxes on it. A question or plan
+   opens under a rule; a report under a double rule, as a ledger's total does. */
 
 .card {
-	background: var(--surface);
-	border-radius: var(--radius-l);
-	padding: 16px;
-	border: var(--hairline) solid var(--separator);
 	min-width: 0;
+	border-top: var(--hairline) solid var(--separator);
+	padding-top: 8px;
 }
 
-/* A ring outside the border, so a card waiting for the person is marked without moving anything. */
-.card.waiting {
-	border-color: var(--accent);
-	box-shadow: 0 0 0 1px var(--accent);
+.card.report {
+	border-top: 3px double var(--rule);
 }
 
 .card-title {
 	display: flex;
 	align-items: center;
-	gap: 8px;
-	margin-bottom: 8px;
+	flex-wrap: wrap;
+	gap: 4px 10px;
+	min-height: 1.5rem;
+	margin-bottom: 6px;
 }
 
 .card h3 {
-	margin: 0 0 4px;
-	font-size: 1rem;
+	margin: 2px 0 6px;
+	font-size: 1.25rem;
+	font-weight: 600;
 	line-height: var(--leading-tight);
+	letter-spacing: -0.005em;
 }
 
-.status-tag {
+.verdict.good {
+	color: var(--done);
+}
+
+.commit {
 	text-transform: none;
 	letter-spacing: 0;
-	font-weight: 500;
-	padding: 2px 8px;
-	border-radius: var(--radius-full);
-	background: var(--fill);
-	color: var(--neutral);
-}
-
-.status-tag.good {
-	color: var(--done);
+	font-weight: 400;
 }
 
 .question {
@@ -1158,36 +1391,37 @@ details[open] > summary > .icon:first-child {
 }
 
 .question legend {
+	font-size: 1.125rem;
 	font-weight: 600;
 	margin-bottom: 8px;
 	padding: 0;
 	line-height: var(--leading-tight);
 }
 
+/* Options are ruled lines, the whole line a target. */
 .option {
 	display: flex;
 	align-items: flex-start;
 	gap: 12px;
 	min-height: var(--target);
-	padding: 12px;
-	border-radius: var(--radius-m);
-	background: var(--surface-2);
+	padding: 11px 0;
+	border-top: var(--hairline) solid var(--separator);
 	cursor: pointer;
 	line-height: var(--leading-tight);
-	transition: box-shadow var(--quick) var(--ease-out);
+	transition: background-color var(--quick) var(--ease-out);
 }
 
-.option + .option {
-	margin-top: 8px;
+.option:last-of-type {
+	border-bottom: var(--hairline) solid var(--separator);
 }
 
 .option:active {
-	box-shadow: inset 0 0 0 100vmax var(--fill);
+	background-color: var(--fill);
 	transition: none;
 }
 
-.option.chosen {
-	background: var(--accent-tint);
+.option.chosen .option-label {
+	font-weight: 600;
 }
 
 /* Once answered, what was not chosen steps back. */
@@ -1196,8 +1430,8 @@ details[open] > summary > .icon:first-child {
 }
 
 .option input {
-	width: 22px;
-	height: 22px;
+	width: 20px;
+	height: 20px;
 	margin: 0;
 	accent-color: var(--accent);
 	flex: none;
@@ -1217,10 +1451,13 @@ details[open] > summary > .icon:first-child {
 	align-items: baseline;
 }
 
-.badge {
-	font-size: var(--footnote);
-	font-weight: 600;
-	color: var(--accent);
+.recommended {
+	font-family: var(--mono);
+	font-size: var(--label);
+	font-weight: 400;
+	text-transform: uppercase;
+	letter-spacing: var(--label-tracking);
+	color: var(--text-2);
 }
 
 .option-description {
@@ -1237,7 +1474,7 @@ details[open] > summary > .icon:first-child {
 	display: block;
 	width: 100%;
 	margin-top: 8px;
-	border-radius: var(--radius-m);
+	border-radius: var(--radius-s);
 	border: var(--hairline) solid var(--separator);
 	background: var(--surface);
 	padding: 8px 12px;
@@ -1279,72 +1516,86 @@ select:focus-visible {
 	flex-basis: 100%;
 }
 
+/* The plan as a checklist, ruled: each box holds its step's number until the step is done, then a tick. */
 .steps {
 	list-style: none;
 	padding: 0;
 	margin: 12px 0 0;
+	font-size: var(--prose);
 }
 
 .steps li {
 	display: flex;
-	gap: 8px;
+	gap: 12px;
+	padding: 8px 0;
+	border-top: var(--hairline) solid var(--separator);
+	line-height: var(--leading-tight);
 }
 
-.steps li + li {
-	margin-top: 4px;
+.steps li:last-child {
+	border-bottom: var(--hairline) solid var(--separator);
 }
 
-/* Wide enough for "10." so the step texts line up. */
-.step-marker {
+.box {
 	flex: none;
-	min-width: 1.5em;
 	display: inline-flex;
-	justify-content: flex-end;
 	align-items: center;
-	height: calc(var(--leading) * 1em);
+	justify-content: center;
+	width: 1.375rem;
+	height: 1.375rem;
+	margin-top: calc((var(--leading-tight) * 1em - 1.375rem) / 2);
+	border: 1.25px solid var(--text);
+	border-radius: 2px;
+	font-family: var(--mono);
+	font-size: var(--label);
 	font-variant-numeric: tabular-nums;
-	color: var(--text-2);
+	color: var(--text);
 }
 
 .steps li.done {
 	color: var(--text-2);
 }
 
-.steps li.done .icon {
-	color: var(--done);
+.steps li.done .box {
+	background: var(--text);
+	color: var(--bg);
 }
 
 .changes {
-	padding-left: 24px;
+	padding-left: 1.4em;
 	margin: 12px 0;
+	font-size: var(--prose);
+	list-style: "–  ";
 }
 
-.report details {
-	margin-top: 4px;
+.changes li + li {
+	margin-top: 0.25em;
+}
+
+.changes li::marker {
+	color: var(--text-2);
+}
+
+/* The report opens with its summary set a size up, as a lede. */
+.lede {
+	font-size: 1.1875rem;
+	line-height: 1.45;
 }
 
 .report details > summary {
-	color: var(--accent);
-}
-
-.report details > summary > .icon:first-child {
-	color: inherit;
+	font-family: var(--mono);
+	font-size: var(--record);
+	color: var(--text);
 }
 
 .report details > .markdown {
-	padding: 0 0 8px 24px;
+	padding: 0 0 8px 20px;
 }
 
 .report-notes {
-	background: var(--surface-2);
-	border-radius: var(--radius-m);
-	padding: 12px;
 	margin: 12px 0;
-}
-
-.report-notes strong {
-	display: block;
-	margin-bottom: 4px;
+	padding-left: 12px;
+	border-left: 2px solid var(--rule);
 }
 
 .error-text {
@@ -1357,19 +1608,27 @@ select:focus-visible {
 	font-size: var(--subhead);
 }
 
-/* ---- Banners: what stopped and the next step, above the composer. The words say what happened; colour only
-   repeats it. */
+/* ---- Banners: what stopped and the next step, above the composer. The words say what happened; the rule at the
+   edge only repeats it. */
 
 .banner {
 	margin: 0 0 8px;
-	padding: 12px 12px 12px 16px;
-	border-radius: var(--radius-l);
-	background: var(--surface);
-	border: var(--hairline) solid var(--separator);
+	padding: 10px 8px 10px 14px;
+	border-left: 3px solid var(--rule);
+	background: var(--fill);
+	border-radius: 0 var(--radius-s) var(--radius-s) 0;
 	display: flex;
 	align-items: center;
 	gap: 8px 12px;
 	flex-wrap: wrap;
+}
+
+.banner.error {
+	border-left-color: var(--error);
+}
+
+.banner.warn {
+	border-left-color: var(--warn);
 }
 
 /* The button moves under the text once the text would be narrower than this. */
@@ -1396,7 +1655,7 @@ select:focus-visible {
 	color: var(--warn);
 }
 
-/* ---- Toast: rises just above the composer, leaves faster than it came, and can be swiped down. */
+/* ---- Toast: a slip in ink, rising just above the composer. It leaves faster than it came and can be swiped down. */
 
 .toast {
 	position: fixed;
@@ -1410,10 +1669,9 @@ select:focus-visible {
 	display: flex;
 	align-items: center;
 	gap: 8px;
-	background: var(--raised);
-	color: var(--text);
-	border: var(--hairline) solid var(--separator);
-	border-radius: var(--radius-l);
+	background: var(--text);
+	color: var(--bg);
+	border-radius: var(--radius-s);
 	box-shadow: var(--shadow);
 	font-size: var(--subhead);
 	touch-action: none;
@@ -1451,21 +1709,26 @@ select:focus-visible {
 }
 
 .toast .link {
+	color: inherit;
 	font-weight: 600;
+	text-decoration-color: var(--mark);
+	text-decoration-thickness: 2px;
 }
 
-/* ---- Composer */
+/* ---- Composer: the log's next line, the attachment button in the margin and the margin rule running on beside it. */
 
 .composer-dock {
 	--inset: 12px;
+	--inset-left: 8px;
 	position: sticky;
 	bottom: 0;
 	z-index: 5;
-	padding-top: 8px;
+	padding-top: 6px;
 	padding-bottom: max(8px, var(--safe-bottom));
 	background: var(--bar);
 	-webkit-backdrop-filter: var(--bar-blur);
 	backdrop-filter: var(--bar-blur);
+	border-top: var(--hairline) solid var(--separator);
 }
 
 /* The home-indicator inset stays set while the keyboard covers it, which would leave a gap above the keyboard. */
@@ -1477,36 +1740,51 @@ select:focus-visible {
 	position: relative;
 }
 
-.pill {
-	display: flex;
-	align-items: flex-end;
-	background: var(--surface);
-	border: var(--hairline) solid var(--separator);
-	border-radius: var(--radius-full);
-	padding: 2px;
+.composer .attachments {
+	margin: 0 0 6px calc(var(--stamp) + var(--stamp-gap));
 }
 
-.pill:has(textarea:focus-visible) {
-	border-color: color-mix(in srgb, var(--accent) 60%, var(--separator));
+.next-line {
+	display: grid;
+	grid-template-columns: var(--stamp) minmax(0, 1fr) auto;
+	align-items: end;
 }
 
-.pill textarea {
-	flex: 1;
+/* The attachment button sits in the margin, against the rule. */
+.next-line > .icon-button:first-child {
+	justify-self: end;
+	margin-right: -2px;
+	color: var(--text-2);
+}
+
+.next-line textarea {
 	min-width: 0;
 	border: none;
+	border-left: var(--hairline) solid var(--margin);
+	border-radius: 0;
 	background: none;
 	resize: none;
-	/* One line sits centred in the 44 pt pill. */
-	padding: calc((var(--target) - 1.35em) / 2) 4px;
+	/* One line sits centred in the 44 pt row. */
+	padding: calc((var(--target) - 1.35em) / 2) 8px calc((var(--target) - 1.35em) / 2) var(--stamp-gap);
 	min-height: var(--target);
 	line-height: 1.35;
 	outline: none;
 	/* 16 px or more, so iOS does not zoom in on focus. */
-	font-size: max(1rem, 16px);
+	font-size: max(var(--prose), 16px);
+	/* The line it is written on, inked in while it has the caret. */
+	background-image: linear-gradient(var(--separator), var(--separator));
+	background-repeat: no-repeat;
+	background-position: var(--stamp-gap) calc(100% - 6px);
+	background-size: calc(100% - var(--stamp-gap) - 4px) 1px;
 }
 
-.pill textarea::placeholder {
+.next-line textarea:focus-visible {
+	background-image: linear-gradient(var(--text), var(--text));
+}
+
+.next-line textarea::placeholder {
 	color: var(--text-2);
+	font-style: italic;
 }
 
 /* Sent but not yet confirmed: the text stays, quieter, until the server has it. */
@@ -1514,11 +1792,7 @@ select:focus-visible {
 	opacity: 0.5;
 }
 
-.pill > .icon-button:first-child {
-	color: var(--text-2);
-}
-
-/* A 32 pt disc inside the 44 pt target, sitting in the pill like a key rather than filling it. */
+/* A 32 pt key of ink inside the 44 pt target. */
 .send {
 	isolation: isolate;
 	color: var(--accent-text);
@@ -1548,7 +1822,8 @@ select:focus-visible {
 }
 
 .send:disabled::before {
-	background: var(--surface-2);
+	background: none;
+	box-shadow: inset 0 0 0 1px var(--separator);
 }
 
 .send.stop {
@@ -1559,15 +1834,10 @@ select:focus-visible {
 	background: var(--text);
 }
 
-.attachments {
-	justify-content: flex-start;
-	margin-bottom: 8px;
-}
-
 /* Sized to the visible viewport, so it fits above the keyboard. */
 .picker {
 	position: absolute;
-	left: 0;
+	left: calc(var(--stamp) + var(--stamp-gap) - 8px);
 	right: 0;
 	bottom: calc(100% + 8px);
 	list-style: none;
@@ -1575,7 +1845,7 @@ select:focus-visible {
 	padding: 4px;
 	background: var(--raised);
 	border: var(--hairline) solid var(--separator);
-	border-radius: var(--radius-l);
+	border-radius: var(--radius-s);
 	box-shadow: var(--shadow);
 	max-height: calc(var(--viewport-height, 100dvh) * 0.45);
 	overflow-y: auto;
@@ -1588,7 +1858,7 @@ select:focus-visible {
 	flex-direction: column;
 	align-items: flex-start;
 	padding: 8px 12px;
-	gap: 0;
+	gap: 2px;
 	font-weight: 400;
 	text-align: left;
 	line-height: var(--leading-tight);
@@ -1601,7 +1871,7 @@ select:focus-visible {
 
 .picker-value {
 	font-family: var(--mono);
-	font-size: var(--subhead);
+	font-size: var(--record);
 	overflow-wrap: anywhere;
 }
 
@@ -1615,24 +1885,30 @@ select:focus-visible {
 .setup-form {
 	--inset: 16px;
 	flex: 1;
-	padding-top: 16px;
+	padding-top: 20px;
 	padding-bottom: 16px;
 	display: flex;
 	flex-direction: column;
 	gap: 16px;
 }
 
+.intro {
+	margin: 0 0 4px;
+	font-size: var(--prose);
+	font-style: italic;
+	color: var(--text-2);
+	max-width: 34em;
+}
+
 .field {
 	display: flex;
 	flex-direction: column;
-	gap: 8px;
-	font-size: var(--footnote);
-	color: var(--text-2);
+	gap: 6px;
 }
 
 select {
 	min-height: var(--target);
-	border-radius: var(--radius-m);
+	border-radius: var(--radius-s);
 	border: var(--hairline) solid var(--separator);
 	background: var(--surface);
 	color: var(--text);
@@ -1641,25 +1917,28 @@ select {
 	max-width: 100%;
 }
 
+/* Two choices drawn as one ruled control, the chosen one in ink. */
 .segmented {
 	display: flex;
-	background: var(--fill);
-	border-radius: var(--radius-m);
-	padding: 2px;
+	border-radius: var(--radius-s);
+	box-shadow: inset 0 0 0 1px var(--rule);
+	overflow: hidden;
 }
 
-/* Concentric with the track: its radius less its inset. One weight whether chosen or not, so the labels never shift. */
 .segmented button {
 	flex: 1;
 	color: var(--text);
 	font-weight: 500;
-	border-radius: calc(var(--radius-m) - 2px);
+	border-radius: 0;
 }
 
-/* Lifted a hairline off the track, as the system control is. */
+.segmented button + button {
+	box-shadow: inset 1px 0 0 var(--rule);
+}
+
 .segmented button.selected {
-	background: var(--raised);
-	box-shadow: var(--lift);
+	background: var(--text);
+	color: var(--bg);
 }
 
 /* ---- Sheet: rises from the bottom over a dimmed page. It closes with Done, Escape, a tap on the dimmed page, or a
@@ -1735,7 +2014,7 @@ select {
 .sheet-header h2 {
 	grid-column: 2;
 	margin: 0;
-	font-size: 1rem;
+	font-size: 1.0625rem;
 	font-weight: 600;
 }
 
@@ -1743,6 +2022,7 @@ select {
 	grid-column: 3;
 	justify-self: end;
 	font-weight: 600;
+	text-decoration: none;
 }
 
 .sheet-body {
@@ -1767,10 +2047,10 @@ select {
 	display: flex;
 	align-items: baseline;
 	gap: 12px;
-	margin: 0 0 4px;
-	padding: 0 12px;
+	margin: 0 0 8px;
+	font-family: var(--mono);
 	color: var(--text-2);
-	font-size: var(--footnote);
+	font-size: var(--record);
 }
 
 .diff-summary > :first-child {
@@ -1779,8 +2059,8 @@ select {
 
 .diff-note {
 	margin: 0 0 4px;
-	padding: 0 12px;
-	font-size: var(--footnote);
+	font-family: var(--mono);
+	font-size: var(--record);
 	color: var(--text-2);
 }
 
@@ -1788,30 +2068,32 @@ select {
 	color: var(--warn);
 }
 
+/* Files ruled as lines of a list, each opening to its patch. */
 .diff-file {
-	background: var(--surface);
-	border-radius: var(--radius-m);
-	margin-top: 8px;
-	border: var(--hairline) solid var(--separator);
-	overflow: hidden;
+	border-top: var(--hairline) solid var(--separator);
 	min-width: 0;
 }
 
+.diff-file:last-child {
+	border-bottom: var(--hairline) solid var(--separator);
+}
+
 .diff-file > summary {
-	padding: 4px 12px;
+	padding: 4px 0;
 }
 
 .diff-path {
 	flex: 1;
 	min-width: 0;
 	font-family: var(--mono);
-	font-size: var(--footnote);
+	font-size: var(--record);
 	overflow-wrap: anywhere;
 }
 
 .diff-counts {
+	font-family: var(--mono);
 	font-variant-numeric: tabular-nums;
-	font-size: var(--footnote);
+	font-size: var(--record);
 	white-space: nowrap;
 }
 
@@ -1833,18 +2115,17 @@ select {
 }
 
 .diff-file .diff-note {
-	padding: 8px 12px;
+	padding: 8px 0;
 	margin: 0;
-	border-top: var(--hairline) solid var(--separator);
 }
 
 /* Lines are as wide as the longest one, so a highlight runs the full width while the patch scrolls sideways. */
 .patch {
-	margin: 0;
+	margin: 0 0 8px;
 	padding: 8px 0;
 	background: var(--code);
-	border-top: var(--hairline) solid var(--separator);
-	font-size: var(--footnote);
+	border-radius: var(--radius-s);
+	font-size: var(--record);
 	font-family: var(--mono);
 	line-height: var(--leading-code);
 	white-space: pre;
@@ -1925,16 +2206,22 @@ select {
 	}
 }
 
-/* Reduced motion: nothing slides or scales; fades stay, so changes still read as changes. */
+/* Reduced motion: nothing slides, scales, blinks or is drawn in; fades stay, so changes still read as changes. */
 @media (prefers-reduced-motion: reduce) {
 	:is(.primary, .secondary):active:not(:disabled),
 	.send:active:not(:disabled)::before {
 		transform: none;
 	}
 
-	details > summary > .icon:first-child,
-	.progress-bar {
+	details > summary > .icon:first-child {
 		transition: none;
+	}
+
+	.mark,
+	.cursor,
+	.session-status.working::after,
+	.agent.streaming > :last-child::after {
+		animation: none;
 	}
 
 	.drawer {
@@ -1984,10 +2271,10 @@ select {
 }
 
 /* ---- Terminal. Its tokens make it monospace, square, flat and dark; this section draws what values alone cannot:
-   an outline in place of each fill, and colour by what each thing is or does rather than by its rank. */
+   an outline round each card and control, and colour by what each thing is or does rather than by its rank. */
 
-/* What each control and status is or does, as a meaning colour; a plain button is drawn in the text's colour, as a
-   terminal draws one. Only the Terminal draws with it. */
+/* What each control is or does, as a meaning colour; a plain button is drawn in the text's colour, as a terminal
+   draws one. Only the Terminal draws with it. */
 .primary {
 	--tone: var(--accent);
 }
@@ -1996,19 +2283,11 @@ select {
 	--tone: var(--text);
 }
 
-:is(.status-pill, .status-tag) {
-	--tone: var(--neutral);
-}
-
-:is(.status-pill.attention, .status-tag.waiting) {
-	--tone: var(--waiting);
-}
-
-:is(.status-pill.working, .resume) {
+.resume {
 	--tone: var(--working);
 }
 
-:is(.status-pill.done, .status-tag.good, .approve) {
+.approve {
 	--tone: var(--done);
 }
 
@@ -2020,12 +2299,8 @@ select {
 	--tone: var(--warn);
 }
 
-[data-theme="terminal"] :is(.primary, .secondary, .status-pill, .status-tag) {
-	border: var(--hairline) solid var(--tone);
-}
-
-[data-theme="terminal"] :is(.secondary, .status-pill, .status-tag) {
-	background: none;
+[data-theme="terminal"] .secondary {
+	box-shadow: inset 0 0 0 1px var(--tone);
 	color: var(--tone);
 }
 
@@ -2035,76 +2310,60 @@ select {
 	color: var(--bg);
 }
 
-/* Outlines where Light and Dark have fills. :where keeps this as weak as one class, so the colours below win. */
-[data-theme="terminal"] :where(.option, .chip, .bubble, .segmented, .sheet, .report-notes, .markdown pre, .io, .markdown :not(pre) > code) {
+[data-theme="terminal"] .link {
+	text-decoration: none;
+}
+
+/* Cards are boxes here, outlined in one pixel: what waits for the person in its colour, a report in done's. */
+[data-theme="terminal"] .card {
+	border: var(--hairline) solid var(--separator);
+	padding: 8px 12px 12px;
+}
+
+[data-theme="terminal"] .card.waiting {
+	border-color: var(--waiting);
+}
+
+[data-theme="terminal"] .card.report {
+	border: var(--hairline) solid var(--done);
+}
+
+[data-theme="terminal"] :where(.markdown pre, .io, .patch, .note, select) {
 	border: var(--hairline) solid var(--separator);
 }
 
-[data-theme="terminal"] .bubble {
-	background: none;
-	border-color: var(--person);
+[data-theme="terminal"] .said {
+	font-style: normal;
+}
+
+[data-theme="terminal"] .said::before {
+	content: "> ";
+	color: var(--text-2);
 }
 
 [data-theme="terminal"] .option.chosen {
-	border-color: var(--accent);
-}
-
-[data-theme="terminal"] .segmented {
-	background: none;
-}
-
-/* What waits for the person, what is finished and what went wrong, outlined in their colours. */
-[data-theme="terminal"] .card.waiting {
-	border-color: var(--waiting);
-	box-shadow: none;
-}
-
-[data-theme="terminal"] .report {
-	border-color: var(--done);
-}
-
-[data-theme="terminal"] .banner.error {
-	border-color: var(--error);
-}
-
-[data-theme="terminal"] .banner.warn {
-	border-color: var(--warn);
-}
-
-[data-theme="terminal"] .row-label.done {
-	color: var(--done);
+	box-shadow: inset 2px 0 0 var(--accent);
 }
 
 /* The current item in inverse video. */
 [data-theme="terminal"] :is(.row.current, .segmented button.selected) {
 	background: var(--text);
 	color: var(--bg);
+	box-shadow: none;
 }
 
 [data-theme="terminal"] .row.current :is(.row-meta, .row-side, .row-label) {
 	color: inherit;
 }
 
-[data-theme="terminal"] .progress {
-	height: 8px;
-	border: var(--hairline) solid var(--working);
-	background: none;
-}
-
-[data-theme="terminal"] .send:disabled::before {
+[data-theme="terminal"] .toast {
+	background: var(--bg);
+	color: var(--text);
 	border: var(--hairline) solid var(--separator);
 }
 
-/* Everything is monospace, so code needs no size of its own. Inline code wrapped over two lines gets a closed box on
-   each, without the padding that would make boxes on neighbouring lines touch. */
-[data-theme="terminal"] .markdown code {
-	font-size: inherit;
-}
-
-[data-theme="terminal"] .markdown :not(pre) > code {
-	padding: 0 4px;
-	-webkit-box-decoration-break: clone;
-	box-decoration-break: clone;
+[data-theme="terminal"] :is(.day, .intro, .empty, .given, .thinking p, .markdown blockquote, .next-line textarea::placeholder) {
+	font-style: normal;
 }
 
 [data-theme="terminal"] .patch .add {
@@ -2126,9 +2385,4 @@ select {
 [data-theme="terminal"] .option input:checked {
 	border-color: var(--accent);
 	background-color: var(--accent);
-}
-
-/* A terminal's block cursor. */
-[data-theme="terminal"] .agent.streaming::after {
-	content: "█";
 }

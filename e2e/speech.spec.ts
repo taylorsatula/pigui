@@ -15,7 +15,7 @@ test.describe("reading aloud", () => {
 		// While the reply streams, it has no speaker.
 		await expect(page.locator(".agent.streaming")).toBeVisible();
 		await expect(idle).toHaveCount(0);
-		await expect(page.locator(".status-pill")).toHaveText("Replied");
+		await expect(page.locator(".session-status")).toHaveText("Replied");
 		await expect(idle).toHaveCount(1);
 
 		await idle.tap();

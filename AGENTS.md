@@ -57,8 +57,9 @@ Small is a result, not a goal. Never drop correct behavior, error handling or a 
 - **Waiting is free and survives restarts.** Every wait for the person is durable, and every side effect around it
   (notifications, external calls) happens once, even if code reruns after a crash.
 - **Nothing reaches GitHub without the person's tap.** The agent commits; the server delivers.
-- **The interface is a simple chat:** an input pill, an attachment button and a send button. Detail is collapsed
-  until asked for. Follow Apple's Human Interface Guidelines: clarity, deference, sensible defaults, 44 pt targets,
+- **The interface is a log the person reads and writes in:** a text field, an attachment button and a send button.
+  Detail is collapsed until asked for. Keep its look (serif prose, a monospace record, the margin, one highlighter for
+  what needs the person; see DECISIONS.md) rather than drifting back to stock chat-app parts. Follow Apple's Human Interface Guidelines: clarity, deference, sensible defaults, 44 pt targets,
   readable in dark mode and at large text sizes. Choose the simple control that works well over the clever one.
 
 ## Test what matters

@@ -1,9 +1,10 @@
-// The transcript. Detail is collapsed until asked for: thinking, tool activity (one line per stretch of work, then each
-// call, then its full input and output) and compaction checkpoints all open on a tap. Failures show while collapsed.
-import type { JSX } from "preact";
+// The transcript, kept as a log: each entry has its time in the margin, a new day starts under its date, and detail is
+// collapsed until asked for. Thinking, tool activity (one line per stretch of work, then each call, then its full
+// input and output) and compaction checkpoints all open on a tap. Failures show while collapsed.
+import type { ComponentChildren, JSX } from "preact";
 import { useLayoutEffect, useRef, useState } from "preact/hooks";
 import type { SessionDoc } from "../../shared/session.ts";
-import { describeCall, describeGroup } from "../format.ts";
+import { clockTime, dayHeading, describeCall, describeGroup, sameDay } from "../format.ts";
 import { live } from "../live.ts";
 import type { Block, CallView } from "../transcript.ts";
 import { followEnd, keepPosition, pinToEnd, stopFollowing } from "../viewport.ts";
@@ -12,16 +13,21 @@ import { Icon } from "./Icons.tsx";
 import { Markdown } from "./Markdown.tsx";
 import { Speak } from "./Speak.tsx";
 
+/** While something is still being written: the log's cursor, holding its place. */
+function Cursor(): JSX.Element {
+	return <span class="cursor" role="img" aria-label="running" />;
+}
+
 function CallDetail(props: { call: CallView }): JSX.Element {
 	const { call } = props;
 	const input = call.name === "bash" ? String(call.args.command ?? "") : JSON.stringify(call.args, null, 2);
 	return (
 		<details class={`call ${call.status}`}>
 			<summary>
-				<Icon name="chevron" size={16} />
+				<Icon name="chevron" size={14} />
 				<span class="call-summary">{describeCall(call.name, call.args)}</span>
 				{call.status === "failed" ? <span class="failed-tag">failed</span> : null}
-				{call.status === "running" ? <span class="spinner" aria-label="running" /> : null}
+				{call.status === "running" ? <Cursor /> : null}
 			</summary>
 			<div class="call-body">
 				<div class="io-label">Input</div>
@@ -43,10 +49,10 @@ function Activity(props: { calls: CallView[] }): JSX.Element {
 	return (
 		<details class={`activity ${failed > 0 ? "has-failure" : ""}`}>
 			<summary>
-				<Icon name="chevron" size={16} />
+				<Icon name="chevron" size={14} />
 				<span class="activity-summary">{describeGroup(props.calls.map((call) => call.name))}</span>
 				{failed > 0 ? <span class="failed-tag">{failed} failed</span> : null}
-				{running ? <span class="spinner" aria-label="running" /> : null}
+				{running ? <Cursor /> : null}
 			</summary>
 			<div class="calls">
 				{props.calls.map((call) => (
@@ -60,8 +66,8 @@ function Activity(props: { calls: CallView[] }): JSX.Element {
 function Person(props: { data: Extract<Block, { kind: "person" }>["data"] }): JSX.Element {
 	const { data } = props;
 	return (
-		<div class="person">
-			<div class="bubble">{data.text}</div>
+		<>
+			<p class="said">{data.text}</p>
 			{data.references.length + data.attachments.length > 0 ? (
 				<div class="context-chips" aria-label="Added to the message">
 					{data.references.map((reference) => (
@@ -78,9 +84,25 @@ function Person(props: { data: Extract<Block, { kind: "person" }>["data"] }): JS
 					))}
 				</div>
 			) : null}
+		</>
+	);
+}
+
+/** One line of the log: the margin, holding the time and who wrote it, and the entry. */
+function Entry(props: { kind: string; time?: number; who?: string; children: ComponentChildren }): JSX.Element {
+	return (
+		<div class={`entry ${props.kind}`}>
+			<div class="stamp">
+				{props.time === undefined ? null : <time dateTime={new Date(props.time).toISOString()}>{clockTime(props.time)}</time>}
+				{props.who === undefined ? null : <span class="who">{props.who}</span>}
+			</div>
+			<div class="body">{props.children}</div>
 		</div>
 	);
 }
+
+/** Entries that always show their time: the person's words and the cards, the moments someone looks for. */
+const ALWAYS_STAMPED = new Set<Block["kind"]>(["person", "questions", "plan", "report"]);
 
 export function Transcript(props: {
 	blocks: Block[];
@@ -119,89 +141,116 @@ export function Transcript(props: {
 		}
 	};
 
+	const content = (block: Block): JSX.Element | null => {
+		switch (block.kind) {
+			case "earlier":
+				return (
+					<button type="button" class="link" disabled={loading} onClick={() => void load(() => live.loadEarlier(), true)}>
+						{loading ? "Loading…" : "Load earlier entries"}
+					</button>
+				);
+			case "gap":
+				return (
+					<button type="button" class="link" disabled={loading} onClick={() => void load(() => live.fillGap(block.gap), false)}>
+						Load missed entries
+					</button>
+				);
+			case "person":
+				return <Person data={block.data} />;
+			case "nudge":
+				return (
+					<p class="system-note">
+						Continuing automatically ({block.data.attempt} of {block.data.limit}): no report yet.
+					</p>
+				);
+			case "text":
+				return <Markdown text={block.text} class={`agent ${block.streaming ? "streaming" : ""}`} />;
+			case "speak":
+				return props.session === undefined ? null : <Speak id={block.key} session={props.session.id} markdown={block.text} />;
+			case "thinking":
+				return (
+					<details class="thinking">
+						<summary>
+							<Icon name="chevron" size={14} />
+							{block.streaming ? "Thinking" : "Thought"}
+							{block.streaming ? <Cursor /> : null}
+						</summary>
+						<p>{block.text}</p>
+					</details>
+				);
+			case "activity":
+				return <Activity calls={block.calls} />;
+			case "questions":
+				return <QuestionsCard card={block.card} pending={block.pending} actions={props.cards} {...(block.answer === undefined ? {} : { answer: block.answer })} />;
+			case "plan":
+				return (
+					<PlanCardView
+						card={block.card}
+						pending={block.pending}
+						actions={props.cards}
+						{...(block.answer === undefined ? {} : { answer: block.answer })}
+						{...(props.session === undefined ? {} : { session: props.session })}
+					/>
+				);
+			case "report":
+				return (
+					<ReportCard
+						report={block.report}
+						latest={block.latest}
+						running={props.running}
+						actions={props.delivery}
+						{...(props.session === undefined ? {} : { session: props.session })}
+					/>
+				);
+			case "compaction":
+				return (
+					<details class="compaction">
+						<summary>
+							<Icon name="chevron" size={14} />
+							Context compacted ·{" "}
+							{block.retained === undefined ? "see what was carried forward" : `kept ${block.retained} message${block.retained === 1 ? "" : "s"}`}
+						</summary>
+						<Markdown text={block.summary} />
+					</details>
+				);
+			case "notice":
+				return <p class={`system-note ${block.tone}`}>{block.text}</p>;
+		}
+	};
+
+	// The margin shows a time when the minute changes, as a hand-kept log does, and a date heading starts each day.
+	const rows: JSX.Element[] = [];
+	let shownMinute: number | undefined;
+	let day: number | undefined;
+	for (const block of props.blocks) {
+		const at = block.at;
+		if (at !== undefined && (day === undefined || !sameDay(day, at))) {
+			day = at;
+			rows.push(
+				<h2 key={`day:${block.key}`} class="day">
+					{dayHeading(at)}
+				</h2>,
+			);
+		}
+		const minute = at === undefined ? undefined : Math.floor(at / 60_000);
+		const time = block.kind !== "speak" && (ALWAYS_STAMPED.has(block.kind) || minute !== shownMinute) ? at : undefined;
+		if (time !== undefined) shownMinute = minute;
+		const waiting = (block.kind === "questions" || block.kind === "plan") && block.pending;
+		rows.push(
+			<Entry
+				key={block.key}
+				kind={`is-${block.kind}${waiting ? " waiting" : ""}`}
+				{...(time === undefined ? {} : { time })}
+				{...(block.kind === "person" ? { who: "you" } : {})}
+			>
+				{content(block)}
+			</Entry>,
+		);
+	}
+
 	return (
 		<div class="transcript" role="log" aria-live="polite" aria-relevant="additions">
-			{props.blocks.map((block) => {
-				switch (block.kind) {
-					case "earlier":
-						return (
-							<button key={block.key} type="button" class="link center" disabled={loading} onClick={() => void load(() => live.loadEarlier(), true)}>
-								{loading ? "Loading…" : "Load earlier messages"}
-							</button>
-						);
-					case "gap":
-						return (
-							<button key={block.key} type="button" class="link center" disabled={loading} onClick={() => void load(() => live.fillGap(block.gap), false)}>
-								Load missed messages
-							</button>
-						);
-					case "person":
-						return <Person key={block.key} data={block.data} />;
-					case "nudge":
-						return (
-							<p key={block.key} class="system-note">
-								Continuing automatically ({block.data.attempt} of {block.data.limit}): no report yet.
-							</p>
-						);
-					case "text":
-						return <Markdown key={block.key} text={block.text} class={`agent ${block.streaming ? "streaming" : ""}`} />;
-					case "speak":
-						return props.session === undefined ? null : <Speak key={block.key} id={block.key} session={props.session.id} markdown={block.text} />;
-					case "thinking":
-						return (
-							<details key={block.key} class="thinking">
-								<summary>
-									<Icon name="chevron" size={16} />
-									{block.streaming ? "Thinking…" : "Thought"}
-								</summary>
-								<p>{block.text}</p>
-							</details>
-						);
-					case "activity":
-						return <Activity key={block.key} calls={block.calls} />;
-					case "questions":
-						return <QuestionsCard key={block.key} card={block.card} pending={block.pending} actions={props.cards} {...(block.answer === undefined ? {} : { answer: block.answer })} />;
-					case "plan":
-						return (
-							<PlanCardView
-								key={block.key}
-								card={block.card}
-								pending={block.pending}
-								actions={props.cards}
-								{...(block.answer === undefined ? {} : { answer: block.answer })}
-								{...(props.session === undefined ? {} : { session: props.session })}
-							/>
-						);
-					case "report":
-						return (
-							<ReportCard
-								key={block.key}
-								report={block.report}
-								latest={block.latest}
-								running={props.running}
-								actions={props.delivery}
-								{...(props.session === undefined ? {} : { session: props.session })}
-							/>
-						);
-					case "compaction":
-						return (
-							<details key={block.key} class="compaction">
-								<summary>
-									<Icon name="chevron" size={16} />
-									Context compacted ·{" "}
-									{block.retained === undefined ? "see what was carried forward" : `kept ${block.retained} message${block.retained === 1 ? "" : "s"}`}
-								</summary>
-								<Markdown text={block.summary} />
-							</details>
-						);
-					case "notice":
-						return (
-							<p key={block.key} class={`system-note ${block.tone}`}>
-								{block.text}
-							</p>
-						);
-				}
-			})}
+			{rows}
 		</div>
 	);
 }

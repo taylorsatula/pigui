@@ -52,6 +52,7 @@ export function NewSession(): JSX.Element {
 				<h1 class="title">New session</h1>
 			</header>
 			<div class="setup-form">
+				<p class="intro">Choose a repository and a branch, then describe the task. Pi asks what it needs to know, writes a plan, and waits for your approval before it builds.</p>
 				{error !== undefined ? <p class="error-text" role="alert">{error}</p> : null}
 				<label class="field">
 					<span>Repository</span>

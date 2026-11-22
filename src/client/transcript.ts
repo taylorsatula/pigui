@@ -30,7 +30,7 @@ export type CallView = {
 	output?: string;
 };
 
-export type Block =
+export type Block = (
 	| { kind: "earlier"; key: string }
 	| { kind: "gap"; key: string; gap: Gap }
 	| { kind: "person"; key: string; data: MessageEntryData }
@@ -45,7 +45,11 @@ export type Block =
 	| { kind: "report"; key: string; report: Report; latest: boolean }
 	/** `retained`: messages kept verbatim after it, when picloud placed the checkpoint. */
 	| { kind: "compaction"; key: string; summary: string; retained?: number }
-	| { kind: "notice"; key: string; text: string; tone: "info" | "error" };
+	| { kind: "notice"; key: string; text: string; tone: "info" | "error" }
+) & {
+	/** When it was written, for the log's margin: its message's time, or the latest time before it. */
+	at?: number;
+};
 
 function resultText(message: ToolResultMessage): string {
 	return message.content.flatMap((block) => (block.type === "text" ? [block.text] : ["[image]"])).join("\n");
@@ -55,6 +59,11 @@ function userText(entry: EntryRecord): string {
 	const message = entry.model?.[0];
 	if (message?.role !== "user") return "";
 	return typeof message.content === "string" ? message.content : message.content.flatMap((block) => (block.type === "text" ? [block.text] : [])).join("\n");
+}
+
+/** The time on an entry's message; display and bookkeeping entries carry none. */
+function entryTime(entry: EntryRecord): number | undefined {
+	return entry.model?.[0]?.timestamp;
 }
 
 type Details = { card?: QuestionCard | PlanCard; answer?: CardAnswer; report?: Report };
@@ -94,6 +103,11 @@ export function buildBlocks(view: TranscriptView | undefined, session: SessionDo
 	const lastReport = [...results.values()].filter((result) => result.message.toolName === "file_report" && !result.message.isError).at(-1);
 
 	const blocks: Block[] = [];
+	// The log's clock: each block takes the latest time seen, so an entry without one sits under the one before it.
+	let now: number | undefined;
+	const add = (block: Block) => {
+		blocks.push(now === undefined ? block : { ...block, at: now });
+	};
 	let activity: CallView[] | undefined;
 	const flush = () => {
 		activity = undefined;
@@ -101,40 +115,42 @@ export function buildBlocks(view: TranscriptView | undefined, session: SessionDo
 	const addCall = (key: string, call: CallView) => {
 		if (activity === undefined) {
 			activity = [];
-			blocks.push({ kind: "activity", key, calls: activity });
+			add({ kind: "activity", key, calls: activity });
 		}
 		activity.push(call);
 	};
 
 	const assistant = (key: string, message: AssistantMessage, streaming: boolean) => {
+		now = message.timestamp;
 		message.content.forEach((block, index) => {
 			const blockKey = `${key}:${index}`;
 			if (block.type === "thinking") {
-				if (block.thinking.trim() !== "") blocks.push({ kind: "thinking", key: blockKey, text: block.thinking, streaming });
+				if (block.thinking.trim() !== "") add({ kind: "thinking", key: blockKey, text: block.thinking, streaming });
 				return;
 			}
 			if (block.type === "text") {
 				if (block.text.trim() === "") return;
 				flush();
-				blocks.push({ kind: "text", key: blockKey, text: block.text, streaming });
+				add({ kind: "text", key: blockKey, text: block.text, streaming });
 				return;
 			}
 			if (streaming) return;
 			const result = results.get(block.id);
 			if (CARD_TOOLS.has(block.name)) {
 				flush();
-				cardBlock(blocks, blockKey, block.id, block.name, result, session, lastReport);
+				cardBlock(add, blockKey, block.id, block.name, result, session, lastReport);
 				return;
 			}
 			const slot = slots.get(block.id);
 			const status: CallView["status"] =
 				result !== undefined ? (result.message.isError ? "failed" : "done") : slot?.status === "sleeping" || slot?.status === "waiting" ? "waiting" : "running";
 			const output = result !== undefined ? resultText(result.message) : slot?.output;
-			addCall(blockKey, output === undefined ? { id: block.id, name: block.name, args: block.arguments, status } : { id: block.id, name: block.name, args: block.arguments, status, output });
+			const call: CallView = { id: block.id, name: block.name, args: block.arguments, status };
+			addCall(blockKey, output === undefined ? call : { ...call, output });
 		});
 		if (message.stopReason === "error" || message.stopReason === "aborted") {
 			flush();
-			blocks.push({
+			add({
 				kind: "notice",
 				key: `${key}:stop`,
 				tone: message.stopReason === "error" ? "error" : "info",
@@ -145,28 +161,29 @@ export function buildBlocks(view: TranscriptView | undefined, session: SessionDo
 
 	for (const item of view.items) {
 		if (item.kind === "earlier") {
-			blocks.push({ kind: "earlier", key: "earlier" });
+			add({ kind: "earlier", key: "earlier" });
 			continue;
 		}
 		if (item.kind === "gap") {
 			flush();
-			blocks.push({ kind: "gap", key: `gap:${item.after}`, gap: item });
+			add({ kind: "gap", key: `gap:${item.after}`, gap: item });
 			continue;
 		}
 		const entry = item.entry;
 		const key = String(entry.id);
+		now = entryTime(entry) ?? now;
 		switch (entry.kind) {
 			case MESSAGE_ENTRY:
 				flush();
-				blocks.push({ kind: "person", key, data: entry.data as MessageEntryData });
+				add({ kind: "person", key, data: entry.data as MessageEntryData });
 				break;
 			case NUDGE_ENTRY:
 				flush();
-				blocks.push({ kind: "nudge", key, data: entry.data as NudgeEntryData });
+				add({ kind: "nudge", key, data: entry.data as NudgeEntryData });
 				break;
 			case "pi.user":
 				flush();
-				blocks.push({ kind: "person", key, data: { text: userText(entry), references: [], attachments: [] } });
+				add({ kind: "person", key, data: { text: userText(entry), references: [], attachments: [] } });
 				break;
 			case "pi.assistant": {
 				const message = entry.model?.[0];
@@ -175,22 +192,22 @@ export function buildBlocks(view: TranscriptView | undefined, session: SessionDo
 			}
 			case "pi.compaction":
 				flush();
-				blocks.push(compactionBlock(key, (entry.head === undefined ? undefined : markers.get(entry.head)) ?? entry));
+				add(compactionBlock(key, (entry.head === undefined ? undefined : markers.get(entry.head)) ?? entry));
 				break;
 			case CHECKPOINT_ENTRY: {
 				const cut = (entry.data as CheckpointEntryData).durableCut;
 				if (cut !== undefined && summarized.has(cut)) break;
 				flush();
-				blocks.push(compactionBlock(key, entry));
+				add(compactionBlock(key, entry));
 				break;
 			}
 			case COMPACTION_NOTE_ENTRY:
 				flush();
-				blocks.push({ kind: "notice", key, tone: "info", text: NOTES[(entry.data as CompactionNoteData).note] });
+				add({ kind: "notice", key, tone: "info", text: NOTES[(entry.data as CompactionNoteData).note] });
 				break;
 			case "pi.reset":
 				flush();
-				blocks.push({ kind: "notice", key, tone: "info", text: "The context was reset." });
+				add({ kind: "notice", key, tone: "info", text: "The context was reset." });
 				break;
 		}
 	}
@@ -229,7 +246,7 @@ function withSpeakers(blocks: readonly Block[], running: boolean): Block[] {
 }
 
 function cardBlock(
-	blocks: Block[],
+	add: (block: Block) => void,
 	key: string,
 	callId: string,
 	name: string,
@@ -239,8 +256,8 @@ function cardBlock(
 ): void {
 	const details = result?.details;
 	if (name === "file_report") {
-		if (details?.report !== undefined) blocks.push({ kind: "report", key, report: details.report, latest: result?.message === lastReport?.message });
-		else if (result?.message.isError === true) blocks.push({ kind: "notice", key, tone: "info", text: resultText(result.message) });
+		if (details?.report !== undefined) add({ kind: "report", key, report: details.report, latest: result?.message === lastReport?.message });
+		else if (result?.message.isError === true) add({ kind: "notice", key, tone: "info", text: resultText(result.message) });
 		return;
 	}
 	const pending = session?.card?.id === callId ? session.card : undefined;
@@ -248,8 +265,8 @@ function cardBlock(
 	if (card === undefined) return;
 	const answer = details?.answer;
 	if (card.kind === "questions") {
-		blocks.push(answer === undefined ? { kind: "questions", key, card, pending: pending !== undefined } : { kind: "questions", key, card, answer, pending: false });
+		add(answer === undefined ? { kind: "questions", key, card, pending: pending !== undefined } : { kind: "questions", key, card, answer, pending: false });
 	} else {
-		blocks.push(answer === undefined ? { kind: "plan", key, card, pending: pending !== undefined } : { kind: "plan", key, card, answer, pending: false });
+		add(answer === undefined ? { kind: "plan", key, card, pending: pending !== undefined } : { kind: "plan", key, card, answer, pending: false });
 	}
 }

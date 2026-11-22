@@ -1,5 +1,5 @@
-// The colour scheme, chosen per device. System follows the OS between Light and Dark; Terminal is a dark, monospace
-// theme in ANSI colours. A chosen theme is `data-theme` on <html>, which the tokens in app.css key on.
+// The colour scheme, chosen per device. System follows the OS between Light and Dark (paper and ink, by day and by
+// lamplight); Terminal is a dark, monospace theme in ANSI colours. A chosen theme is `data-theme` on <html>, which the tokens in app.css key on.
 
 export const THEMES = ["system", "light", "dark", "terminal"] as const;
 export type Theme = (typeof THEMES)[number];
@@ -7,7 +7,7 @@ export type Theme = (typeof THEMES)[number];
 const KEY = "picloud.theme";
 
 /** Each theme's page colour (its --bg in app.css), for the browser's bars. */
-const BAR: Record<Exclude<Theme, "system">, string> = { light: "#f6f6f8", dark: "#111113", terminal: "#0a0a0a" };
+const BAR: Record<Exclude<Theme, "system">, string> = { light: "#f3f0e7", dark: "#181714", terminal: "#0a0a0a" };
 
 /** The theme chosen on this device, or System when none was or storage is unavailable (as in some private modes). */
 export function storedTheme(): Theme {

@@ -3,7 +3,7 @@ import { expect, startSession, test } from "./fixtures.ts";
 test.describe("the app around a session", () => {
 	test("the drawer navigates between sessions and signals one that needs attention", async ({ page }) => {
 		await startSession(page, "What does greet() return?");
-		await expect(page.locator(".status-pill")).toHaveText("Replied");
+		await expect(page.locator(".session-status")).toHaveText("Replied");
 		const first = page.url();
 		await startSession(page, "Add a shout() function");
 		await expect(page.getByRole("region", { name: "Questions waiting for your answer" })).toBeVisible();
@@ -69,7 +69,7 @@ test.describe("the app around a session", () => {
 		await expect(page.getByRole("listbox")).toBeHidden();
 		await composer.pressSequentially(" ");
 		await page.getByRole("button", { name: "Send", exact: true }).tap();
-		await expect(page.locator(".person .chip").first()).toHaveText("@src/greet.ts");
-		await expect(page.locator(".person .bubble")).toHaveText("Look at @src/greet.ts then #release-notes mail me@example.com about #12 ");
+		await expect(page.locator(".is-person .chip").first()).toHaveText("@src/greet.ts");
+		await expect(page.locator(".is-person .said")).toHaveText("Look at @src/greet.ts then #release-notes mail me@example.com about #12 ");
 	});
 });

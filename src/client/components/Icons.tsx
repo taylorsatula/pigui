@@ -1,17 +1,18 @@
-// Line icons drawn inline, so they follow the text colour in both themes and need no requests.
+// Line icons drawn inline, so they follow the text colour in every theme and need no requests. Drawn at a pen's
+// weight, a little finer than the system's, to sit beside the serif.
 import type { JSX } from "preact";
 
 const paths = {
 	menu: "M4 7h16M4 12h16M4 17h16",
 	plus: "M12 5v14M5 12h14",
-	send: "M12 19V5M6 11l6-6 6 6",
+	/* Enter, as a log entry is entered: a return arrow, not a chat app's send arrow. */
+	send: "M19 5v6a3 3 0 0 1-3 3H6M10 10l-4 4 4 4",
 	stop: "M8 8h8v8H8z",
 	clip: "M21 11.5l-8.6 8.6a5 5 0 0 1-7.1-7.1l8.6-8.6a3.3 3.3 0 0 1 4.7 4.7l-8.6 8.6a1.7 1.7 0 0 1-2.4-2.4l7.9-7.9",
 	chevron: "M9 6l6 6-6 6",
 	check: "M5 12.5l4.5 4.5L19 7.5",
 	close: "M6 6l12 12M18 6L6 18",
 	diff: "M12 4v8M8 8h8M8 18h8",
-	branch: "M7 4v12M7 16a2 2 0 1 0 0 4 2 2 0 0 0 0-4zM17 8a2 2 0 1 0 0-4 2 2 0 0 0 0 4zM17 8c0 5-10 3-10 8",
 	archive: "M4 7h16v13H4zM3 3h18v4H3zM10 11h4",
 	bell: "M6 16V11a6 6 0 0 1 12 0v5l2 2H4zM10 20a2 2 0 0 0 4 0",
 	speaker: "M4 9.5h3l5-4v13l-5-4H4zM16 9a4.5 4.5 0 0 1 0 6M18.5 6.5a8 8 0 0 1 0 11",
@@ -28,7 +29,7 @@ export function Icon(props: { name: IconName; size?: number; label?: string }): 
 			viewBox="0 0 24 24"
 			fill="none"
 			stroke="currentColor"
-			stroke-width="2"
+			stroke-width="1.75"
 			stroke-linecap="round"
 			stroke-linejoin="round"
 			aria-hidden={props.label === undefined ? "true" : undefined}

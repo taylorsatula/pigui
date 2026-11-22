@@ -1,5 +1,5 @@
-// The composer: an input pill with an attachment button and a send button that becomes Stop while Pi works and nothing
-// is typed. `@` opens a picker of the repository's files and `#` one of Pi's skills; both narrow as the person types.
+// The composer: the log's next line, with the attachment button in its margin and a send button that becomes Stop while
+// Pi works and nothing is typed. `@` opens a picker of the repository's files and `#` one of Pi's skills; both narrow as the person types.
 import type { ComponentChildren, JSX } from "preact";
 import { useEffect, useLayoutEffect, useRef, useState } from "preact/hooks";
 import type { SkillSummary } from "../../shared/api.ts";
@@ -194,7 +194,7 @@ export function Composer(props: ComposerProps): JSX.Element {
 					) : null}
 				</div>
 			) : null}
-			<div class="pill">
+			<div class="next-line">
 				<button type="button" class="icon-button" aria-label="Attach files or photos" disabled={props.disabled} onClick={() => picker.current?.click()}>
 					<Icon name="clip" />
 				</button>

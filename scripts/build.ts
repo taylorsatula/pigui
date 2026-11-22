@@ -1,6 +1,6 @@
 // Builds the phone app into dist/public: esbuild bundles for the app, its theme boot script and the service worker,
-// the static shell, and the icons, drawn here so the repository holds no binary assets. Then the sandbox launcher into
-// dist/bin.
+// the static shell, the fonts (copied from their pinned packages), and the icons, drawn here so the repository holds no
+// binary assets. Then the sandbox launcher into dist/bin.
 import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { copyFile, mkdir, readFile, rm, writeFile } from "node:fs/promises";
@@ -14,6 +14,24 @@ const client = join(root, "src", "client");
 
 await rm(out, { recursive: true, force: true });
 await mkdir(join(out, "icons"), { recursive: true });
+await mkdir(join(out, "fonts"), { recursive: true });
+
+// The Latin files app.css's @font-face rules name, and each family's licence (the SIL Open Font License asks that it
+// travel with the fonts).
+const FONTS = [
+	{ dir: "@fontsource-variable/source-serif-4", files: ["source-serif-4-latin-opsz-normal.woff2", "source-serif-4-latin-opsz-italic.woff2"], licence: "LICENSE-source-serif-4.txt" },
+	{ dir: "@fontsource/ibm-plex-mono", files: ["ibm-plex-mono-latin-400-normal.woff2", "ibm-plex-mono-latin-500-normal.woff2"], licence: "LICENSE-ibm-plex-mono.txt" },
+];
+const fontBytes: Buffer[] = [];
+for (const font of FONTS) {
+	const dir = join(root, "node_modules", font.dir);
+	for (const file of font.files) {
+		await copyFile(join(dir, "files", file), join(out, "fonts", file));
+		fontBytes.push(await readFile(join(dir, "files", file)));
+	}
+	await copyFile(join(dir, "LICENSE"), join(out, "fonts", font.licence));
+}
+
 
 const app = await build({
 	entryPoints: [join(client, "main.tsx")],
@@ -46,6 +64,7 @@ const shell = await Promise.all(["index.html", "app.css", "manifest.webmanifest"
 const buildId = createHash("sha256")
 	.update(JSON.stringify([app.metafile.outputs, boot.metafile.outputs]))
 	.update(Buffer.concat(shell))
+	.update(Buffer.concat(fontBytes))
 	.digest("hex")
 	.slice(0, 12);
 
@@ -57,13 +76,13 @@ await build({
 	platform: "browser",
 	target: ["safari16", "chrome110"],
 	minify: true,
-	define: { BUILD_ID: JSON.stringify(buildId) },
+	define: { BUILD_ID: JSON.stringify(buildId), FONT_FILES: JSON.stringify(FONTS.flatMap((font) => font.files.map((file) => `/fonts/${file}`))) },
 	logLevel: "warning",
 });
 
 for (const file of ["index.html", "app.css", "manifest.webmanifest"]) await copyFile(join(client, file), join(out, file));
 
-// ---- Icons: a white π on a blue field, as PNGs (the format iOS home screens need).
+// ---- Icons: an ink π on the highlighter's yellow, as PNGs (the format iOS home screens need).
 
 const CRC_TABLE = Array.from({ length: 256 }, (_, n) => {
 	let c = n;
@@ -109,12 +128,12 @@ function inPi(u: number, v: number): boolean {
 }
 
 function icon(size: number, inset: number): Buffer {
-	const blue: [number, number, number] = [37, 99, 235];
-	const white: [number, number, number] = [255, 255, 255];
+	const mark: [number, number, number] = [242, 216, 92];
+	const ink: [number, number, number] = [27, 25, 21];
 	return png(size, (x, y) => {
 		const u = (x / size - inset) / (1 - 2 * inset);
 		const v = (y / size - inset) / (1 - 2 * inset);
-		return inPi(u, v) ? white : blue;
+		return inPi(u, v) ? ink : mark;
 	});
 }
 

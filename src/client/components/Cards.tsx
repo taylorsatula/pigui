@@ -1,5 +1,6 @@
 // Questions, plans and reports appear as cards, not tool calls. A waiting card is answered by tapping: recommended
-// options are already chosen, so accepting them is one tap, and free text is always there.
+// options are already chosen, so accepting them is one tap, and free text is always there. What waits for the person
+// is marked as with a highlighter; nothing else is.
 import type { JSX } from "preact";
 import { useState } from "preact/hooks";
 import type { CardAnswer, PlanCard, QuestionAnswer, QuestionCard, Report, SessionDoc } from "../../shared/session.ts";
@@ -56,7 +57,9 @@ export function QuestionsCard(props: { card: QuestionCard; answer?: CardAnswer; 
 
 	return (
 		<section class={`card questions ${props.pending ? "waiting" : ""}`} aria-label={props.pending ? "Questions waiting for your answer" : "Answered questions"}>
-			<header class="card-title">{props.pending ? (card.questions.length > 1 ? `${card.questions.length} questions` : "A question") : "Questions"}</header>
+			<header class="card-title">
+				{props.pending ? <span class="mark">{card.questions.length > 1 ? `${card.questions.length} questions for you` : "A question for you"}</span> : "Questions"}
+			</header>
 			{card.questions.map((question) => {
 				const name = `${card.id}-${question.id}`;
 				const chosen = chosenFor(question.id);
@@ -75,7 +78,7 @@ export function QuestionsCard(props: { card: QuestionCard; answer?: CardAnswer; 
 								<span class="option-text">
 									<span class="option-label">
 										{option.label}
-										{option.id === question.recommended ? <span class="badge">Recommended</span> : null}
+										{option.id === question.recommended ? <span class="recommended">Recommended</span> : null}
 									</span>
 									{option.description === undefined ? null : <span class="option-description">{option.description}</span>}
 								</span>
@@ -140,15 +143,18 @@ export function PlanCardView(props: { card: PlanCard; answer?: CardAnswer; pendi
 	return (
 		<section class={`card plan ${props.pending ? "waiting" : ""}`} aria-label={`Plan: ${card.plan.title}`}>
 			<header class="card-title">
-				Plan{card.revision > 1 ? `, revision ${card.revision}` : ""}
-				{status === undefined ? null : <span class={`status-tag ${props.answer?.kind === "approve" ? "good" : props.pending ? "waiting" : ""}`}>{status}</span>}
+				<span>Plan{card.revision > 1 ? `, revision ${card.revision}` : ""}</span>
+				{status === undefined ? null : (
+					<span class={`verdict ${props.answer?.kind === "approve" ? "good" : props.pending ? "mark" : ""}`}>{status}</span>
+				)}
 			</header>
 			<h3>{card.plan.title}</h3>
 			<Markdown text={card.plan.summary} />
+			{/* A checklist: each box holds its step's number until the step is done, then a tick. */}
 			<ol class="steps">
 				{card.plan.steps.map((step, index) => (
 					<li key={step.id} class={done.includes(step.id) ? "done" : ""}>
-						<span class="step-marker">{done.includes(step.id) ? <Icon name="check" size={16} label="Done" /> : `${index + 1}.`}</span>
+						<span class="box">{done.includes(step.id) ? <Icon name="check" size={14} label={`Step ${index + 1}, done`} /> : index + 1}</span>
 						<span>{step.text}</span>
 					</li>
 				))}
@@ -211,11 +217,12 @@ export function ReportCard(props: { report: Report; latest: boolean; session?: S
 	return (
 		<section class="card report" aria-label="Report">
 			<header class="card-title">
-				Report
-				{pushed ? <span class="status-tag good">Pushed</span> : null}
+				<span>Report</span>
+				<span class="commit">{report.commit.slice(0, 7)}</span>
+				{pushed ? <span class="verdict good">Pushed</span> : null}
 				{session === undefined ? null : <Speak id={`report:${report.commit}:${report.filedAt}`} session={session.id} markdown={reportProse(report)} />}
 			</header>
-			<Markdown text={report.summary} />
+			<Markdown text={report.summary} class="lede" />
 			{report.changes.length > 0 ? (
 				<ul class="changes">
 					{report.changes.map((change, index) => (
@@ -226,7 +233,7 @@ export function ReportCard(props: { report: Report; latest: boolean; session?: S
 			{report.verification.trim() === "" ? null : (
 				<details>
 					<summary>
-						<Icon name="chevron" size={16} />
+						<Icon name="chevron" size={14} />
 						How it was verified
 					</summary>
 					<Markdown text={report.verification} />
@@ -234,14 +241,14 @@ export function ReportCard(props: { report: Report; latest: boolean; session?: S
 			)}
 			{report.notes.trim() === "" ? null : (
 				<div class="report-notes">
-					<strong>Notes</strong>
+					<div class="io-label">Notes</div>
 					<Markdown text={report.notes} />
 				</div>
 			)}
 			{report.learned.trim() === "" ? null : (
 				<details>
 					<summary>
-						<Icon name="chevron" size={16} />
+						<Icon name="chevron" size={14} />
 						What Pi learned about this repository
 					</summary>
 					<Markdown text={report.learned} />

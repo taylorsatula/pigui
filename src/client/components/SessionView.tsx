@@ -1,5 +1,5 @@
-// One session: a quiet header with status, progress and spend, any problem with its next step, the transcript, and the
-// composer, whose placeholder says what sending will do right now.
+// One session: its title over one line of record (status, repository, branch, spend), any problem with its next step,
+// the transcript, and the composer, whose placeholder says what sending will do right now.
 import type { LiveState, UsageState } from "@earendil-works/pi-durable";
 import type { JSX } from "preact";
 import { useCallback, useEffect, useMemo, useState } from "preact/hooks";
@@ -24,7 +24,7 @@ function placeholderFor(doc: SessionDoc, running: boolean): string {
 	if (running) return "Steer Pi while it works…";
 	if (doc.outcome?.kind === "budget") return "Raise the budget to continue…";
 	if (doc.report !== undefined && doc.workflow === "reported") return "Ask for more changes…";
-	return "Message Pi…";
+	return "Write to Pi…";
 }
 
 const FAILURES: Record<string, string> = {
@@ -189,7 +189,6 @@ export function SessionView(props: { id: number }): JSX.Element {
 		);
 	}
 	const row = sessionRow(doc);
-	const progress = doc.plan?.approved === true ? { done: doc.plan.done.length, total: doc.plan.steps.length } : undefined;
 	return (
 		<div class="session">
 			<div class="pinned">
@@ -197,10 +196,15 @@ export function SessionView(props: { id: number }): JSX.Element {
 					<DrawerButton />
 					<div class="title-block">
 						<h1 class="title">{doc.title}</h1>
-						<p class="subtitle">
-							<span class="repo">{doc.repo}</span>
-							<span class="branch">
-								<Icon name="branch" size={14} /> {doc.branch}
+						{/* Status leads, as a word: marked when it is the person's turn. */}
+						<p class="subtitle" role="status">
+							<span class={`session-status ${row.group}`}>{row.label}</span>
+							<span class="where">
+								{doc.repo} · {doc.branch}
+							</span>
+							<span class="spend">
+								{formatDollars(spent)}
+								{doc.cap === undefined ? "" : ` of ${formatDollars(doc.cap)}`}
 							</span>
 						</p>
 					</div>
@@ -211,18 +215,6 @@ export function SessionView(props: { id: number }): JSX.Element {
 						<Icon name="archive" />
 					</button>
 				</header>
-				<div class="status-line" role="status">
-					<span class={`status-pill ${row.group}`}>{row.label}</span>
-					{progress === undefined ? null : (
-						<span class="progress" aria-label={`${progress.done} of ${progress.total} steps done`}>
-							<span class="progress-bar" style={{ transform: `scaleX(${progress.done / Math.max(1, progress.total)})` }} />
-						</span>
-					)}
-					<span class="spend">
-						{formatDollars(spent)}
-						{doc.cap === undefined ? "" : ` of ${formatDollars(doc.cap)}`}
-					</span>
-				</div>
 			</div>
 			<Transcript blocks={blocks} session={doc} running={running} cards={cards} delivery={delivery} />
 			<ComposerDock>

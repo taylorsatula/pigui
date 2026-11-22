@@ -111,6 +111,19 @@ test.describe("themes", () => {
 	});
 });
 
+test("the serif and the monospace are served with the app and used", async ({ page }) => {
+	await startSession(page, "Add a shout() function");
+	await expect(page.getByRole("region", { name: "Questions waiting for your answer" })).toBeVisible();
+	const loaded = await page.evaluate(async () => {
+		await document.fonts.ready;
+		return [...document.fonts].filter((face) => face.status === "loaded").map((face) => `${face.family} ${face.style} ${face.weight}`);
+	});
+	expect(loaded).toEqual(expect.arrayContaining(["Source Serif 4 normal 200 900", "Source Serif 4 italic 200 900", "IBM Plex Mono normal 400", "IBM Plex Mono normal 500"]));
+	const fonts = await page.evaluate(() => [getComputedStyle(document.querySelector(".said") as Element).fontFamily, getComputedStyle(document.querySelector(".stamp") as Element).fontFamily]);
+	expect(fonts[0]).toMatch(/^"Source Serif 4"/);
+	expect(fonts[1]).toMatch(/^"IBM Plex Mono"/);
+});
+
 test.describe("dark mode", () => {
 	test.use({ viewport: { width: 375, height: 740 } });
 
@@ -119,9 +132,9 @@ test.describe("dark mode", () => {
 		await startSession(page, "Add a shout() function");
 		await expect(page.getByRole("region", { name: "Questions waiting for your answer" })).toBeVisible();
 		const background = await page.evaluate(() => getComputedStyle(document.documentElement).backgroundColor);
-		expect(background).toBe("rgb(17, 17, 19)");
+		expect(background).toBe("rgb(24, 23, 20)");
 		const text = await page.evaluate(() => getComputedStyle(document.body).color);
-		expect(text).toBe("rgb(244, 244, 246)");
+		expect(text).toBe("rgb(235, 229, 213)");
 		await page.getByRole("button", { name: "Send answers" }).tap();
 		await page.getByRole("button", { name: "Approve" }).tap();
 		await expect(page.getByRole("region", { name: "Report" })).toBeVisible({ timeout: 30_000 });
@@ -144,7 +157,7 @@ test.describe("recovery", () => {
 		await page.getByRole("button", { name: "Approve" }).tap();
 		await expect(page.getByRole("region", { name: "Report" })).toBeVisible({ timeout: 30_000 });
 		// The transcript is whole: nothing was lost or duplicated across the restart.
-		await expect(page.locator(".person")).toHaveCount(1);
+		await expect(page.locator(".is-person")).toHaveCount(1);
 		await expect(page.getByRole("region", { name: "Answered questions" })).toHaveCount(1);
 	});
 });
