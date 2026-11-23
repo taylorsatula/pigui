@@ -98,7 +98,7 @@ async function stop(session: number, agent: AgentRow): Promise<void> {
 	}
 }
 
-/** The Agents button, beside Archive once the session has an agent; its badge counts those at work. */
+/** The Agents button, in the session's bar once the session has an agent; its badge counts those at work. */
 export function AgentsButton(props: { doc: SessionDoc; open: boolean; onToggle: () => void }): JSX.Element | null {
 	const rows = props.doc.agents ?? [];
 	if (rows.length === 0) return null;

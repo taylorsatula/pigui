@@ -31,20 +31,33 @@ test.describe("the app around a session", () => {
 		await expect(page.getByTestId("attention-dot")).toBeHidden();
 	});
 
-	test("archiving is undone from the toast", async ({ page }) => {
+	test("a session is archived from the picker, undone from the toast, and restored from the Inactive folder", async ({ page }) => {
 		await startSession(page, "What is in src?");
 		await expect(page.getByText("Short answer:")).toBeVisible();
 		const url = page.url();
-		await page.getByRole("button", { name: "Archive session" }).tap();
+		// Archiving lives in the picker, beside each session, not in the session's bar.
+		await expect(page.getByRole("button", { name: /^Archive/ })).toHaveCount(0);
+		const sessions = page.getByRole("button", { name: /^Sessions/ });
+		const picker = page.getByRole("dialog", { name: "Sessions" });
+		await sessions.tap();
+		// The open session: archiving it leaves for New session; Undo comes back to it.
+		await picker.getByRole("button", { name: "Archive What is in src?" }).tap();
 		const toast = page.getByRole("status").filter({ hasText: "Session archived." });
 		await expect(toast).toBeVisible();
 		await expect(page).toHaveURL(/#\/$/);
 		await toast.getByRole("button", { name: "Undo" }).tap();
 		await expect(page).toHaveURL(url);
-		await page.getByRole("button", { name: /^Sessions/ }).tap();
-		const picker = page.getByRole("dialog", { name: "Sessions" });
+		await sessions.tap();
 		await expect(picker.getByRole("list", { name: "Under way" }).getByRole("link", { name: /What is in src\?/ })).toBeVisible();
 		await expect(picker.getByText(/^Inactive/)).toBeHidden();
+		// Archived again, it waits in the Inactive folder, where Restore puts it back among those under way.
+		await picker.getByRole("button", { name: "Archive What is in src?" }).tap();
+		await expect(page).toHaveURL(/#\/$/);
+		await sessions.tap();
+		await picker.getByRole("button", { name: /^Inactive/ }).tap();
+		await picker.getByRole("button", { name: "Restore What is in src?" }).tap();
+		await expect(page.getByRole("status").filter({ hasText: "Session restored." })).toBeVisible();
+		await expect(picker.getByRole("list", { name: "Under way" }).getByRole("link", { name: /What is in src\?/ })).toBeVisible();
 	});
 
 	test("on a wide screen the picker lists sessions in columns, sorts by them, moves with the arrow keys, and closes", async ({ page }) => {

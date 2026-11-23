@@ -6,7 +6,7 @@
 import type { JSX } from "preact";
 import { useEffect, useRef, useState } from "preact/hooks";
 import { needsAttention, type SessionRow } from "../../shared/session.ts";
-import { describeFailure } from "../api.ts";
+import { api, describeFailure } from "../api.ts";
 import { listingDate, shortDir, timeAgo } from "../format.ts";
 import { enableNotifications, pushSupported } from "../push.ts";
 import { navigate, showToast, store, useStore } from "../store.ts";
@@ -40,11 +40,38 @@ function sorted(rows: readonly SessionRow[], sort: Sort, home: string | undefine
 	return [...rows].sort((a, b) => (sort.ascending ? order(a, b) : order(b, a)));
 }
 
+/**
+ * Archive a session, or put an archived one back, with Undo in the toast rather than a confirmation. Archiving the open
+ * session leaves it for New session, as it can no longer be worked in; Undo comes back to it.
+ */
+async function setArchived(row: SessionRow, archived: boolean, open: boolean): Promise<void> {
+	try {
+		await api.archive(row.id, archived);
+	} catch (error) {
+		showToast({ message: describeFailure(error).message });
+		return;
+	}
+	if (archived && open) navigate({ kind: "new" });
+	showToast({
+		message: archived ? "Session archived." : "Session restored.",
+		action: {
+			label: "Undo",
+			run: () => {
+				void api.archive(row.id, !archived).then(() => {
+					if (archived && open) navigate({ kind: "session", id: row.id });
+				});
+			},
+		},
+	});
+}
+
 function Entry(props: { row: SessionRow; current: boolean; striped: boolean; nested: boolean; home: string | undefined }): JSX.Element {
 	const { row } = props;
 	const classes = ["row", props.current ? "current" : "", props.striped ? "striped" : "", props.nested ? "nested" : "", needsAttention(row) ? "unseen" : ""];
+	// Beside the line rather than in it, since a button cannot sit inside a link; it is drawn on the line's right edge.
+	const action = row.archived ? "Restore" : "Archive";
 	return (
-		<li>
+		<li class="entry">
 			<a href={`#/s/${row.id}`} class={classes.join(" ")} aria-current={props.current ? "page" : undefined} onClick={() => store.set({ pickerOpen: false })}>
 				<span class="row-name">
 					<span class={`indicator ${row.tone}`} aria-hidden="true" />
@@ -57,6 +84,9 @@ function Entry(props: { row: SessionRow; current: boolean; striped: boolean; nes
 				</time>
 				<span class="row-status">{row.label}</span>
 			</a>
+			<button type="button" class="icon-button row-action" aria-label={`${action} ${row.title}`} title={action} onClick={() => void setArchived(row, !row.archived, props.current)}>
+				<Icon name={row.archived ? "restore" : "archive"} size={18} />
+			</button>
 		</li>
 	);
 }

@@ -8,7 +8,7 @@ import { formatDollars, sessionSpent } from "../../shared/spend.ts";
 import { api, describeFailure } from "../api.ts";
 import { shortDir } from "../format.ts";
 import { stopReading } from "../speech.ts";
-import { navigate, showToast, useStore } from "../store.ts";
+import { showToast, useStore } from "../store.ts";
 import { buildBlocks } from "../transcript.ts";
 import { pinToEnd } from "../viewport.ts";
 import { AgentsButton, AgentsPanel } from "./Agents.tsx";
@@ -161,21 +161,6 @@ export function SessionView(props: { id: number }): JSX.Element {
 		[props.id],
 	);
 
-	const archive = () =>
-		act(async () => {
-			await api.archive(props.id, true);
-			navigate({ kind: "new" });
-			showToast({
-				message: "Session archived.",
-				action: {
-					label: "Undo",
-					run: () => {
-						void api.archive(props.id, false).then(() => navigate({ kind: "session", id: props.id }));
-					},
-				},
-			});
-		});
-
 	if (missing) {
 		return (
 			<div class="session">
@@ -226,9 +211,6 @@ export function SessionView(props: { id: number }): JSX.Element {
 						</button>
 					) : null}
 					<AgentsButton doc={doc} open={agentsOpen} onToggle={() => setAgentsOpen((open) => !open)} />
-					<button type="button" class="icon-button" aria-label="Archive session" onClick={archive}>
-						<Icon name="archive" />
-					</button>
 				</header>
 			</div>
 			<Transcript blocks={blocks} session={doc} running={running} cards={cards} delivery={delivery} />

@@ -12,8 +12,11 @@ const paths = {
 	check: "M5 12.5l4.5 4.5L19 7.5",
 	close: "M6 6l12 12M18 6L6 18",
 	minus: "M6 12h12",
-	diff: "M12 4v8M8 8h8M8 18h8",
+	// A plus over a minus, centred on the icon's middle as the others are, and as wide as their lighter parts.
+	diff: "M12 4.5v9M7 9h10M7 19.5h10",
 	archive: "M4 7h16v13H4zM3 3h18v4H3zM10 11h4",
+	// The archive box with an arrow out of it: back among the sessions under way.
+	restore: "M4 7h16v13H4zM3 3h18v4H3zM12 17v-6M9.5 13.5L12 11l2.5 2.5",
 	folder: "M3 6.5h6.5l2 2H21V19H3z",
 	star: "M12 3.5l2.6 5.3 5.9.9-4.25 4.15 1 5.85L12 16.9l-5.25 2.8 1-5.85L3.5 9.7l5.9-.9z",
 	bell: "M6 16V11a6 6 0 0 1 12 0v5l2 2H4zM10 20a2 2 0 0 0 4 0",

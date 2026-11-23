@@ -503,7 +503,10 @@ file; the open session as the selection, filled in ink where Finder fills its ac
 and the arrow keys moving through the lines. Sessions that are done, archived or untouched for twelve hours sit in an
 Inactive folder with a disclosure triangle, open when the open session is in it. On a phone the columns are Name and
 the time since the last change, with where and the status still read aloud, and the lines keep the 44 pt target;
-with a pointer they sit at a file browser's density. A status bar counts them, and holds the memory notice and
+with a pointer they sit at a file browser's density. Each line ends in its own Archive button, or Restore for an
+archived session in the Inactive folder, so any session is put away from here, not only the open one; the button
+sits beside the line's link, a button being unable to sit inside one, on the line's right edge, and archiving the
+open session leaves for New session, with Undo in the toast. A status bar counts them, and holds the memory notice and
 "Turn on notifications". *Before:* a sidebar listing the sessions under way, persistent on a wide screen (it could
 be put away) and a drawer dragged from the left edge on a phone. It took a column of the screen, and a gesture of the
 edge, for something done now and then. *Before that:* rows of two lines grouped under "Needs you", "Working" and

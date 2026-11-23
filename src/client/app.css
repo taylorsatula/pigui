@@ -793,6 +793,41 @@ html:has(.session-picker, .agents-panel) {
 	user-select: none;
 }
 
+/* A line's archive or restore button sits on its right edge. The line's own padding leaves it room, so the stripes
+   and the selection run under it, and the headings keep the same room so each column stays over its own. */
+.entry {
+	position: relative;
+}
+
+.picker-columns {
+	padding-right: calc(12px + var(--row));
+}
+
+.row {
+	padding-right: calc(6px + var(--row));
+}
+
+.row-action {
+	position: absolute;
+	top: 0;
+	right: 0;
+	width: var(--row);
+	min-width: var(--row);
+	height: var(--row);
+	min-height: var(--row);
+	color: var(--text-2);
+	border-radius: var(--radius-s);
+}
+
+.entry:has(> .row.current) > .row-action,
+.entry:has(> .row:focus-visible) > .row-action {
+	color: var(--accent-text);
+}
+
+.picker-list:has(.row:focus-visible) .entry:has(> .row.current:not(:focus-visible)) > .row-action {
+	color: var(--text-2);
+}
+
 /* Every other row a shade apart, across the folder's contents too. */
 .row.striped {
 	background: color-mix(in srgb, var(--text) 4%, transparent);
