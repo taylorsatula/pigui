@@ -97,6 +97,29 @@ serve` (never `funnel`) is the way in, and Tailscale's login header can narrow w
 own access controls. Anyone who can reach PiCloud can make Pi run commands, so the tailnet is the boundary, and that
 is the design.
 
+## Security
+
+Least privilege, by construction. In Docker, both containers drop every Linux capability and run with
+no-new-privileges; picloud's root filesystem is read-only and it runs as an unprivileged user in an image built with
+the setuid bits stripped. The Tailscale container keeps only the two capabilities a VPN needs (NET_ADMIN and NET_RAW)
+and the tun device; picloud publishes no host port and shares Tailscale's network, so `tailscale serve` is the only
+way in. Docker's default seccomp profile stays on, unchanged. picloud listens on loopback and ships no authentication
+module — it believes the `Tailscale-User-Login` header Tailscale adds, and a request that changes something is refused
+unless the browser says it came from picloud's own page (`Sec-Fetch-Site` / `Origin`).
+
+The GitHub credentials are split, and the agent's side of the split is structural, not instructional. picloud holds a
+read-write token in its own process and uses it only when you tap: pushes and pull requests happen there, never inside
+a sandbox. Agent commands get a read-only token as `GH_TOKEN` and `GITHUB_TOKEN`, and never see picloud's token or any
+`PICLOUD_*` setting. picloud's API also refuses connections from its own user — which is every agent command — so an
+agent cannot approve its own plan or tap Deliver to act as you. Each command runs under Landlock, confined to its
+session's workspace, a scratch directory and a read-only system, and from ABI 6 it cannot signal picloud or other
+sessions either.
+
+What stays open, honestly: agent commands can reach any host the machine reaches — tailnet peers, a cloud metadata
+service, tailscaled's socket and any TCP endpoint, because builds need registries. The file tools have a check-then-use
+race. Below ABI 6, Ubuntu 24.04's kernel does not scope signals. And OnPrem is deliberately unconfined, as the
+deployment options above say.
+
 ## What it costs to run
 
 - **A $4/month droplet is enough** for PiCloud with reading aloud and long-term memory turned off.
