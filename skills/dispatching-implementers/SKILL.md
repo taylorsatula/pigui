@@ -26,8 +26,8 @@ guesses and you get a confident report about the wrong change, or it stops and y
 the thinking you were trying to offload.
 
 **A directive implementer** frontloads the full scoped design docs into its own context and figures out
-the code itself. The `dt466e-implementer` is one: its agent file requires it to read every named document
-in full before it writes a line. To it you delegate the implementation understanding and keep the
+the code itself. A directive implementer is one whose agent definition requires it to read every named
+document in full before it writes a line. To it you delegate the implementation understanding and keep the
 judgment: the approach calls, the scope, the observable contract. You write an outcome directive, not an
 edit list, and a scout gathers the code facts your approach calls rest on. Sending it a mechanical edit
 list wastes its reading and spends your context on work it does itself.

@@ -120,11 +120,13 @@ reply, an unpriced one never. *Alternative:* asking Pi's catalog whether each mo
 with more to keep in step.
 
 **Skills pigui ships, through Pi's own loader.** The repository's `skills/` holds skills in Pi's layout
-(`<name>/SKILL.md`), at first the four for delegating to subagents (`subagent-orchestration` and the scout,
-implementer and verifier dispatch contracts). `skillsAt` passes the folder to `loadSkills` as a skill path, so every
+(`<name>/SKILL.md`), the four for delegating to subagents (`subagent-orchestration` and the scout,
+implementer and verifier dispatch contracts) plus `git-workflow` and `pr-writing` for committing and opening pull
+requests. `skillsAt` passes the folder to `loadSkills` as a skill path, so every
 place that lists skills (the prompt, the `#` picker, a `#skill` reference) offers them beside the project's and Pi's
 own, and the sandbox grants it for reading, as it does Pi's `skills` directory, since a skill is used by reading its
-file. They cost about 950 tokens of every session's prompt. *Alternatives:* copying them into Pi's `skills`
+file. The original four cost about 950 tokens of every session's prompt; `git-workflow` and `pr-writing` add to
+that. *Alternatives:* copying them into Pi's `skills`
 directory, which pigui does not write; seeding them into the data directory like agent definitions, which would
 make them editable over SSH but let an update leave an edited copy behind the shipped one.
 
