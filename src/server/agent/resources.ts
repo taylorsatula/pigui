@@ -26,6 +26,12 @@ export const BUNDLED_SKILLS = join(import.meta.dirname, "..", "..", "..", "skill
 /** The agent definitions pigui ships, in pi-subagents' layout (`<name>.md`); the person's and the session's win a name they share. */
 export const BUNDLED_AGENTS = join(import.meta.dirname, "..", "..", "..", "agents");
 
+/**
+ * The directory inside a session's workspace where attachments are saved, relative to it. In a repository's clone it is
+ * ignored by git (`/.pigui/` is in `.git/info/exclude`).
+ */
+export const ATTACHMENTS_DIR = ".pigui/attachments";
+
 export function skillsAt(cwd: string, agentDir: string): Skill[] {
 	return loadSkills({ cwd, agentDir, skillPaths: [join(cwd, ".agents", "skills"), join(homedir(), ".agents", "skills"), BUNDLED_SKILLS], includeDefaults: true }).skills;
 }
