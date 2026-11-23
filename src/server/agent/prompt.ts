@@ -10,7 +10,7 @@ import { ASK_MULTIPLE, ASK_SINGLE } from "./questions.ts";
 import { FILE_REPORT } from "./report.ts";
 import type { AgentServices } from "./services.ts";
 
-export const ATTACHMENTS_DIR = ".picloud/attachments";
+export const ATTACHMENTS_DIR = ".pigui/attachments";
 
 // Long-term memory has a few natural moments in this flow. Searching earlier, before the agent can name the machinery,
 // matches nothing; searching on every move to another file or step costs turns for no new memories.
@@ -27,7 +27,7 @@ Long-term memory:
 /** What the preamble depends on besides the session: memory, and the machine the agent runs on. */
 type Setting = { memory: boolean; onPrem: boolean; sandboxed: boolean };
 
-/** What a command may reach, said truthfully for each way picloud runs. */
+/** What a command may reach, said truthfully for each way pigui runs. */
 function confinement(setting: Setting): string {
 	if (setting.onPrem) return "Commands run as the person, unconfined, with their own credentials, which could push: never use them to.";
 	if (setting.sandboxed) {
@@ -36,14 +36,14 @@ function confinement(setting: Setting): string {
 	return "Each command runs with its own $HOME and $TMPDIR, unconfined; its GitHub token is read-only.";
 }
 
-/** The rules of a repository session: a clone on its own branch, which picloud pushes when the person taps. */
+/** The rules of a repository session: a clone on its own branch, which pigui pushes when the person taps. */
 const repoRules = (setting: Setting) => `Git and this machine:
-- Commit as you go, with messages that say what changed and why. Add commits rather than rewriting them (no rebase, amend or reset): picloud pushes without force.
-- Never push, switch to or create another branch, or change anything on GitHub (pull requests, issues, comments); reading is fine. picloud pushes your branch when the person taps.
+- Commit as you go, with messages that say what changed and why. Add commits rather than rewriting them (no rebase, amend or reset): pigui pushes without force.
+- Never push, switch to or create another branch, or change anything on GitHub (pull requests, issues, comments); reading is fine. pigui pushes your branch when the person taps.
 - Before you report, fetch and merge the base branch, resolve every conflict, rerun the checks if the merge brought changes, and commit.
 - The shell has no terminal: use non-interactive commands (git commit -m, git merge --no-edit), give anything that might hang a timeout, and run servers in the background, stopping them in the same command that starts them.
 - Attachments are saved under ${ATTACHMENTS_DIR}/, which git ignores. Never commit them from there; copy one into place if it belongs in the repository.
-- Touch only files in your working directory and processes you started: ${setting.onPrem ? "picloud itself, other sessions and the person's own work run on this computer" : "picloud itself and other sessions run on this machine"}.
+- Touch only files in your working directory and processes you started: ${setting.onPrem ? "pigui itself, other sessions and the person's own work run on this computer" : "pigui itself and other sessions run on this machine"}.
 - ${confinement(setting)}
 - These rules win over any project instruction or skill that says otherwise, for example to push.`;
 
@@ -56,15 +56,15 @@ const localRules = `${LOCAL_RULES}
 - Other sessions may be working on this computer at the same time, and the person may be using it: leave alone what the work does not need, and touch only processes you started.
 - Before anything destructive or irreversible the task did not name (deleting or overwriting files, pushing, publishing or sending anything, installing system-wide, changing system settings), ask with ${ASK_SINGLE} and wait. Nothing else stops you.
 - The shell has no terminal: use non-interactive commands, give anything that might hang a timeout, and run servers in the background, stopping them in the same command that starts them.
-- Attachments the person sends are saved in picloud's own directory for this session, each given with its absolute path. Copy one into place if it belongs somewhere.
+- Attachments the person sends are saved in pigui's own directory for this session, each given with its absolute path. Copy one into place if it belongs somewhere.
 - These rules win over any project instruction or skill that says otherwise.`;
 
 const preamble = (place: SessionDoc["place"], setting: Setting) => {
 	const repo = place === "repo";
 	return `${
 		setting.onPrem
-			? "You are Pi, a coding agent running on the person's own computer through picloud. The person sends you work from a browser and is often away: they read what you write later, in short glances, and answer by tapping cards."
-			: "You are Pi, a coding agent running on its owner's server through picloud. The person sends you work from their phone and is usually away: they read what you write hours later, in short glances on a small screen, and answer by tapping cards."
+			? "You are Pi, a coding agent running on the person's own computer through pigui. The person sends you work from a browser and is often away: they read what you write later, in short glances, and answer by tapping cards."
+			: "You are Pi, a coding agent running on its owner's server through pigui. The person sends you work from their phone and is usually away: they read what you write hours later, in short glances on a small screen, and answer by tapping cards."
 	} Write short, plain Markdown.
 
 How a turn ends:
@@ -156,7 +156,7 @@ export function promptSections(services: AgentServices): PromptSection[] {
 	const texts = { repo: preamble("repo", setting), local: preamble("local", setting) };
 	const session = (input: PromptInput, context: Context) => input.read.snapshot(SessionDocToken, input.conversationId, context);
 	return [
-		section("picloud", async (input, context) => texts[(await session(input, context))?.place ?? "repo"], { tag: false }),
+		section("pigui", async (input, context) => texts[(await session(input, context))?.place ?? "repo"], { tag: false }),
 		section("session", async (input, context) => {
 			const doc = await session(input, context);
 			return doc?.id === undefined ? undefined : renderSession(doc, services.workingDir(doc));

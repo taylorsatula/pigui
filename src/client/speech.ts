@@ -188,6 +188,6 @@ function fail(playback: Playback, error: unknown): void {
 	if (playback !== current || playback.controller.signal.aborted) return;
 	stopReading();
 	const blocked = error instanceof DOMException && error.name === "NotAllowedError";
-	const failure = blocked ? { message: "The phone did not let picloud play audio." } : describeFailure(error);
+	const failure = blocked ? { message: "The phone did not let pigui play audio." } : describeFailure(error);
 	showToast({ message: `Could not read this aloud. ${failure.message} ${failure.hint ?? "Tap the speaker to try again."}` }, 10_000);
 }

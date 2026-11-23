@@ -111,11 +111,11 @@ export async function piEmbedder(runtime: ModelRuntime, agentDir: string, config
 		if (stored?.type === "api_key") apiKey = stored.key;
 	}
 	if (apiKey === undefined && config.embedUrl === undefined) {
-		return { off: `Pi has no key for ${config.provider} (models.json or auth.json) and PICLOUD_MEMORY_EMBED_URL is not set` };
+		return { off: `Pi has no key for ${config.provider} (models.json or auth.json) and PIGUI_MEMORY_EMBED_URL is not set` };
 	}
 	const baseUrl = runtime.getModels(config.provider)[0]?.baseUrl;
 	const url = config.embedUrl ?? (baseUrl !== undefined ? `${baseUrl.replace(/\/+$/, "")}/embeddings` : config.provider === "lunaroute" ? LUNAROUTE_EMBEDDINGS : undefined);
-	if (url === undefined) return { off: `Pi's catalog has no base URL for ${config.provider}; set PICLOUD_MEMORY_EMBED_URL` };
+	if (url === undefined) return { off: `Pi's catalog has no base URL for ${config.provider}; set PIGUI_MEMORY_EMBED_URL` };
 	return { embedder: httpEmbedder({ url, model: config.embedModel, apiKey }) };
 }
 

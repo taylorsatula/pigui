@@ -36,7 +36,7 @@ import { SURFACE_MEMORIES } from "../memory/directives.ts";
 import { SPEECH_PROMPT } from "../speech/script.ts";
 import { AGENT, ENVIRONMENT, STEER } from "../subagents/tools.ts";
 
-const FAKE_PROVIDER = "picloud-fake";
+const FAKE_PROVIDER = "pigui-fake";
 const FAKE_MODEL = "scripted";
 
 type Step =
@@ -70,7 +70,7 @@ const STEPS = new Set<string>([
 	"probe",
 ]);
 
-/** Steps that do not move the scenario on: looking up history, and the handoff note picloud asks for. */
+/** Steps that do not move the scenario on: looking up history, and the handoff note pigui asks for. */
 const ASIDES = new Set<string>(["recall", "handoff"]);
 
 /** In [long] scenarios, verbose build output fills the context so compaction happens mid-implementation. */
@@ -124,7 +124,7 @@ function isChat(text: string): boolean {
 	return message.endsWith("?") || message.includes("[chat]");
 }
 
-/** The person's text without the context picloud adds before it (file and skill blocks, attachment notes). */
+/** The person's text without the context pigui adds before it (file and skill blocks, attachment notes). */
 function stripContext(text: string): string {
 	const parts = text.split("\n\n");
 	return parts.at(-1) ?? text;
@@ -527,7 +527,7 @@ function speechScript(markdown: string): AssistantMessage {
 	return fauxAssistantMessage(paragraphs.join("\n\n"));
 }
 
-/** Durable's own summarizer, which runs only when picloud's backstop hook fails; [compaction-fails] fails it once. */
+/** Durable's own summarizer, which runs only when pigui's backstop hook fails; [compaction-fails] fails it once. */
 function builtInSummary(messages: readonly Message[], options: SimpleStreamOptions | undefined): AssistantMessage {
 	const request = messages.filter((message) => message.role === "user").map(textOf).join("\n");
 	const key = `builtin:${options?.sessionId ?? "none"}`;
@@ -654,7 +654,7 @@ export type ScriptedModelOptions = {
 
 export function scriptedModels(options: ScriptedModelOptions = {}): { models: Models; model: ModelRef } {
 	const core = createFauxCore({
-		api: "picloud-faux",
+		api: "pigui-faux",
 		provider: FAKE_PROVIDER,
 		models: [
 			{
@@ -676,7 +676,7 @@ export function scriptedModels(options: ScriptedModelOptions = {}): { models: Mo
 	};
 	const provider = createProvider({
 		id: FAKE_PROVIDER,
-		name: "picloud fake mode",
+		name: "pigui fake mode",
 		auth: { apiKey: { name: "None", resolve: async () => ({ auth: {} }) } },
 		models: core.models,
 		api: { stream, streamSimple: stream },

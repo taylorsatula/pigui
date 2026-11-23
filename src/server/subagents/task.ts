@@ -24,13 +24,13 @@ import {
 import { AGENT_RESULT_ENTRY, AGENT_STOPPED_ENTRY, type AgentResultData, type AgentRow, type AgentStoppedData, runFailureText } from "../../shared/session.ts";
 import { readSettings, type Settings } from "./settings.ts";
 
-export const AGENT_TASK = "picloud.agent";
+export const AGENT_TASK = "pigui.agent";
 
 /** On every agent's conversation: the session it works for, and its current run. */
 type AgentDocState = { session: number; task: number };
 
 export const AgentDocToken = defineDoc<AgentDocState>({
-	kind: "picloud.agent",
+	kind: "pigui.agent",
 	version: 1,
 	scope: "conversation",
 	history: "latest",
@@ -67,7 +67,7 @@ export type SessionEffect =
 	/** This commit stopped the session's last agent while nothing else runs, so nothing is under way any more. */
 	| { kind: "quiet" };
 
-/** What the agent task needs from picloud. */
+/** What the agent task needs from pigui. */
 export type TaskHost = {
 	dataDir: string;
 	now(): number;

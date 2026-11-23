@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# picloud OnPrem, kept for the links and habits that point here: the installer is now install.sh at the repository
-# root, and this runs its OnPrem path (picloud on this computer, as you — or, as root on a Linux server, as root, as
+# pigui OnPrem, kept for the links and habits that point here: the installer is now install.sh at the repository
+# root, and this runs its OnPrem path (pigui on this computer, as you — or, as root on a Linux server, as root, as
 # a system service — at http://localhost:2025).
 #
 #   deploy/onprem.sh [options]   ==   install.sh --local-full [options]

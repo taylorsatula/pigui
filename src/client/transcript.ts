@@ -55,7 +55,7 @@ export type Block = (
 	| { kind: "questions"; key: string; card: QuestionCard; answer?: CardAnswer; pending: boolean }
 	| { kind: "plan"; key: string; card: PlanCard; answer?: CardAnswer; pending: boolean }
 	| { kind: "report"; key: string; report: Report; latest: boolean }
-	/** `retained`: messages kept verbatim after it, when picloud placed the checkpoint. */
+	/** `retained`: messages kept verbatim after it, when pigui placed the checkpoint. */
 	| { kind: "compaction"; key: string; summary: string; retained?: number }
 	| { kind: "notice"; key: string; text: string; tone: "info" | "error" }
 ) & {
@@ -85,7 +85,7 @@ const NOTES: Record<CompactionNoteData["note"], string> = {
 	resume: "Asked Pi to resume after compacting the context",
 };
 
-/** A compaction row from picloud's checkpoint marker, or from Durable's summary, which wraps its text. */
+/** A compaction row from pigui's checkpoint marker, or from Durable's summary, which wraps its text. */
 function compactionBlock(key: string, entry: EntryRecord): Block {
 	if (entry.kind === CHECKPOINT_ENTRY) return { kind: "compaction", key, summary: userText(entry), retained: (entry.data as CheckpointEntryData).retained };
 	return { kind: "compaction", key, summary: userText(entry).replace(/^[\s\S]*?<summary>\n?/, "").replace(/\n?<\/summary>\s*$/, "") };
@@ -101,7 +101,7 @@ export function buildBlocks(view: TranscriptView | undefined, session: SessionDo
 		const message = item.entry.model?.[0];
 		if (message?.role === "toolResult") results.set(message.toolCallId, { message, details: message.details as Details | undefined });
 	}
-	// picloud's marker for a compaction Durable ran supersedes Durable's summary of it: one row for the two, where the
+	// pigui's marker for a compaction Durable ran supersedes Durable's summary of it: one row for the two, where the
 	// compaction happened, showing what the agent sees.
 	const markers = new Map<number, EntryRecord>();
 	const summarized = new Set<number>();

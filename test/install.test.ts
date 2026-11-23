@@ -1,4 +1,4 @@
-// The decision-tree installer at the repository root: where and how picloud runs, chosen by three questions.
+// The decision-tree installer at the repository root: where and how pigui runs, chosen by three questions.
 // Dry runs only here — never a real install. Each run gets a temporary home, and stand-ins for the SSH client and,
 // when asked, for a PATH without Docker.
 import assert from "node:assert/strict";
@@ -13,9 +13,9 @@ const install = join(import.meta.dirname, "..", "install.sh");
 type Run = { status: number | null; stdout: string; stderr: string; home: string };
 
 function dryRun(args: string[], env: NodeJS.ProcessEnv = {}, hideDocker = false): Run {
-	const home = realpathSync(mkdtempSync(join(tmpdir(), "picloud-install-home-")));
-	const bin = mkdtempSync(join(tmpdir(), "picloud-install-bin-"));
-	const state = mkdtempSync(join(tmpdir(), "picloud-install-state-"));
+	const home = realpathSync(mkdtempSync(join(tmpdir(), "pigui-install-home-")));
+	const bin = mkdtempSync(join(tmpdir(), "pigui-install-bin-"));
+	const state = mkdtempSync(join(tmpdir(), "pigui-install-state-"));
 	const pathDirs = (process.env.PATH ?? "").split(":").filter((dir) => !hideDocker || !existsSync(join(dir, "docker")));
 	// A login shell whose profile puts a PATH on, as a person's does and launchd's environment does not.
 	writeFileSync(join(bin, "login-shell"), '#!/bin/bash\nPATH=/opt/homebrew/bin:/usr/bin:/bin; eval "${@: -1}"\n');
@@ -33,7 +33,7 @@ function dryRun(args: string[], env: NodeJS.ProcessEnv = {}, hideDocker = false)
 }
 
 const sshStub = (exit: number) => {
-	const bin = mkdtempSync(join(tmpdir(), "picloud-ssh-stub-"));
+	const bin = mkdtempSync(join(tmpdir(), "pigui-ssh-stub-"));
 	const stub = join(bin, "ssh");
 	writeFileSync(stub, `#!/bin/bash\nexit ${exit}\n`);
 	chmodSync(stub, 0o755);
@@ -46,7 +46,7 @@ test("the installer passes a syntax check, and --help says how to use it", () =>
 	assert.equal(spawnSync("bash", ["-n", install], { encoding: "utf8" }).status, 0);
 	const help = spawnSync("bash", [install, "--help"], { encoding: "utf8" });
 	assert.equal(help.status, 0);
-	assert.match(help.stdout, /curl -fsSL https:\/\/raw\.githubusercontent\.com\/taylorsatula\/picloud\/main\/install\.sh \| bash -s --/);
+	assert.match(help.stdout, /curl -fsSL https:\/\/raw\.githubusercontent\.com\/taylorsatula\/pigui\/main\/install\.sh \| bash -s --/);
 	for (const way of ["Remote (sandboxed)", "Remote (full)", "Local (sandboxed)", "Local (full)"]) {
 		assert.ok(help.stdout.includes(way), way);
 	}
@@ -68,12 +68,12 @@ test("local full with overlap: no standalone directory, no PI_CODING_AGENT_DIR, 
 });
 
 test("local full standalone: a separate Pi configuration, PI_CODING_AGENT_DIR in the service, home untouched", () => {
-	const run = dryRun(["--where", "local", "--how", "full", "--pi-config", "standalone", "--pi-agent-dir", join("~", ".picloud", "pi-agent")]);
+	const run = dryRun(["--where", "local", "--how", "full", "--pi-config", "standalone", "--pi-agent-dir", join("~", ".pigui", "pi-agent")]);
 	try {
 		assert.equal(run.status, 0, run.stderr);
 		assert.match(run.stdout, /^== \d+\. Standalone Pi configuration/m);
-		assert.match(run.stdout, /PI_CODING_AGENT_DIR=\S+\.picloud\/pi-agent/);
-		assert.match(run.stdout, /PI_AGENT_DIR=\S+\.picloud\/pi-agent/);
+		assert.match(run.stdout, /PI_CODING_AGENT_DIR=\S+\.pigui\/pi-agent/);
+		assert.match(run.stdout, /PI_AGENT_DIR=\S+\.pigui\/pi-agent/);
 		assert.deepEqual(readdirSync(run.home), []);
 	} finally {
 		rmSync(run.home, { recursive: true, force: true });
@@ -82,7 +82,7 @@ test("local full standalone: a separate Pi configuration, PI_CODING_AGENT_DIR in
 
 test("remote without a key installed raises, and says what to do", () => {
 	const stub = sshStub(1);
-	const run = dryRun(["--where", "remote", "--remote", "192.0.2.1", "--how", "full"], { PICLOUD_SSH: stub });
+	const run = dryRun(["--where", "remote", "--remote", "192.0.2.1", "--how", "full"], { PIGUI_SSH: stub });
 	try {
 		assert.equal(run.status, 1);
 		assert.match(run.stderr, /No SSH key installed for root@192\.0\.2\.1/);
@@ -96,7 +96,7 @@ test("remote without a key installed raises, and says what to do", () => {
 test("remote full: creates the user, copies the credentials, installs OnPrem over SSH", () => {
 	const stub = sshStub(0);
 	const run = dryRun(["--where", "remote", "--remote", "192.0.2.1", "--how", "full", "--pi-config", "standalone"], {
-		PICLOUD_SSH: stub,
+		PIGUI_SSH: stub,
 		GH_TOKEN: "test-gh-token",
 		AGENT_GH_TOKEN: "test-agent-token",
 	});
@@ -107,10 +107,10 @@ test("remote full: creates the user, copies the credentials, installs OnPrem ove
 			"Install Node.js 22, gh and Tailscale on 192.0.2.1",
 			"Copy the GitHub credentials to 192.0.2.1",
 			"Copy the Pi configuration to 192.0.2.1 (standalone)",
-			"Install picloud on 192.0.2.1",
+			"Install pigui on 192.0.2.1",
 		]);
 		assert.match(run.stdout, /useradd -m -s \/bin\/bash 'taylor'/);
-		assert.match(run.stdout, /--pi-agent-dir \/home\/taylor\/\.picloud\/pi-agent/);
+		assert.match(run.stdout, /--pi-agent-dir \/home\/taylor\/\.pigui\/pi-agent/);
 		assert.match(run.stdout, /--models-unload never/);
 		assert.doesNotMatch(run.stdout, /test-gh-token/, "the token is piped, never printed");
 	} finally {
@@ -122,14 +122,14 @@ test("remote full: creates the user, copies the credentials, installs OnPrem ove
 test("remote sandboxed: clones the repository and runs the server installer over SSH", () => {
 	const stub = sshStub(0);
 	const run = dryRun(["--where", "remote", "--remote", "192.0.2.1", "--how", "sandboxed", "--push-subject", "mailto:me@example.com"], {
-		PICLOUD_SSH: stub,
+		PIGUI_SSH: stub,
 		GH_TOKEN: "test-gh-token",
 		AGENT_GH_TOKEN: "test-agent-token",
 	});
 	try {
 		assert.equal(run.status, 0, run.stderr);
 		assert.deepEqual(stepsOf(run.stdout), [
-			"Clone picloud (main) on 192.0.2.1",
+			"Clone pigui (main) on 192.0.2.1",
 			"Copy the tokens to 192.0.2.1",
 			"Run the server installer on 192.0.2.1",
 		]);

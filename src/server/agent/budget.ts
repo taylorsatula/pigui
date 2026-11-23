@@ -12,7 +12,7 @@ import { agentSession, stopAgents } from "../subagents/extension.ts";
 import type { AgentServices } from "./services.ts";
 
 /**
- * What one of picloud's own model calls used, beside the agent's: a compaction checkpoint, a speakable script. As
+ * What one of pigui's own model calls used, beside the agent's: a compaction checkpoint, a speakable script. As
  * JSON, since the checkpoint's is memoized; providers may leave optional counters undefined, which JSON cannot hold.
  */
 export type ModelSpend = { key: string; usage: JsonRepresentation<Usage> };
@@ -67,7 +67,7 @@ export async function overCap(api: Pick<HookApi, "conversationId" | "snapshot">,
 
 export function budget(services: AgentServices) {
 	const BudgetStop = defineTask<{ spent: number; cap: number }, { phase: "stop" }, AfterToolsDecision, object>({
-		name: "picloud.budget-stop",
+		name: "pigui.budget-stop",
 		version: 1,
 		initial: () => ({ phase: "stop" }),
 		phases: {

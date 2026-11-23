@@ -1,6 +1,6 @@
 // Sessions from before plans and reports were structured keep their older shapes in storage; they still read as the
 // current ones, so their cards, pull requests and checkpoints show what they hold. Sessions from before local sessions
-// are marked as repository sessions when picloud starts.
+// are marked as repository sessions when pigui starts.
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 import type { ConversationId } from "@earendil-works/pi-durable";
@@ -39,7 +39,7 @@ describe("documents stored in their older shapes", () => {
 		try {
 			const id = await server.createSession("What is in src?");
 			await server.settled(id);
-			// As an earlier picloud stored it: no place, in the document or its drawer row.
+			// As an earlier pigui stored it: no place, in the document or its drawer row.
 			await server.app.harness.commit(async (tx) => {
 				delete (await tx.doc(SessionDocToken, id as ConversationId) as { place?: string }).place;
 				delete ((await tx.doc(SessionIndexToken)).rows[String(id)] as { place?: string }).place;

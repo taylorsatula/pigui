@@ -1,7 +1,7 @@
 // Agent definitions: one Markdown file per agent in the data directory's `agents/`, written by the person over SSH in
 // pi-subagents' format, so the same file works in the Pi CLI and here. They are read when used, never cached, so an
 // edit applies on the next request. A field that would make the agent behave otherwise than written refuses it, with
-// a reason the person can act on; a tool picloud does not have is left out and named, since the rest of the agent
+// a reason the person can act on; a tool pigui does not have is left out and named, since the rest of the agent
 // still works as written.
 import { cp, readdir, readFile, stat } from "node:fs/promises";
 import { basename, join } from "node:path";
@@ -14,7 +14,7 @@ export type Definition = {
 	name: string;
 	file: string;
 	description: string;
-	/** The tools it gets: those it names that picloud has, or without a `tools` field the coding tools. */
+	/** The tools it gets: those it names that pigui has, or without a `tools` field the coding tools. */
 	tools: string[];
 	/** The tools it names that no extension here provides. */
 	missing: string[];
@@ -41,9 +41,9 @@ export type Catalog = {
 };
 
 /**
- * The fields of pi-subagents' format whose meaning picloud gives, or which the CLI's own decoration only uses
- * (`color`, `display_name`). `prompt_mode`, `extensions` and `skills` are accepted only with the values picloud
- * honours; every other field of the format changes what an agent does in a way picloud does not.
+ * The fields of pi-subagents' format whose meaning pigui gives, or which the CLI's own decoration only uses
+ * (`color`, `display_name`). `prompt_mode`, `extensions` and `skills` are accepted only with the values pigui
+ * honours; every other field of the format changes what an agent does in a way pigui does not.
  */
 const FIELDS = new Set(["name", "description", "tools", "model", "thinking", "max_turns", "prompt_mode", "extensions", "skills", "color", "display_name"]);
 const THINKING: readonly ModelThinkingLevel[] = ["off", "minimal", "low", "medium", "high", "xhigh"];
@@ -98,11 +98,11 @@ async function check(path: string, catalog: Catalog): Promise<Definition | Refus
 	if (typeof name !== "string" || name.trim() === "") return refuse("name must be text");
 	const unsupported = Object.keys(fields).filter((field) => !FIELDS.has(field));
 	if (unsupported.length > 0) {
-		return refuse(`${unsupported.map((field) => `"${field}"`).join(", ")} ${unsupported.length === 1 ? "is a field" : "are fields"} picloud does not support, so the agent would not behave as written`, name);
+		return refuse(`${unsupported.map((field) => `"${field}"`).join(", ")} ${unsupported.length === 1 ? "is a field" : "are fields"} pigui does not support, so the agent would not behave as written`, name);
 	}
 	if (typeof fields.description !== "string" || fields.description.trim() === "") return refuse("description is required", name);
 	if (fields.prompt_mode !== undefined && fields.prompt_mode !== "replace") {
-		return refuse(`prompt_mode ${JSON.stringify(fields.prompt_mode)} is not supported: picloud gives an agent its body as its whole prompt, as "replace" does`, name);
+		return refuse(`prompt_mode ${JSON.stringify(fields.prompt_mode)} is not supported: pigui gives an agent its body as its whole prompt, as "replace" does`, name);
 	}
 	if (fields.extensions !== undefined && fields.extensions !== false) {
 		return refuse("extensions must be false or left out: an agent's tools come from its tools field", name);
@@ -112,7 +112,7 @@ async function check(path: string, catalog: Catalog): Promise<Definition | Refus
 	if (named === undefined || named.length === 0) return refuse("tools must be a comma-separated list or a YAML list of tool names, or left out for the coding tools", name);
 	const tools = named.filter((tool) => catalog.tools.has(tool));
 	const missing = named.filter((tool) => !catalog.tools.has(tool));
-	if (tools.length === 0) return refuse(`none of its tools is available here (${missing.join(", ")}); picloud has ${[...catalog.tools].join(", ")}`, name);
+	if (tools.length === 0) return refuse(`none of its tools is available here (${missing.join(", ")}); pigui has ${[...catalog.tools].join(", ")}`, name);
 	if (parsed.body.trim() === "") return refuse("the body, the agent's prompt, is empty", name);
 	const definition: Definition = { name, file, description: fields.description.trim(), tools, missing, skills: fields.skills !== false, prompt: parsed.body.trim() };
 	if (fields.model !== undefined) {

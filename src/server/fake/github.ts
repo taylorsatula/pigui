@@ -40,7 +40,7 @@ export class LocalGitHub implements RepoHost {
 		try {
 			await git(work, ["init", "--quiet", `--initial-branch=${fixture.defaultBranch}`]);
 			await git(work, ["config", "user.name", "Fixture"]);
-			await git(work, ["config", "user.email", "fixture@picloud.invalid"]);
+			await git(work, ["config", "user.email", "fixture@pigui.invalid"]);
 			await writeFiles(work, fixture.files);
 			await git(work, ["add", "-A"]);
 			await git(work, ["commit", "--quiet", "-m", "Initial commit"]);

@@ -1,4 +1,4 @@
-// picloud's Durable documents. Everything picloud remembers lives here, changed in the same commits as the agent's own
+// pigui's Durable documents. Everything pigui remembers lives here, changed in the same commits as the agent's own
 // state, so there is no second store to drift from it.
 import type { Context } from "@earendil-works/chord/context";
 import type { Draft } from "@earendil-works/chord/delta";
@@ -12,7 +12,7 @@ const checkpointWhen = (_value: unknown, _ops: unknown, info: { deltasSinceBase:
 
 /** One per session (a Durable conversation): its repository, workflow, cards, plan, report and delivery. */
 export const SessionDocToken = defineDoc<SessionDoc>({
-	kind: "picloud.session",
+	kind: "pigui.session",
 	version: 1,
 	scope: "conversation",
 	history: "latest",
@@ -24,7 +24,7 @@ export const SessionDocToken = defineDoc<SessionDoc>({
 
 /** The drawer: one row per session, derived from its SessionDoc in the same commit. */
 export const SessionIndexToken = defineDoc<SessionIndex>({
-	kind: "picloud.index",
+	kind: "pigui.index",
 	version: 1,
 	scope: "session",
 	initial: () => ({ rows: {}, created: [] }),
@@ -39,7 +39,7 @@ export type RepoMemory = {
 
 /** Repo memory, one member per repository, carried into every later session on it. */
 export const RepoMemoryToken = defineDocFamily<RepoMemory, null>({
-	kind: "picloud.repo-memory",
+	kind: "pigui.repo-memory",
 	version: 1,
 	scope: "session",
 	family: true,
@@ -62,7 +62,7 @@ export type MemoryRow = {
 	emb: string;
 	/** Moved by ratings; it nudges the memory up or down the ranking. */
 	score: number;
-	/** Provenance: the sessions that wrote it, as picloud session ids, oldest first. */
+	/** Provenance: the sessions that wrote it, as pigui session ids, oldest first. */
 	sessions: string[];
 	createdAt: number;
 	updatedAt: number;
@@ -84,7 +84,7 @@ export type MemoryDoc = {
  * searched by embedding similarity in memory, which is fine up to a few thousand rows.
  */
 export const MemoryToken = defineDoc<MemoryDoc>({
-	kind: "picloud.memory",
+	kind: "pigui.memory",
 	version: 1,
 	scope: "session",
 	initial: () => ({ rows: {}, directive: DIRECTIVE_VERSION }),
@@ -98,7 +98,7 @@ export type StoredPushSubscription = {
 };
 
 export const PushSubscriptionsToken = defineDoc<{ subscriptions: StoredPushSubscription[] }>({
-	kind: "picloud.push-subscriptions",
+	kind: "pigui.push-subscriptions",
 	version: 1,
 	scope: "session",
 	initial: () => ({ subscriptions: [] }),

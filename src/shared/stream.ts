@@ -1,5 +1,5 @@
 // The live protocol: one newline-delimited JSON stream per open app, carrying the drawer index and, when a session is
-// open, that session's Durable view and picloud document, with a few documents of each of its agents; in an agent's
+// open, that session's Durable view and pigui document, with a few documents of each of its agents; in an agent's
 // viewer, the agent's view instead of the session's. Each source sends its value once, then Chord operations that the
 // phone applies to it (`@earendil-works/chord/delta`), so a change costs its size, not the whole state.
 import type { Op } from "@earendil-works/chord/delta";

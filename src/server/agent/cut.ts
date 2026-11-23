@@ -77,7 +77,7 @@ export function durableBounds(spans: readonly Span[], firstKept: EntryId): Bound
 }
 
 /**
- * For a compaction picloud runs: any cut that keeps at most `cap` tokens, and, given `keep`, keeps that entry (the
+ * For a compaction pigui runs: any cut that keeps at most `cap` tokens, and, given `keep`, keeps that entry (the
  * handoff note's call, so the call and its result stay where they are). The earliest such cut, the one that keeps the
  * most, is the fallback. Undefined when nothing would be compacted.
  */
@@ -168,5 +168,5 @@ export function condenseEdits(spans: readonly Span[], cut: number, replaced: Rea
 	for (const [target, messages] of replaced) if (keptIds.has(target)) edits.push({ target, action: "replace", messages });
 	const refused = [...new Set(requests.map((request) => request.entry))].filter((entry) => !edits.some((edit) => edit.target === entry));
 	if (refused.length === 0) return { edits };
-	return { edits, note: `Kept verbatim instead of condensed (not a kept tool result picloud may condense): entr${refused.length === 1 ? "y" : "ies"} ${refused.join(", ")}.` };
+	return { edits, note: `Kept verbatim instead of condensed (not a kept tool result pigui may condense): entr${refused.length === 1 ? "y" : "ies"} ${refused.join(", ")}.` };
 }

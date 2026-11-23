@@ -1,14 +1,14 @@
-# picloud on one machine: the app, and Tailscale serving it over HTTPS to your tailnet only.
+# pigui on one machine: the app, and Tailscale serving it over HTTPS to your tailnet only.
 #
 #   cp .env.example .env                    # fill it in
 #   docker compose build
-#   docker compose run --rm picloud pi      # once: /login, then /model, then /quit
+#   docker compose run --rm pigui pi      # once: /login, then /model, then /quit
 #   docker compose up -d
 #
 # README.md, "Run with Docker", has the details.
-name: picloud
+name: pigui
 
-# Docker keeps container logs without limit by default, and picloud logs every request; three 10 MB files each is
+# Docker keeps container logs without limit by default, and pigui logs every request; three 10 MB files each is
 # plenty and keeps a small disk for workspaces.
 x-logging: &logging
   driver: json-file
@@ -19,7 +19,7 @@ x-logging: &logging
 services:
   tailscale:
     image: tailscale/tailscale:v1.104.4
-    hostname: ${PICLOUD_TS_HOSTNAME:-picloud}
+    hostname: ${PIGUI_TS_HOSTNAME:-pigui}
     environment:
       TS_AUTHKEY: ${TS_AUTHKEY:-}
       # The key is only for joining; afterwards the state volume keeps the machine signed in.
@@ -49,33 +49,33 @@ services:
     logging: *logging
     restart: unless-stopped
 
-  picloud:
+  pigui:
     build:
       context: .
       args:
-        PICLOUD_SPEECH: ${PICLOUD_SPEECH:-on}
-        PICLOUD_MEMORY_LOCAL: ${PICLOUD_MEMORY_LOCAL:-off}
-    image: picloud:local
-    # picloud listens on the loopback of the Tailscale container's network, so `tailscale serve` is the only way in.
+        PIGUI_SPEECH: ${PIGUI_SPEECH:-on}
+        PIGUI_MEMORY_LOCAL: ${PIGUI_MEMORY_LOCAL:-off}
+    image: pigui:local
+    # pigui listens on the loopback of the Tailscale container's network, so `tailscale serve` is the only way in.
     network_mode: service:tailscale
     depends_on:
       - tailscale
     environment:
       GH_TOKEN: ${GH_TOKEN:?Set GH_TOKEN in .env; see .env.example}
-      PICLOUD_AGENT_GH_TOKEN: ${AGENT_GH_TOKEN:?Set AGENT_GH_TOKEN in .env; see .env.example}
-      PICLOUD_SANDBOX: ${PICLOUD_SANDBOX:-on}
-      PICLOUD_PUSH_SUBJECT: ${PICLOUD_PUSH_SUBJECT:-mailto:picloud@localhost}
-      PICLOUD_ALLOWED_LOGINS: ${PICLOUD_ALLOWED_LOGINS:-}
-      PICLOUD_SPEND_CAP: ${PICLOUD_SPEND_CAP:-}
-      PICLOUD_COMPACTION_MODEL: ${PICLOUD_COMPACTION_MODEL:-}
-      PICLOUD_MEMORY_PROVIDER: ${PICLOUD_MEMORY_PROVIDER:-lunaroute}
-      PICLOUD_MEMORY_EMBED_MODEL: ${PICLOUD_MEMORY_EMBED_MODEL:-emb-qwen3}
-      PICLOUD_MEMORY_EMBED_URL: ${PICLOUD_MEMORY_EMBED_URL:-}
-      PICLOUD_MODELS_UNLOAD: ${PICLOUD_MODELS_UNLOAD:-never}
+      PIGUI_AGENT_GH_TOKEN: ${AGENT_GH_TOKEN:?Set AGENT_GH_TOKEN in .env; see .env.example}
+      PIGUI_SANDBOX: ${PIGUI_SANDBOX:-on}
+      PIGUI_PUSH_SUBJECT: ${PIGUI_PUSH_SUBJECT:-mailto:pigui@localhost}
+      PIGUI_ALLOWED_LOGINS: ${PIGUI_ALLOWED_LOGINS:-}
+      PIGUI_SPEND_CAP: ${PIGUI_SPEND_CAP:-}
+      PIGUI_COMPACTION_MODEL: ${PIGUI_COMPACTION_MODEL:-}
+      PIGUI_MEMORY_PROVIDER: ${PIGUI_MEMORY_PROVIDER:-lunaroute}
+      PIGUI_MEMORY_EMBED_MODEL: ${PIGUI_MEMORY_EMBED_MODEL:-emb-qwen3}
+      PIGUI_MEMORY_EMBED_URL: ${PIGUI_MEMORY_EMBED_URL:-}
+      PIGUI_MODELS_UNLOAD: ${PIGUI_MODELS_UNLOAD:-never}
     volumes:
       - data:/data
-      - home:/home/picloud
-    # Least privilege: picloud and the agent's commands run as an unprivileged user with no capabilities, cannot gain
+      - home:/home/pigui
+    # Least privilege: pigui and the agent's commands run as an unprivileged user with no capabilities, cannot gain
     # privileges, and cannot change the system. They write only the two volumes and a scratch /tmp, which builds and
     # tests may run programs from. A process limit stops a runaway test from exhausting the machine. Each agent command
     # is further confined, by the host kernel's Landlock, to its own session's directories.
@@ -87,7 +87,7 @@ services:
     tmpfs:
       - /tmp:exec,nosuid,nodev,size=512m
     pids_limit: 1024
-    # An init process reaps whatever the agent's commands leave behind, and passes on the stop signal so picloud
+    # An init process reaps whatever the agent's commands leave behind, and passes on the stop signal so pigui
     # can shut down cleanly within the grace period.
     init: true
     stop_grace_period: 60s

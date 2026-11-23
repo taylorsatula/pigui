@@ -21,7 +21,7 @@ const OUTCOME: Record<Report["outcome"], string> = { complete: "Complete", parti
 
 /** The report as a pull request's description: the same parts as its card, in GitHub's Markdown. */
 function prBody(doc: Readonly<RepoSessionDoc>, report: Report | undefined): string {
-	if (report === undefined) return `Work from the picloud session "${doc.title}".`;
+	if (report === undefined) return `Work from the pigui session "${doc.title}".`;
 	const files = (paths: string[]) => (paths.length === 0 ? "" : ` (${paths.map((path) => `\`${path}\``).join(", ")})`);
 	const list = (title: string, lines: string[]) => (lines.length === 0 ? [] : [`## ${title}\n${lines.join("\n")}`]);
 	return [

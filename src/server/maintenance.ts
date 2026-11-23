@@ -1,6 +1,6 @@
-// Daily upkeep, as one Durable task that sleeps a day between rounds: back up the database, remove picloud's own
+// Daily upkeep, as one Durable task that sleeps a day between rounds: back up the database, remove pigui's own
 // directories of old archived sessions, and drop stale uploads. A sleeping task holds no process and survives restarts,
-// so there is no timer or scheduler of picloud's own. Nothing here ever touches a local session's chosen directory.
+// so there is no timer or scheduler of pigui's own. Nothing here ever touches a local session's chosen directory.
 import { DatabaseSync, backup } from "node:sqlite";
 import { mkdir, readdir, realpath, rm, stat } from "node:fs/promises";
 import { join, resolve, sep } from "node:path";
@@ -53,7 +53,7 @@ export class Maintenance {
 	constructor(deps: MaintenanceDeps) {
 		this.#deps = deps;
 		this.task = defineTask<null, { phase: "sweep" }, null, object>({
-			name: "picloud.maintenance",
+			name: "pigui.maintenance",
 			version: 1,
 			initial: () => ({ phase: "sweep" }),
 			phases: {
@@ -89,7 +89,7 @@ export class Maintenance {
 		await this.#pruneUploads();
 		const index = await this.#deps.harness().snapshot(SessionIndexToken, context);
 		const rows = Object.values(index?.rows ?? {});
-		// Every local session's directory, archived or not: the person's own, which picloud never removes.
+		// Every local session's directory, archived or not: the person's own, which pigui never removes.
 		const chosen = rows.flatMap((row) => (row.place === "local" ? [row.dir] : []));
 		for (const row of rows) {
 			if (!row.archived || this.#deps.now() - row.updatedAt < CLEANUP_AFTER_MS) continue;
@@ -149,7 +149,7 @@ export class Maintenance {
 	/** A consistent copy of the database through SQLite's online backup, beside the last few. */
 	async backup(): Promise<string> {
 		await mkdir(this.#deps.backupDir, { recursive: true });
-		const name = `picloud-${new Date(this.#deps.now()).toISOString().slice(0, 10)}.sqlite`;
+		const name = `pigui-${new Date(this.#deps.now()).toISOString().slice(0, 10)}.sqlite`;
 		const target = join(this.#deps.backupDir, name);
 		const source = new DatabaseSync(this.#deps.databaseFile, { readOnly: true });
 		try {
@@ -157,7 +157,7 @@ export class Maintenance {
 		} finally {
 			source.close();
 		}
-		const backups = (await readdir(this.#deps.backupDir)).filter((file) => /^picloud-\d{4}-\d{2}-\d{2}\.sqlite$/.test(file)).sort();
+		const backups = (await readdir(this.#deps.backupDir)).filter((file) => /^pigui-\d{4}-\d{2}-\d{2}\.sqlite$/.test(file)).sort();
 		for (const old of backups.slice(0, Math.max(0, backups.length - BACKUPS_KEPT))) await rm(join(this.#deps.backupDir, old), { force: true });
 		return target;
 	}

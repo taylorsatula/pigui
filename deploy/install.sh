@@ -1,54 +1,54 @@
 #!/usr/bin/env bash
-# picloud installer for Debian 13 (recommended) and Ubuntu 24.04. Turns a fresh machine into a running picloud, and
+# pigui installer for Debian 13 (recommended) and Ubuntu 24.04. Turns a fresh machine into a running pigui, and
 # upgrades an existing install in place when run again. Every step checks before it changes anything, so re-running
 # is safe.
 #
 #   sudo deploy/install.sh [options]
 #
 # Options (each may also be given as the environment variable in brackets):
-#   --dry-run                       show every step without changing anything        [PICLOUD_DRY_RUN=1]
+#   --dry-run                       show every step without changing anything        [PIGUI_DRY_RUN=1]
 #   --tailscale-auth-key KEY        join the tailnet without a browser login         [TS_AUTHKEY]
-#   --github-token-file FILE        sign gh in with picloud's own token from FILE    [GITHUB_TOKEN_FILE]
+#   --github-token-file FILE        sign gh in with pigui's own token from FILE    [GITHUB_TOKEN_FILE]
 #   --agent-github-token-file FILE  give the agent its read-only token from FILE     [AGENT_GITHUB_TOKEN_FILE]
-#   --push-subject URL              mailto: or https: contact for push services      [PICLOUD_PUSH_SUBJECT]
-#   --allowed-logins LIST           comma-separated Tailscale logins allowed in      [PICLOUD_ALLOWED_LOGINS]
-#   --spend-cap DOLLARS             default per-session spend cap                    [PICLOUD_SPEND_CAP]
-#   --port PORT                     loopback port picloud listens on (default 8787)  [PICLOUD_PORT]
-#   --hostname NAME                 Tailscale machine name (default picloud)         [PICLOUD_TS_HOSTNAME]
-#   --speech on|off                 read replies aloud with Kokoro (default on)      [PICLOUD_SPEECH]
-#   --memory-local on|off           embed memory on this machine (default off)       [PICLOUD_MEMORY_LOCAL]
+#   --push-subject URL              mailto: or https: contact for push services      [PIGUI_PUSH_SUBJECT]
+#   --allowed-logins LIST           comma-separated Tailscale logins allowed in      [PIGUI_ALLOWED_LOGINS]
+#   --spend-cap DOLLARS             default per-session spend cap                    [PIGUI_SPEND_CAP]
+#   --port PORT                     loopback port pigui listens on (default 8787)  [PIGUI_PORT]
+#   --hostname NAME                 Tailscale machine name (default pigui)         [PIGUI_TS_HOSTNAME]
+#   --speech on|off                 read replies aloud with Kokoro (default on)      [PIGUI_SPEECH]
+#   --memory-local on|off           embed memory on this machine (default off)       [PIGUI_MEMORY_LOCAL]
 #   --models-unload never|MINUTES   keep the local models loaded (never, the default), or unload them after
-#                                   MINUTES idle                                     [PICLOUD_MODELS_UNLOAD]
+#                                   MINUTES idle                                     [PIGUI_MODELS_UNLOAD]
 #   -h, --help                      show this help
 set -euo pipefail
 
-readonly SERVICE_USER=picloud
-readonly INSTALL_DIR=/opt/picloud
+readonly SERVICE_USER=pigui
+readonly INSTALL_DIR=/opt/pigui
 readonly APP_DIR=$INSTALL_DIR/app
-readonly DATA_DIR=/var/lib/picloud
-readonly CONFIG_DIR=/etc/picloud
-readonly ENV_FILE=$CONFIG_DIR/picloud.env
-readonly UNIT_FILE=/etc/systemd/system/picloud.service
+readonly DATA_DIR=/var/lib/pigui
+readonly CONFIG_DIR=/etc/pigui
+readonly ENV_FILE=$CONFIG_DIR/pigui.env
+readonly UNIT_FILE=/etc/systemd/system/pigui.service
 readonly NODE_MAJOR=22
 readonly NODE_MINIMUM=22.19.0
 readonly PI_VERSION=1.6.0
 readonly SOURCE_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 
-DRY_RUN=${PICLOUD_DRY_RUN:-0}
+DRY_RUN=${PIGUI_DRY_RUN:-0}
 TS_AUTHKEY=${TS_AUTHKEY:-}
 GITHUB_TOKEN_FILE=${GITHUB_TOKEN_FILE:-}
 AGENT_GITHUB_TOKEN_FILE=${AGENT_GITHUB_TOKEN_FILE:-}
-PUSH_SUBJECT=${PICLOUD_PUSH_SUBJECT:-}
-ALLOWED_LOGINS=${PICLOUD_ALLOWED_LOGINS:-}
-SPEND_CAP=${PICLOUD_SPEND_CAP:-}
-PORT_OPTION=${PICLOUD_PORT:-}
-TS_HOSTNAME=${PICLOUD_TS_HOSTNAME:-picloud}
-SPEECH=${PICLOUD_SPEECH:-on}
-MEMORY_LOCAL=${PICLOUD_MEMORY_LOCAL:-off}
-MODELS_UNLOAD=${PICLOUD_MODELS_UNLOAD:-}
+PUSH_SUBJECT=${PIGUI_PUSH_SUBJECT:-}
+ALLOWED_LOGINS=${PIGUI_ALLOWED_LOGINS:-}
+SPEND_CAP=${PIGUI_SPEND_CAP:-}
+PORT_OPTION=${PIGUI_PORT:-}
+TS_HOSTNAME=${PIGUI_TS_HOSTNAME:-pigui}
+SPEECH=${PIGUI_SPEECH:-on}
+MEMORY_LOCAL=${PIGUI_MEMORY_LOCAL:-off}
+MODELS_UNLOAD=${PIGUI_MODELS_UNLOAD:-}
 HUMAN_STEPS=()
 # Tests point this at a stand-in, to see what the installer chooses on each system.
-OS_RELEASE=${PICLOUD_OS_RELEASE:-/etc/os-release}
+OS_RELEASE=${PIGUI_OS_RELEASE:-/etc/os-release}
 
 usage() { sed -n '2,/^#   -h/p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; }
 
@@ -98,11 +98,11 @@ if [[ -r $OS_RELEASE ]]; then
 	esac
 	if [[ $release == debian/* || $release == ubuntu/* ]]; then tailscale_source=$release; fi
 fi
-[[ -f $SOURCE_DIR/package.json && -f $SOURCE_DIR/package-lock.json ]] || { echo "Run the installer from a picloud checkout." >&2; exit 1; }
+[[ -f $SOURCE_DIR/package.json && -f $SOURCE_DIR/package-lock.json ]] || { echo "Run the installer from a pigui checkout." >&2; exit 1; }
 [[ -z $PORT_OPTION || $PORT_OPTION =~ ^[0-9]+$ ]] || { echo "--port must be a number." >&2; exit 2; }
 [[ $SPEECH == on || $SPEECH == off ]] || { echo "--speech must be on or off." >&2; exit 2; }
 [[ $MEMORY_LOCAL == on || $MEMORY_LOCAL == off ]] || { echo "--memory-local must be on or off." >&2; exit 2; }
-# Empty keeps the value an earlier install wrote; otherwise the rule picloud applies to PICLOUD_MODELS_UNLOAD.
+# Empty keeps the value an earlier install wrote; otherwise the rule pigui applies to PIGUI_MODELS_UNLOAD.
 [[ -z $MODELS_UNLOAD || $MODELS_UNLOAD == never ]] || { [[ $MODELS_UNLOAD =~ ^[1-9][0-9]*$ ]] && ((MODELS_UNLOAD <= 1440)); } || {
 	echo "--models-unload must be never, or a whole number of idle minutes from 1 to 1440." >&2
 	exit 2
@@ -157,7 +157,7 @@ step "Create the service user $SERVICE_USER (no sudo)"
 if id "$SERVICE_USER" >/dev/null 2>&1; then
 	note "exists"
 else
-	run useradd --system --create-home --home-dir /home/$SERVICE_USER --shell /bin/bash --comment "picloud service" "$SERVICE_USER"
+	run useradd --system --create-home --home-dir /home/$SERVICE_USER --shell /bin/bash --comment "pigui service" "$SERVICE_USER"
 fi
 if id -nG "$SERVICE_USER" 2>/dev/null | tr ' ' '\n' | grep -qx sudo; then
 	run gpasswd -d "$SERVICE_USER" sudo
@@ -177,25 +177,25 @@ else
 	run npm install --global "@earendil-works/pi-coding-agent@$PI_VERSION"
 fi
 
-step "Install the picloud app into $APP_DIR"
+step "Install the pigui app into $APP_DIR"
 run rsync -a --delete --exclude .git --exclude node_modules --exclude dist --exclude test-results --exclude models "$SOURCE_DIR/" "$APP_DIR/"
 run sh -c "cd '$APP_DIR' && npm ci --no-audit --no-fund"
 run sh -c "cd '$APP_DIR' && npm run build"
 run chown -R root:root "$APP_DIR"
-# The build compiled the agent sandbox's launcher; picloud refuses to start where this kernel cannot run it.
+# The build compiled the agent sandbox's launcher; pigui refuses to start where this kernel cannot run it.
 if [[ $DRY_RUN == 1 ]]; then
 	note "dry run: the agent sandbox is checked once the app is built"
-elif abi=$("$APP_DIR/dist/bin/picloud-sandbox" --abi 2>&1); then
+elif abi=$("$APP_DIR/dist/bin/pigui-sandbox" --abi 2>&1); then
 	note "agent sandbox: Landlock ABI $abi"
 	[[ $abi -ge 6 ]] || note "below ABI 6, agent commands may signal other processes of the service user; Debian 13's kernel prevents it"
 else
 	note "$abi"
-	human "Sandbox: this kernel has no Landlock, so picloud will not start. Use Debian 13 (recommended), or set PICLOUD_SANDBOX=off in $ENV_FILE to run agent commands unconfined, then 'sudo systemctl restart picloud'."
+	human "Sandbox: this kernel has no Landlock, so pigui will not start. Use Debian 13 (recommended), or set PIGUI_SANDBOX=off in $ENV_FILE to run agent commands unconfined, then 'sudo systemctl restart pigui'."
 fi
 
 step "Install the local models (speech $SPEECH, memory $MEMORY_LOCAL)"
-# The same switches as the Docker image's PICLOUD_SPEECH and PICLOUD_MEMORY_LOCAL: on fetches a model, checked against
-# pinned checksums, so picloud reaches no network for it; off removes it, since picloud turns a feature on wherever it
+# The same switches as the Docker image's PIGUI_SPEECH and PIGUI_MEMORY_LOCAL: on fetches a model, checked against
+# pinned checksums, so pigui reaches no network for it; off removes it, since pigui turns a feature on wherever it
 # finds the model. With both off, the optional packages that run the models go too: nothing else loads them.
 models=()
 if [[ $SPEECH == on ]]; then
@@ -219,30 +219,30 @@ step "Write the configuration ($ENV_FILE)"
 # Existing values are kept; options given now replace them.
 existing() { [[ -f $ENV_FILE ]] && grep -E "^$1=" "$ENV_FILE" | tail -n1 | cut -d= -f2- || true; }
 choose() { local given=$1 key=$2 fallback=$3 value; value=$(existing "$key"); [[ -n $given ]] && value=$given; printf '%s' "${value:-$fallback}"; }
-PORT=$(choose "$PORT_OPTION" PICLOUD_PORT 8787)
+PORT=$(choose "$PORT_OPTION" PIGUI_PORT 8787)
 agent_token_given=""
 [[ -n $AGENT_GITHUB_TOKEN_FILE ]] && agent_token_given=$(tr -d '[:space:]' <"$AGENT_GITHUB_TOKEN_FILE")
-agent_token=$(choose "$agent_token_given" PICLOUD_AGENT_GH_TOKEN "")
+agent_token=$(choose "$agent_token_given" PIGUI_AGENT_GH_TOKEN "")
 shown_token=$agent_token
 [[ $DRY_RUN == 1 && -n $agent_token ]] && shown_token="(hidden)"
-# Only root reads it: systemd passes it to picloud, so neither the service user nor the agent's commands can.
+# Only root reads it: systemd passes it to pigui, so neither the service user nor the agent's commands can.
 write_file "$ENV_FILE" 0600 root:root <<EOF
-# picloud configuration; see README.md. Re-running the installer keeps these values unless options change them.
-PICLOUD_DATA_DIR=$DATA_DIR
-PICLOUD_HOST=127.0.0.1
-PICLOUD_PORT=$PORT
-PICLOUD_PUSH_SUBJECT=$(choose "$PUSH_SUBJECT" PICLOUD_PUSH_SUBJECT "mailto:picloud@localhost")
-PICLOUD_ALLOWED_LOGINS=$(choose "$ALLOWED_LOGINS" PICLOUD_ALLOWED_LOGINS "")
-PICLOUD_SPEND_CAP=$(choose "$SPEND_CAP" PICLOUD_SPEND_CAP "")
-PICLOUD_COMPACTION_MODEL=$(choose "" PICLOUD_COMPACTION_MODEL "")
-PICLOUD_SANDBOX=$(choose "" PICLOUD_SANDBOX on)
-PICLOUD_MEMORY_PROVIDER=$(choose "" PICLOUD_MEMORY_PROVIDER lunaroute)
-PICLOUD_MEMORY_EMBED_MODEL=$(choose "" PICLOUD_MEMORY_EMBED_MODEL emb-qwen3)
-PICLOUD_MEMORY_EMBED_URL=$(choose "" PICLOUD_MEMORY_EMBED_URL "")
-PICLOUD_MODELS_UNLOAD=$(choose "$MODELS_UNLOAD" PICLOUD_MODELS_UNLOAD never)
-PICLOUD_AGENT_GH_TOKEN=$shown_token
+# pigui configuration; see README.md. Re-running the installer keeps these values unless options change them.
+PIGUI_DATA_DIR=$DATA_DIR
+PIGUI_HOST=127.0.0.1
+PIGUI_PORT=$PORT
+PIGUI_PUSH_SUBJECT=$(choose "$PUSH_SUBJECT" PIGUI_PUSH_SUBJECT "mailto:pigui@localhost")
+PIGUI_ALLOWED_LOGINS=$(choose "$ALLOWED_LOGINS" PIGUI_ALLOWED_LOGINS "")
+PIGUI_SPEND_CAP=$(choose "$SPEND_CAP" PIGUI_SPEND_CAP "")
+PIGUI_COMPACTION_MODEL=$(choose "" PIGUI_COMPACTION_MODEL "")
+PIGUI_SANDBOX=$(choose "" PIGUI_SANDBOX on)
+PIGUI_MEMORY_PROVIDER=$(choose "" PIGUI_MEMORY_PROVIDER lunaroute)
+PIGUI_MEMORY_EMBED_MODEL=$(choose "" PIGUI_MEMORY_EMBED_MODEL emb-qwen3)
+PIGUI_MEMORY_EMBED_URL=$(choose "" PIGUI_MEMORY_EMBED_URL "")
+PIGUI_MODELS_UNLOAD=$(choose "$MODELS_UNLOAD" PIGUI_MODELS_UNLOAD never)
+PIGUI_AGENT_GH_TOKEN=$shown_token
 EOF
-[[ -n $agent_token ]] || human "GitHub: create a second fine-grained token for the agent, read-only (Contents and Metadata: read) for the same repositories, then re-run with --agent-github-token-file FILE. picloud does not start without it."
+[[ -n $agent_token ]] || human "GitHub: create a second fine-grained token for the agent, read-only (Contents and Metadata: read) for the same repositories, then re-run with --agent-github-token-file FILE. pigui does not start without it."
 
 step "Sign gh in for the service user"
 if [[ -n $GITHUB_TOKEN_FILE ]]; then
@@ -251,7 +251,7 @@ elif sudo -u "$SERVICE_USER" -H gh auth status >/dev/null 2>&1; then
 	note "gh is signed in"
 else
 	note "gh is not signed in"
-	human "GitHub: create a fine-grained token for picloud, for the repositories it may use (Contents and Pull requests: read and write; Metadata: read), then re-run with --github-token-file FILE. Turn on branch protection for their default branches."
+	human "GitHub: create a fine-grained token for pigui, for the repositories it may use (Contents and Pull requests: read and write; Metadata: read), then re-run with --github-token-file FILE. Turn on branch protection for their default branches."
 fi
 # System-wide, because agent commands have a home of their own; there gh answers with the agent's token instead.
 if [[ $(git config --system --get credential.https://github.com.helper || true) == '!gh auth git-credential' ]]; then
@@ -263,7 +263,7 @@ fi
 step "Install the systemd service"
 write_file "$UNIT_FILE" 0644 root:root <<EOF
 [Unit]
-Description=picloud: drive the Pi coding agent from a phone
+Description=pigui: drive the Pi coding agent from a phone
 After=network-online.target tailscaled.service
 Wants=network-online.target
 
@@ -288,7 +288,7 @@ TimeoutStopSec=60
 WantedBy=multi-user.target
 EOF
 run systemctl daemon-reload
-run systemctl enable picloud.service
+run systemctl enable pigui.service
 
 step "Check Pi's sign-in"
 if sudo -u "$SERVICE_USER" -H test -f "/home/$SERVICE_USER/.pi/agent/auth.json" 2>/dev/null; then
@@ -296,15 +296,15 @@ if sudo -u "$SERVICE_USER" -H test -f "/home/$SERVICE_USER/.pi/agent/auth.json" 
 	pi_ready=1
 else
 	note "Pi is not signed in for $SERVICE_USER"
-	human "Pi: run 'sudo -u $SERVICE_USER -i pi', then type /login and /model. Re-run the installer (or 'sudo systemctl restart picloud') afterwards."
+	human "Pi: run 'sudo -u $SERVICE_USER -i pi', then type /login and /model. Re-run the installer (or 'sudo systemctl restart pigui') afterwards."
 	pi_ready=0
 fi
 
-step "Start (or restart) picloud"
-run systemctl restart picloud.service
-note "the database is backed up daily into $DATA_DIR/backups by picloud itself (14 copies kept)"
+step "Start (or restart) pigui"
+run systemctl restart pigui.service
+note "the database is backed up daily into $DATA_DIR/backups by pigui itself (14 copies kept)"
 
-step "Connect Tailscale and serve picloud over HTTPS"
+step "Connect Tailscale and serve pigui over HTTPS"
 if tailscale status >/dev/null 2>&1; then
 	note "already connected"
 elif [[ -n $TS_AUTHKEY ]]; then
@@ -313,20 +313,20 @@ else
 	note "not logged in, and no auth key was given"
 	human "Tailscale: log this machine in ('sudo tailscale up --hostname=$TS_HOSTNAME' and open the link), or re-run with --tailscale-auth-key. Then turn on MagicDNS and HTTPS certificates in the admin console."
 fi
-# Serve only to the tailnet (never funnel); tailscale serve adds the Tailscale-User-Login header picloud checks.
+# Serve only to the tailnet (never funnel); tailscale serve adds the Tailscale-User-Login header pigui checks.
 run tailscale serve --bg --https=443 "http://127.0.0.1:$PORT" || human "Tailscale serve: once HTTPS certificates are on, run 'sudo tailscale serve --bg --https=443 http://127.0.0.1:$PORT'."
 
 step "Status"
 if [[ $DRY_RUN == 1 ]]; then
 	note "dry run: no status to report"
 else
-	note "service: $(systemctl is-active picloud.service || true)"
-	if [[ $pi_ready == 0 ]]; then note "picloud waits for Pi's sign-in (exit code 78 until then)"; fi
+	note "service: $(systemctl is-active pigui.service || true)"
+	if [[ $pi_ready == 0 ]]; then note "pigui waits for Pi's sign-in (exit code 78 until then)"; fi
 	note "tailscale: $(tailscale status --self --peers=false 2>/dev/null | head -n1 || echo 'not connected')"
 	url=$(tailscale serve status 2>/dev/null | grep -o 'https://[^ ]*' | head -n1 || true)
 	[[ -n $url ]] && note "open on your phone: $url"
 fi
-human "Phone: install Tailscale and join the tailnet; open the picloud URL in Safari, tap Share, Add to Home Screen, open picloud from there, and turn on notifications in its menu."
+human "Phone: install Tailscale and join the tailnet; open the pigui URL in Safari, tap Share, Add to Home Screen, open pigui from there, and turn on notifications in its menu."
 
 printf '\n== Steps that need a person\n'
 for item in "${HUMAN_STEPS[@]}"; do printf ' - %s\n' "$item"; done

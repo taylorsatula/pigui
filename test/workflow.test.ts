@@ -96,7 +96,7 @@ describe("the plan-first workflow", () => {
 			await server.settled(id);
 			const conversation = await server.app.harness.conversation(id as ConversationId, context);
 			assert.equal((await conversation!.agent(context)).maxTurns, undefined);
-			// As an earlier picloud left a session: a turn limit, and a sidebar row without a status tone. Then a restart.
+			// As an earlier pigui left a session: a turn limit, and a sidebar row without a status tone. Then a restart.
 			await conversation!.configure({ maxTurns: 150 }, context);
 			await server.app.harness.commit(async (tx) => {
 				const index = await tx.doc(SessionIndexToken);
@@ -200,7 +200,7 @@ describe("message routing", () => {
 		const again = await server.post<{ route: string }>(`/api/sessions/${id}/messages`, body);
 		assert.equal(again.route, "run");
 		await server.settled(id);
-		const messages = (await server.entries(id)).filter((entry) => entry.kind === "picloud.message");
+		const messages = (await server.entries(id)).filter((entry) => entry.kind === "pigui.message");
 		assert.equal(messages.length, 2, `one task and one message, not ${messages.length} (${String(second)})`);
 	});
 
@@ -217,7 +217,7 @@ describe("message routing", () => {
 
 describe("the spend cap", () => {
 	test("stops a run at the cap, and raising it continues", async () => {
-		const server = await TestServer.start({ env: { PICLOUD_SPEND_CAP: "0.001" } });
+		const server = await TestServer.start({ env: { PIGUI_SPEND_CAP: "0.001" } });
 		try {
 			const id = await server.createSession("Add a shout() function");
 			const stopped = await server.settled(id, "the budget stop");

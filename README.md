@@ -1,18 +1,18 @@
-# PiCloud
+# PiGUI
 
-PiCloud is a self-hosted harness for the [Pi](https://www.npmjs.com/package/@earendil-works/pi-coding-agent) coding
+PiGUI is a self-hosted harness for the [Pi](https://www.npmjs.com/package/@earendil-works/pi-coding-agent) coding
 agent, driven from any browser. It is a faithful GUI layer on top of
 [Pi Durable](https://www.npmjs.com/package/@earendil-works/pi-durable): Pi Durable owns the agent loop, persistence,
-compaction and recovery, and PiCloud configures those and adds the pieces a harness needs. It does not reimplement Pi's
+compaction and recovery, and PiGUI configures those and adds the pieces a harness needs. It does not reimplement Pi's
 internals.
 
-PiCloud is built for long-horizon autonomous work. A session frontloads its planning: the agent asks questions to
+PiGUI is built for long-horizon autonomous work. A session frontloads its planning: the agent asks questions to
 resolve ambiguity before touching anything, presents an actionable plan for approval, implements it, and files a final
 report with an option to open a pull request. You can put the phone away and come back to the report.
 
 ## Not feature-bloat
 
-PiCloud is deliberately small. Every feature in it serves one loop:
+PiGUI is deliberately small. Every feature in it serves one loop:
 
 > pick a repository → describe the task → answer the questions → approve the plan → the agent works → report → push or pull request
 
@@ -20,7 +20,7 @@ If a feature does not serve that loop, it is not in. There is no plugin system, 
 bundle of unrelated categories that might one day be useful. One way to do each thing. A small dependency tree, pinned
 exactly. Features get refused, not deferred.
 
-This is the product's identity, not a shortcoming. PiCloud is a focused tool for running the Pi agent, and it stays
+This is the product's identity, not a shortcoming. PiGUI is a focused tool for running the Pi agent, and it stays
 one.
 
 ## How a session works
@@ -36,9 +36,9 @@ one.
 
 None of this touches GitHub until you tap. The agent commits; the server delivers, only when you ask.
 
-## What PiCloud adds
+## What PiGUI adds
 
-- **Compaction built for long runs.** Before the context fills, PiCloud asks the agent for a short first-person
+- **Compaction built for long runs.** Before the context fills, PiGUI asks the agent for a short first-person
   handoff note, then writes a checkpoint — current state, evidence tiers, decisions, commands, tests and failures, the
   work queue — with the cut chosen by a summarizer and validated by code. Your own words are carried verbatim, never
   paraphrased. The agent resumes from its own note, and anything compaction removed from view stays readable through
@@ -47,13 +47,13 @@ None of this touches GitHub until you tap. The agent commits; the server deliver
 - **Built-in subagent support.** Pi can hand work to agents — separate Pis with their own prompt, tools and model,
   working in a conversation of their own. Foreground (the default) or background, steering a running agent, or
   resuming a finished one. Their spend counts toward the session's cap; they are listed in an Agents panel with a Stop
-  button. PiCloud ships three:
+  button. PiGUI ships three:
   - `scout` — read-only investigator with a fixed report shape, for establishing facts in a codebase.
   - `implementer` — executes an already-specified code change and reports what landed.
   - `verifier` — read-only check of a finished change against its spec.
 
   A fourth bundled definition, `thought-partner`, pressure-tests designs. You can define your own as Markdown files. An agent runs in the session's directory, under the session's sandbox,
-  with the project's instructions and skills, but never with PiCloud's own session tools, and agents start no agents of
+  with the project's instructions and skills, but never with PiGUI's own session tools, and agents start no agents of
   their own.
 - **Long-term memory (optional).** Pi remembers across sessions and repositories what no file states: how a host is
   set up, how a tool really behaves, a measurement that cannot be repeated. A report records, corrects and rates it; a
@@ -74,45 +74,45 @@ screens, larger touch targets on small ones — never capability.
 
 ## Deployment
 
-One installer decides how and where PiCloud runs:
+One installer decides how and where PiGUI runs:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/taylorsatula/picloud/main/install.sh | bash -s --
+curl -fsSL https://raw.githubusercontent.com/taylorsatula/pigui/main/install.sh | bash -s --
 ```
 
 It asks three questions — container or not, this computer or a remote server, then the flags — and installs or updates
 in place. The ways to run it:
 
 - **Containerized remote deployment.** Two Docker containers on any machine with Docker: one runs Tailscale and serves
-  PiCloud over HTTPS to your tailnet only, the other runs PiCloud sharing its network, listening on its loopback.
+  PiGUI over HTTPS to your tailnet only, the other runs PiGUI sharing its network, listening on its loopback.
   Nothing is published on the machine's own ports. The agent's commands are confined by the host's Landlock.
-- **Local unrestricted install.** PiCloud on your own computer (Mac or Linux) or on a server you own, as you, with
+- **Local unrestricted install.** PiGUI on your own computer (Mac or Linux) or on a server you own, as you, with
   your full access: at http://localhost:2025 on this machine, or over SSH on a server of your choosing. Pi works in
   place, as if you had opened a terminal there and run `pi`. No sandbox, nothing between the agent and the machine.
 - **Sandboxed server.** Debian or Ubuntu, a systemd service as its own user, agent commands confined by Landlock (ABI 6 on
   Debian 13; Ubuntu 24.04 confines files but not signals). The middle path: not a container, still confined.
 
-**Remote access is Tailscale, and PiCloud ships no authentication module.** It binds to loopback only; `tailscale
+**Remote access is Tailscale, and PiGUI ships no authentication module.** It binds to loopback only; `tailscale
 serve` (never `funnel`) is the way in, and Tailscale's login header can narrow who is allowed, as can the tailnet's
-own access controls. Anyone who can reach PiCloud can make Pi run commands, so the tailnet is the boundary, and that
+own access controls. Anyone who can reach PiGUI can make Pi run commands, so the tailnet is the boundary, and that
 is the design.
 
 ## Security
 
 Least privilege, by construction. In Docker, both containers drop every Linux capability and run with
-no-new-privileges; picloud's root filesystem is read-only and it runs as an unprivileged user in an image built with
+no-new-privileges; pigui's root filesystem is read-only and it runs as an unprivileged user in an image built with
 the setuid bits stripped. The Tailscale container keeps only the two capabilities a VPN needs (NET_ADMIN and NET_RAW)
-and the tun device; picloud publishes no host port and shares Tailscale's network, so `tailscale serve` is the only
-way in. Docker's default seccomp profile stays on, unchanged. picloud listens on loopback and ships no authentication
+and the tun device; pigui publishes no host port and shares Tailscale's network, so `tailscale serve` is the only
+way in. Docker's default seccomp profile stays on, unchanged. pigui listens on loopback and ships no authentication
 module — it believes the `Tailscale-User-Login` header Tailscale adds, and a request that changes something is refused
-unless the browser says it came from picloud's own page (`Sec-Fetch-Site` / `Origin`).
+unless the browser says it came from pigui's own page (`Sec-Fetch-Site` / `Origin`).
 
-The GitHub credentials are split, and the agent's side of the split is structural, not instructional. picloud holds a
+The GitHub credentials are split, and the agent's side of the split is structural, not instructional. pigui holds a
 read-write token in its own process and uses it only when you tap: pushes and pull requests happen there, never inside
-a sandbox. Agent commands get a read-only token as `GH_TOKEN` and `GITHUB_TOKEN`, and never see picloud's token or any
-`PICLOUD_*` setting. picloud's API also refuses connections from its own user — which is every agent command — so an
+a sandbox. Agent commands get a read-only token as `GH_TOKEN` and `GITHUB_TOKEN`, and never see pigui's token or any
+`PIGUI_*` setting. pigui's API also refuses connections from its own user — which is every agent command — so an
 agent cannot approve its own plan or tap Deliver to act as you. Each command runs under Landlock, confined to its
-session's workspace, a scratch directory and a read-only system, and from ABI 6 it cannot signal picloud or other
+session's workspace, a scratch directory and a read-only system, and from ABI 6 it cannot signal pigui or other
 sessions either.
 
 What stays open, honestly: agent commands can reach any host the machine reaches — tailnet peers, a cloud metadata
@@ -122,7 +122,7 @@ deployment options above say.
 
 ## What it costs to run
 
-- **A $4/month droplet is enough** for PiCloud with reading aloud and long-term memory turned off.
+- **A $4/month droplet is enough** for PiGUI with reading aloud and long-term memory turned off.
 - **A $12/month droplet runs the full-featured install**, with both: Kokoro is about 600 MB loaded, LEAF embeddings
   about 300 MB.
 
@@ -144,4 +144,4 @@ compaction works, how access is controlled — lives in [DECISIONS.md](DECISIONS
 deployment runbooks are in [deploy/](deploy/) and [install.sh](install.sh); the contributor rules are in
 [AGENTS.md](AGENTS.md).
 
-PiCloud is MIT licensed.
+PiGUI is MIT licensed.

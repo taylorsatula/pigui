@@ -27,18 +27,18 @@ export type AgentServices = {
 	models(): Models;
 	/** A conversation's model, resolved against the catalog. */
 	model(provider: string, modelId: string): Model<Api> | undefined;
-	/** The summarizer's model when it is not the session's (`PICLOUD_COMPACTION_MODEL`); used only while Pi can sign in to it. */
+	/** The summarizer's model when it is not the session's (`PIGUI_COMPACTION_MODEL`); used only while Pi can sign in to it. */
 	compactionModel: ModelRef | undefined;
 	/** Pi's configuration directory, read by Pi's loaders for global context files and skills. */
 	agentDir: string;
-	/** picloud's own directory for a session: a repository session's clone, and every session's attachments. */
+	/** pigui's own directory for a session: a repository session's clone, and every session's attachments. */
 	workspace(session: number): string;
 	/**
 	 * Where the agent works: its clone for a repository session, the chosen directory for a local one. Everything the
 	 * agent is shown or resolves against (its cwd, the prompt, project context, skills, references) goes through here.
 	 */
 	workingDir(doc: Readonly<SessionDoc>): string;
-	/** Runs on the person's own computer (picloud OnPrem), whose commands run as them, with their credentials. */
+	/** Runs on the person's own computer (pigui OnPrem), whose commands run as them, with their credentials. */
 	onPrem: boolean;
 	/** Agent commands and file tools run in the Landlock sandbox. */
 	sandboxed: boolean;

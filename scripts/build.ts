@@ -134,16 +134,16 @@ await writeFile(join(out, "icons", "icon-maskable-512.png"), icon(512, 0.12));
 
 process.stdout.write(`Built the app into ${out} (build ${buildId}).\n`);
 
-// ---- The agent sandbox's launcher. Without a C compiler the app still builds, and picloud looks for the launcher on
+// ---- The agent sandbox's launcher. Without a C compiler the app still builds, and pigui looks for the launcher on
 // PATH instead, where the Docker image installs it.
 
-const launcher = join(root, "dist", "bin", "picloud-sandbox");
+const launcher = join(root, "dist", "bin", "pigui-sandbox");
 if (process.platform !== "linux") {
 	process.stdout.write("Skipped the sandbox launcher: Landlock is Linux's.\n");
 } else {
 	await mkdir(dirname(launcher), { recursive: true });
-	const compiled = spawnSync("cc", ["-O2", "-Wall", "-o", launcher, join(root, "src", "sandbox", "picloud-sandbox.c")], { stdio: "inherit" });
+	const compiled = spawnSync("cc", ["-O2", "-Wall", "-o", launcher, join(root, "src", "sandbox", "pigui-sandbox.c")], { stdio: "inherit" });
 	if (compiled.error !== undefined) process.stdout.write("Skipped the sandbox launcher: no C compiler (cc) here.\n");
-	else if (compiled.status !== 0) throw new Error("Compiling src/sandbox/picloud-sandbox.c failed.");
+	else if (compiled.status !== 0) throw new Error("Compiling src/sandbox/pigui-sandbox.c failed.");
 	else process.stdout.write(`Built the sandbox launcher into ${launcher}.\n`);
 }

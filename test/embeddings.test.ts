@@ -1,4 +1,4 @@
-// Long-term memory's embeddings at their boundary: the requests picloud sends, and how real mode finds the key to sign
+// Long-term memory's embeddings at their boundary: the requests pigui sends, and how real mode finds the key to sign
 // them with in Pi's configuration. Both against a local stand-in endpoint and a temporary Pi directory.
 import assert from "node:assert/strict";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
@@ -67,10 +67,10 @@ describe("embeddings", () => {
 	});
 
 	test("real mode signs with the key Pi holds for the memory provider, and is off without one", async () => {
-		const agentDir = await mkdtemp(join(tmpdir(), "picloud-pi-"));
+		const agentDir = await mkdtemp(join(tmpdir(), "pigui-pi-"));
 		const resolve = async (env: Record<string, string>) => {
 			const runtime = await ModelRuntime.create({ authPath: join(agentDir, "auth.json"), modelsPath: join(agentDir, "models.json") });
-			return piEmbedder(runtime, agentDir, readConfig({ PICLOUD_DATA_DIR: agentDir, PICLOUD_FAKE: "1", ...env }).memory);
+			return piEmbedder(runtime, agentDir, readConfig({ PIGUI_DATA_DIR: agentDir, PIGUI_FAKE: "1", ...env }).memory);
 		};
 		try {
 			const off = await resolve({});
@@ -79,7 +79,7 @@ describe("embeddings", () => {
 
 			await writeFile(join(agentDir, "auth.json"), JSON.stringify({ lunaroute: { type: "api_key", key: "from-auth-json" } }));
 			received.length = 0;
-			const on = await resolve({ PICLOUD_MEMORY_EMBED_URL: url });
+			const on = await resolve({ PIGUI_MEMORY_EMBED_URL: url });
 			assert.ok("embedder" in on);
 			assert.equal(on.embedder.model, "emb-qwen3");
 			await on.embedder.embed(["text 1"], "document");

@@ -9,7 +9,7 @@ import { ApiFailure, repoDoc, TestServer } from "./helpers.ts";
 
 /** Commit a file to a branch of the stand-in's bare repository, as someone else pushing to GitHub would. */
 async function pushElsewhere(server: TestServer, repo: string, branch: string, path: string, content: string): Promise<void> {
-	const work = await mkdtemp(join(tmpdir(), "picloud-other-"));
+	const work = await mkdtemp(join(tmpdir(), "pigui-other-"));
 	try {
 		await git(work, ["clone", "--quiet", "--branch", branch, server.github.remoteUrl(repo), "."]);
 		await git(work, ["-c", "user.name=Other", "-c", "user.email=other@invalid", "commit", "--quiet", "--allow-empty", "-m", "noop"]);

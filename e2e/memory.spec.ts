@@ -8,7 +8,7 @@ test("when memory is off the session picker says so and why, on a phone and on a
 	await page.getByRole("button", { name: /^Sessions/ }).tap();
 	const notice = page.getByRole("dialog", { name: "Sessions" }).getByRole("status").filter({ hasText: "Memory is off" });
 	await expect(notice).toBeVisible();
-	await expect(notice).toContainText("PICLOUD_FAKE_MEMORY=off");
+	await expect(notice).toContainText("PIGUI_FAKE_MEMORY=off");
 
 	await page.setViewportSize({ width: 1280, height: 800 });
 	await page.reload();

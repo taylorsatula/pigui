@@ -1,4 +1,4 @@
-// Local sessions (picloud OnPrem): a directory on the person's own computer, chosen when the session starts. What the
+// Local sessions (pigui OnPrem): a directory on the person's own computer, chosen when the session starts. What the
 // person types is resolved here, and the `@` picker's listing of it is read here, bounded so that "/" stays fast.
 import type { Dirent } from "node:fs";
 import { readdir, readFile, stat } from "node:fs/promises";

@@ -1,5 +1,5 @@
 ---
-# thought-partner: a picloud subagent definition.
+# thought-partner: a pigui subagent definition.
 # One-shot opinion on an independent question -> Agent({subagent_type: "thought-partner", prompt: ...})
 # Decision still under discussion -> resume the prior agent (Agent tool `resume`) or steer it mid-run (steer_subagent),
 #   so accumulated context carries forward.

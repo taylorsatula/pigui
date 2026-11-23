@@ -9,19 +9,19 @@ import { after, before, describe, type TestContext, test } from "node:test";
 import { SCOPED_ABI } from "../src/server/sandbox.ts";
 import { TestServer } from "./helpers.ts";
 
-// picloud's own secrets, in the server's environment as a real deployment has them. No agent command may see them.
-const PICLOUD_SECRETS = { GH_TOKEN: "picloud-write-token", PICLOUD_TEST_SECRET: "picloud-secret", ANTHROPIC_API_KEY: "provider-key" };
+// pigui's own secrets, in the server's environment as a real deployment has them. No agent command may see them.
+const PIGUI_SECRETS = { GH_TOKEN: "pigui-write-token", PIGUI_TEST_SECRET: "pigui-secret", ANTHROPIC_API_KEY: "provider-key" };
 const AGENT_TOKEN = "agent-read-token";
 
-/** Every variable an agent command may have: picloud's allowlist, and what bash sets itself. */
+/** Every variable an agent command may have: pigui's allowlist, and what bash sets itself. */
 const ALLOWED =
 	/^(PATH|LANG|LC_\w+|TZ|TERM|USER|LOGNAME|SHELL|HOME|TMPDIR|GH_CONFIG_DIR|GH_TOKEN|GITHUB_TOKEN|GIT_TERMINAL_PROMPT|GCM_INTERACTIVE|GIT_ASKPASS|SSH_ASKPASS|HTTPS?_PROXY|NO_PROXY|https?_proxy|no_proxy|NODE_EXTRA_CA_CERTS|SSL_CERT_FILE|PWD|OLDPWD|SHLVL|_)$/;
 
 describe("session isolation", () => {
 	let server: TestServer;
 	before(async () => {
-		Object.assign(process.env, PICLOUD_SECRETS);
-		server = await TestServer.start({ env: { PICLOUD_AGENT_GH_TOKEN: AGENT_TOKEN } });
+		Object.assign(process.env, PIGUI_SECRETS);
+		server = await TestServer.start({ env: { PIGUI_AGENT_GH_TOKEN: AGENT_TOKEN } });
 	});
 	after(() => server.close());
 
@@ -32,14 +32,14 @@ describe("session isolation", () => {
 		return false;
 	};
 
-	test("agent commands get the agent's GitHub token and none of picloud's environment", async () => {
+	test("agent commands get the agent's GitHub token and none of pigui's environment", async () => {
 		const { results } = await server.probe(["$ env"]);
 		const text = results[0]!.text;
 		const variables = new Map(text.split("\n").filter((line) => line.includes("=")).map((line) => [line.slice(0, line.indexOf("=")), line.slice(line.indexOf("=") + 1)]));
 		assert.equal(variables.get("GH_TOKEN"), AGENT_TOKEN);
 		assert.equal(variables.get("GITHUB_TOKEN"), AGENT_TOKEN);
 		assert.equal(variables.get("GIT_TERMINAL_PROMPT"), "0");
-		for (const secret of Object.values(PICLOUD_SECRETS)) assert.doesNotMatch(text, new RegExp(secret));
+		for (const secret of Object.values(PIGUI_SECRETS)) assert.doesNotMatch(text, new RegExp(secret));
 		assert.deepEqual([...variables.keys()].filter((name) => !ALLOWED.test(name)), []);
 	});
 
@@ -63,13 +63,13 @@ describe("session isolation", () => {
 		assert.ok(existsSync(join(server.workspace(id), "made.txt")));
 	});
 
-	test("a command cannot read another session's workspace, picloud's database or Pi's sign-in", async (t) => {
+	test("a command cannot read another session's workspace, pigui's database or Pi's sign-in", async (t) => {
 		if (!sandboxed(t)) return;
 		const other = await server.probe(["$ echo mine > private.txt"]);
 		await writeFile(join(server.agentDir, "auth.json"), '{"provider":"pi-credentials"}\n');
 		const { results } = await server.probe([
 			`$ cat ${join(server.workspace(other.id), "private.txt")}`,
-			`$ cat ${join(server.dataDir, "picloud.sqlite")}`,
+			`$ cat ${join(server.dataDir, "pigui.sqlite")}`,
 			`$ cat ${join(server.agentDir, "auth.json")}`,
 			`$ ls ${server.dataDir}`,
 			"$ ls /tmp",
@@ -93,7 +93,7 @@ describe("session isolation", () => {
 		assert.match(results[1]!.text, /Run hello\.sh\./);
 	});
 
-	test("a command cannot signal picloud's process", async (t) => {
+	test("a command cannot signal pigui's process", async (t) => {
 		if (!sandboxed(t)) return;
 		if (server.app.sandbox!.abi < SCOPED_ABI) {
 			t.skip(`Landlock ABI ${server.app.sandbox!.abi} does not scope signals`);
@@ -104,7 +104,7 @@ describe("session isolation", () => {
 		assert.match(results[0]!.text, /Operation not permitted/);
 	});
 
-	test("a command cannot read picloud's environment through /proc", { skip: process.getuid?.() === 0 && "Landlock still lets root read /proc/<pid>/environ; picloud runs as its own user" }, async (t) => {
+	test("a command cannot read pigui's environment through /proc", { skip: process.getuid?.() === 0 && "Landlock still lets root read /proc/<pid>/environ; pigui runs as its own user" }, async (t) => {
 		if (!sandboxed(t)) return;
 		const { results } = await server.probe([`$ cat /proc/${process.pid}/environ`]);
 		assert.equal(results[0]!.isError, true, results[0]!.text);
@@ -113,7 +113,7 @@ describe("session isolation", () => {
 
 	test("the file tools refuse paths outside the grants, including through a symlink", async (t) => {
 		if (!sandboxed(t)) return;
-		const database = join(server.dataDir, "picloud.sqlite");
+		const database = join(server.dataDir, "pigui.sqlite");
 		const planted = join(server.dataDir, "planted.txt");
 		await writeFile(join(server.agentDir, "auth.json"), '{"provider":"pi-credentials"}\n');
 		const { results } = await server.probe([
@@ -123,7 +123,7 @@ describe("session isolation", () => {
 			`$ ln -s ${database} database-link && ln -s ${planted} planted-link`,
 			"read database-link",
 			"write planted-link",
-			"write /etc/picloud-probe",
+			"write /etc/pigui-probe",
 			"write notes/probe.txt",
 			"read notes/probe.txt",
 		]);

@@ -1,5 +1,5 @@
 // Turning what the person sent into what the agent receives: `@file` contents, `#skill` invocations, attachments saved
-// into picloud's workspace of the session and images fitted for the model. The text itself is kept exactly as typed for the transcript.
+// into pigui's workspace of the session and images fitted for the model. The text itself is kept exactly as typed for the transcript.
 import { createHash, randomBytes } from "node:crypto";
 import { mkdir, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { basename, extname, join, relative, resolve, sep } from "node:path";
@@ -134,7 +134,7 @@ export async function expandReferences(text: string, root: ReferenceRoot, skills
 }
 
 /**
- * Save attachments under picloud's own workspace of the session, in its attachments directory (which git ignores in a
+ * Save attachments under pigui's own workspace of the session, in its attachments directory (which git ignores in a
  * repository's clone), and fit images for `model`. The agent is told each file's path as `shown` makes it: relative to
  * a clone, which is its working directory, or absolute for a local session, which works elsewhere. Rerunning with the
  * same uploads writes the same files, so a setup rerun after a crash attaches them once.

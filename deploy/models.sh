@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
-# Makes DIR hold the models picloud runs on this machine's CPU for the features named, and only those: each model at a
+# Makes DIR hold the models pigui runs on this machine's CPU for the features named, and only those: each model at a
 # pinned Hugging Face revision with every file's sha256 checked, and the model of a feature not named removed, since
-# picloud turns a feature on wherever it finds its model. The Dockerfile, deploy/install.sh and deploy/onprem.sh run it;
-# picloud itself never downloads.
+# pigui turns a feature on wherever it finds its model. The Dockerfile, deploy/install.sh and deploy/onprem.sh run it;
+# pigui itself never downloads.
 #
 #   deploy/models.sh DIR [speech] [memory]
 #
@@ -11,7 +11,7 @@
 #   memory  mdbr-leaf-ir-asym, which embeds long-term memory on this machine: MongoDB's LEAF for searches, Snowflake's
 #           arctic-embed-m-v1.5 for the memories searched.
 #
-# Each model lands in DIR/<repo>, where picloud looks for it when DIR is the app's models directory. Only what
+# Each model lands in DIR/<repo>, where pigui looks for it when DIR is the app's models directory. Only what
 # transformers.js reads on the CPU is fetched: the configuration, the tokenizer and the weights quantized to 8 bits.
 # Safe to re-run: a file already in place with the right checksum is kept.
 set -euo pipefail
@@ -65,7 +65,7 @@ elif command -v shasum >/dev/null; then
 	sha256() { shasum -a 256 "$@"; }
 else
 	rm -f "$probe"
-	echo "picloud needs sha256sum or shasum to check the models it downloads." >&2
+	echo "pigui needs sha256sum or shasum to check the models it downloads." >&2
 	exit 1
 fi
 rm -f "$probe"

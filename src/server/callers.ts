@@ -1,9 +1,9 @@
-// Who opened a connection. On a server, picloud listens on loopback so that only `tailscale serve` reaches it, and
+// Who opened a connection. On a server, pigui listens on loopback so that only `tailscale serve` reaches it, and
 // trusts the Tailscale identity header it adds. The agent's commands share that loopback and could send the same
-// header, so a connection opened by a process running as picloud's own user, as the agent's commands do, is refused.
-// Tailscale runs as another user (root) in both deployments. picloud OnPrem turns this around: the person's browser
-// runs as picloud's own user, so that user gets in, and root, which is how tailscale serve arrives and which could
-// read everything picloud holds anyway; other users of a shared computer are refused. The kernel's socket table says
+// header, so a connection opened by a process running as pigui's own user, as the agent's commands do, is refused.
+// Tailscale runs as another user (root) in both deployments. pigui OnPrem turns this around: the person's browser
+// runs as pigui's own user, so that user gets in, and root, which is how tailscale serve arrives and which could
+// read everything pigui holds anyway; other users of a shared computer are refused. The kernel's socket table says
 // which user owns the other end; it is Linux's, so elsewhere OnPrem checks no caller.
 import { readFile } from "node:fs/promises";
 import { isIPv4 } from "node:net";
@@ -58,15 +58,15 @@ export function clientOwner(table: string, client: Endpoint, server: Endpoint): 
 }
 
 /**
- * Whether the user `owner` may use picloud running as `own`: on a server (`others`), anyone but picloud's own user; in
- * OnPrem (`own`), picloud's own user and root (tailscaled).
+ * Whether the user `owner` may use pigui running as `own`: on a server (`others`), anyone but pigui's own user; in
+ * OnPrem (`own`), pigui's own user and root (tailscaled).
  */
 export function admits(allow: "others" | "own", owner: number, own: number): boolean {
 	return allow === "own" ? owner === own || owner === 0 : owner !== own;
 }
 
 /**
- * Whether a connection may use picloud, by `admits`. Refused when the owner cannot be told, since a caller that cannot
+ * Whether a connection may use pigui, by `admits`. Refused when the owner cannot be told, since a caller that cannot
  * be identified cannot be trusted.
  */
 export function callerCheck(allow: "others" | "own"): (socket: Socket) => Promise<boolean> {

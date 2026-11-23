@@ -1,4 +1,4 @@
-// How tests build picloud: the real server (`startApp`) in fake mode, on a free port, over a temporary data directory
+// How tests build pigui: the real server (`startApp`) in fake mode, on a free port, over a temporary data directory
 // and an empty Pi configuration directory. Nothing is mocked; restarting closes the server and opens a new one on the
 // same data directory, as a process restart would.
 import { mkdtemp, rm } from "node:fs/promises";
@@ -46,13 +46,13 @@ export class TestServer {
 	}
 
 	static async start(options: TestOptions = {}): Promise<TestServer> {
-		const server = new TestServer(await mkdtemp(join(tmpdir(), "picloud-test-")), await mkdtemp(join(tmpdir(), "picloud-pi-")), options);
+		const server = new TestServer(await mkdtemp(join(tmpdir(), "pigui-test-")), await mkdtemp(join(tmpdir(), "pigui-pi-")), options);
 		await server.open();
 		return server;
 	}
 
 	async open(): Promise<void> {
-		const config = readConfig({ PICLOUD_DATA_DIR: this.dataDir, PICLOUD_PORT: "0", PICLOUD_FAKE: "1", ...this.options.env });
+		const config = readConfig({ PIGUI_DATA_DIR: this.dataDir, PIGUI_PORT: "0", PIGUI_FAKE: "1", ...this.options.env });
 		const { env: _env, ...rest } = this.options;
 		this.app = await startApp({ log: silentLogger, ...rest, config, agentDir: this.agentDir });
 	}
@@ -103,7 +103,7 @@ export class TestServer {
 		return id;
 	}
 
-	/** A local session, in `dir` on this computer (picloud OnPrem only). */
+	/** A local session, in `dir` on this computer (pigui OnPrem only). */
 	async createLocalSession(text: string, dir: string): Promise<number> {
 		const { id } = await this.post<{ id: number }>("/api/sessions", { requestId: requestId(), place: "local", dir, text, attachments: [] });
 		return id;
@@ -240,7 +240,7 @@ export function modelText(entry: EntryRecord): string {
 	return content.flatMap((block) => (block.type === "text" ? [block.text] : [])).join("\n");
 }
 
-/** The text of every compaction in the transcript: picloud's checkpoint markers and Durable's summaries. */
+/** The text of every compaction in the transcript: pigui's checkpoint markers and Durable's summaries. */
 export function checkpoints(entries: readonly EntryRecord[]): string[] {
 	return entries.filter((entry) => entry.kind === "pi.compaction" || entry.kind === CHECKPOINT_ENTRY).map(modelText);
 }

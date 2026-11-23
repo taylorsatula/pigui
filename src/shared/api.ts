@@ -14,7 +14,7 @@ const LocalDir = str({ minLength: 1, maxLength: 4096 });
 /** What starts any session: the first message. */
 const Opening = { requestId: RequestId, text: str({ minLength: 1, maxLength: 100_000 }), attachments: AttachmentIds };
 
-/** A repository session, on a new or continued branch; or, in picloud OnPrem only, a local session in a directory. */
+/** A repository session, on a new or continued branch; or, in pigui OnPrem only, a local session in a directory. */
 export const CreateSessionBody = union([
 	obj({
 		...Opening,
@@ -60,7 +60,7 @@ export type BudgetBody = Static<typeof BudgetBody>;
 export const ArchiveBody = obj({ archived: bool() });
 export type ArchiveBody = Static<typeof ArchiveBody>;
 
-/** Star a directory on this computer, or unstar it (picloud OnPrem only). */
+/** Star a directory on this computer, or unstar it (pigui OnPrem only). */
 export const StarDirBody = obj({ dir: LocalDir, starred: bool() });
 export type StarDirBody = Static<typeof StarDirBody>;
 
@@ -111,7 +111,7 @@ export type Bootstrap = {
 	speech: boolean;
 	memory: MemoryStatus;
 	/**
-	 * Present when picloud runs on the person's own computer (PICLOUD_ONPREM): their home directory, where a local
+	 * Present when pigui runs on the person's own computer (PIGUI_ONPREM): their home directory, where a local
 	 * session starts unless another directory is chosen, and which the app shows as `~`.
 	 */
 	onPrem?: { home: string };

@@ -1,5 +1,5 @@
 // How the local speech and memory models are held: loaded at start and kept, or loaded on use and released when idle
-// (PICLOUD_MODELS_UNLOAD). A stand-in model counts its loads and releases, so this needs neither model installed.
+// (PIGUI_MODELS_UNLOAD). A stand-in model counts its loads and releases, so this needs neither model installed.
 import assert from "node:assert/strict";
 import { setTimeout as sleep } from "node:timers/promises";
 import { test } from "node:test";
@@ -25,7 +25,7 @@ function standIn(unloadAfterMs: number | undefined, failFirst = false) {
 	return { counts, model };
 }
 
-test("never unloaded: the model loads as picloud starts and stays", async () => {
+test("never unloaded: the model loads as pigui starts and stays", async () => {
 	const { counts, model } = standIn(undefined);
 	assert.equal(counts.loads, 1, "loaded before any use");
 	assert.equal(await model.use(async (it) => it.id), 1);
@@ -64,10 +64,10 @@ test("a load that fails is tried again by the next use", async () => {
 	assert.equal(counts.loads, 2);
 });
 
-test("PICLOUD_MODELS_UNLOAD: never by default, idle minutes when given, and anything else refused", () => {
-	const config = (value: string | undefined) => readConfig({ PICLOUD_DATA_DIR: "/tmp/picloud-test", PICLOUD_FAKE: "1", PICLOUD_MODELS_UNLOAD: value });
+test("PIGUI_MODELS_UNLOAD: never by default, idle minutes when given, and anything else refused", () => {
+	const config = (value: string | undefined) => readConfig({ PIGUI_DATA_DIR: "/tmp/pigui-test", PIGUI_FAKE: "1", PIGUI_MODELS_UNLOAD: value });
 	assert.equal(config(undefined).modelsUnloadAfterMs, undefined);
 	assert.equal(config("never").modelsUnloadAfterMs, undefined);
 	assert.equal(config("5").modelsUnloadAfterMs, 5 * 60_000);
-	for (const bad of ["0", "1.5", "always", "1441"]) assert.throws(() => config(bad), /PICLOUD_MODELS_UNLOAD must be never, or a whole number of idle minutes/);
+	for (const bad of ["0", "1.5", "always", "1441"]) assert.throws(() => config(bad), /PIGUI_MODELS_UNLOAD must be never, or a whole number of idle minutes/);
 });

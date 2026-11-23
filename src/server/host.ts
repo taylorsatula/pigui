@@ -40,7 +40,7 @@ export class GhHost implements RepoHost {
 			return (await run("gh", args, options)).stdout;
 		} catch (error) {
 			if (error instanceof CommandError && error.exitCode === null) {
-				throw new HostError("The gh CLI is not installed where picloud runs.", { cause: error });
+				throw new HostError("The gh CLI is not installed where pigui runs.", { cause: error });
 			}
 			if (error instanceof CommandError && /auth login|not logged|authentication/i.test(error.stderr)) {
 				throw new HostError("gh is not signed in. With Docker, set GH_TOKEN in .env; with the installer, run `gh auth login` as the service user; with OnPrem, run `gh auth login` yourself.", {

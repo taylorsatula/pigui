@@ -1,6 +1,6 @@
-// The agent sandbox. Every command an agent runs starts through the picloud-sandbox launcher
-// (src/sandbox/picloud-sandbox.c), which confines it with Landlock to a session's grants. The file tools run inside
-// picloud's own process, where Landlock cannot reach, so `Grants.confine` applies the same grants to their paths.
+// The agent sandbox. Every command an agent runs starts through the pigui-sandbox launcher
+// (src/sandbox/pigui-sandbox.c), which confines it with Landlock to a session's grants. The file tools run inside
+// pigui's own process, where Landlock cannot reach, so `Grants.confine` applies the same grants to their paths.
 import { existsSync, realpathSync } from "node:fs";
 import { lstat, readlink, realpath } from "node:fs/promises";
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
@@ -14,7 +14,7 @@ const SYSTEM = ["/usr", "/bin", "/sbin", "/lib", "/lib32", "/lib64", "/libx32", 
 
 /**
  * Commands also read /proc, where Landlock already hides processes outside their own domain. The file tools never do:
- * they run in picloud's process, whose /proc/self holds picloud's environment and open files.
+ * they run in pigui's process, whose /proc/self holds pigui's environment and open files.
  */
 const COMMANDS_ONLY = ["/proc"];
 
@@ -50,7 +50,7 @@ export class Grants {
 		try {
 			real = await realTarget(path);
 		} catch (error) {
-			return new FileError("permission_denied", `Refused ${path}: picloud cannot tell where it leads (${error instanceof Error ? error.message : String(error)}).`, path);
+			return new FileError("permission_denied", `Refused ${path}: pigui cannot tell where it leads (${error instanceof Error ? error.message : String(error)}).`, path);
 		}
 		const grants = await this.#resolved();
 		const inside = (roots: readonly string[]) => roots.some((root) => within(real, root));
@@ -105,7 +105,7 @@ export function readableGrants(extra: readonly string[]): string[] {
 	// Under systemd-resolved, /etc/resolv.conf links into /run, which is otherwise out of reach.
 	const resolver = realOrUndefined("/etc/resolv.conf");
 	if (resolver !== undefined && !within(resolver, "/etc")) grants.push(dirname(resolver));
-	// The Node.js running picloud, which agent commands find on the same PATH: under /usr in both deployments, but a
+	// The Node.js running pigui, which agent commands find on the same PATH: under /usr in both deployments, but a
 	// developer's may live anywhere. Its whole installation when it has the usual bin directory (npm is in its lib),
 	// else only the program, so a node placed directly in a home directory never opens up the rest of it.
 	const node = realOrUndefined(process.execPath);
@@ -128,8 +128,8 @@ function realOrUndefined(path: string): string | undefined {
 
 /** The launcher `npm run build` compiled beside the sources, else the one on PATH, where the Docker image installs it. */
 function launcher(): string {
-	const built = join(import.meta.dirname, "..", "..", "dist", "bin", "picloud-sandbox");
-	return existsSync(built) ? built : "picloud-sandbox";
+	const built = join(import.meta.dirname, "..", "..", "dist", "bin", "pigui-sandbox");
+	return existsSync(built) ? built : "pigui-sandbox";
 }
 
 /** Check that the launcher confines a program and read the kernel's Landlock ABI; throws what is wrong if not. */
@@ -140,7 +140,7 @@ async function probe(): Promise<Sandbox> {
 		printed = (await run(path, ["--abi"], { timeoutMs: 10_000 })).stdout;
 	} catch (error) {
 		if (error instanceof CommandError && error.exitCode === null) {
-			throw new Error("its launcher, picloud-sandbox, is not installed. `npm run build` compiles it where a C compiler (cc) is installed.", { cause: error });
+			throw new Error("its launcher, pigui-sandbox, is not installed. `npm run build` compiles it where a C compiler (cc) is installed.", { cause: error });
 		}
 		throw error;
 	}
@@ -158,7 +158,7 @@ export async function openSandbox(options: { enabled: boolean; fake: boolean; lo
 	const { log } = options;
 	if (!options.enabled) {
 		if (options.fake) log.info("sandbox.off");
-		else log.warn("sandbox.off", { reason: "PICLOUD_SANDBOX=off: agent commands run unconfined" });
+		else log.warn("sandbox.off", { reason: "PIGUI_SANDBOX=off: agent commands run unconfined" });
 		return undefined;
 	}
 	let sandbox: Sandbox;
@@ -171,8 +171,8 @@ export async function openSandbox(options: { enabled: boolean; fake: boolean; lo
 		}
 		throw new ConfigError(
 			`The agent sandbox does not work here: ${error instanceof Error ? error.message : String(error)}\n` +
-				"Run picloud on a host kernel with Landlock (Linux 5.13 or later; Debian 13 is recommended), " +
-				"or set PICLOUD_SANDBOX=off to run agent commands unconfined.",
+				"Run pigui on a host kernel with Landlock (Linux 5.13 or later; Debian 13 is recommended), " +
+				"or set PIGUI_SANDBOX=off to run agent commands unconfined.",
 		);
 	}
 	log.info("sandbox.on", { abi: sandbox.abi });

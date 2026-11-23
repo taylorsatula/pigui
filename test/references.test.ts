@@ -106,8 +106,8 @@ describe("references in messages", () => {
 		assert.equal(data.attachments[0]?.image, true);
 		const message = entry.model?.[0];
 		assert.ok(message?.role === "user" && Array.isArray(message.content) && message.content.some((block) => block.type === "image"));
-		assert.match(modelText(entry), /Attached file \.picloud\/attachments\/my-notes-[0-9a-f]{6}\.txt/);
+		assert.match(modelText(entry), /Attached file \.pigui\/attachments\/my-notes-[0-9a-f]{6}\.txt/);
 		const status = (await git(server.workspace(id), ["status", "--porcelain", "--untracked-files=all"])).stdout;
-		assert.equal(status.includes(".picloud"), false, "attachments are never part of the work");
+		assert.equal(status.includes(".pigui"), false, "attachments are never part of the work");
 	});
 });

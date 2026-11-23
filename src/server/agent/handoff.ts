@@ -1,4 +1,4 @@
-// The handoff note: before picloud compacts the context, it asks the agent, in a steer, for a short first-person note
+// The handoff note: before pigui compacts the context, it asks the agent, in a steer, for a short first-person note
 // on where it stands, and the agent writes it with this tool. The call and its result stay in the context verbatim after
 // the compaction, right before the resume turn, so the agent reads its own words first; the summarizer reads them too.
 import { defineTool, type ToolExecutionResult } from "@earendil-works/pi-durable";
@@ -18,7 +18,7 @@ export function handoffTool() {
 	return defineTool({
 		name: WRITE_HANDOFF,
 		description:
-			"Only when picloud asks for it, just before your context is compacted: save a short first-person note on how you are doing right now. It stays in your context after the compaction.",
+			"Only when pigui asks for it, just before your context is compacted: save a short first-person note on how you are doing right now. It stays in your context after the compaction.",
 		parameters: obj({
 			text: str({
 				minLength: 1,

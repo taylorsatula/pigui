@@ -139,7 +139,7 @@ export class Supervisor {
 			outcome = { kind: "stopped", at: now };
 		} else {
 			// Not retried here. Durable retries model requests, its own summarizer's included, under its retry settings,
-			// and picloud's checkpoint carries the previous state forward when its summarizer fails; what still ends a
+			// and pigui's checkpoint carries the previous state forward when its summarizer fails; what still ends a
 			// run would only fail again. The person sees it, with a Continue button.
 			const reason = record.reason ?? "unknown";
 			const detail = typeof record.detail === "string" ? record.detail : undefined;

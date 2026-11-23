@@ -1,7 +1,7 @@
 // The HTTP boundary: every request is checked here (access, size, shape) before it reaches the session logic, and
 // every failure leaves as JSON the phone can show with a next step. Access is checked in layers: in OnPrem the host
 // the request names, then who opened the connection, then the Tailscale login of what came through Tailscale, and for
-// anything that changes something, that the request comes from picloud's own page.
+// anything that changes something, that the request comes from pigui's own page.
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import type { Socket } from "node:net";
 import { readFile, stat } from "node:fs/promises";
@@ -60,7 +60,7 @@ export type HttpDeps = {
 	agentDir: string;
 	/** Where a session's agent works (see AgentServices). */
 	workingDir: (doc: Readonly<SessionDoc>) => string;
-	/** picloud OnPrem: reached at this computer's loopback names and its allowed tailnet names, with local sessions. */
+	/** pigui OnPrem: reached at this computer's loopback names and its allowed tailnet names, with local sessions. */
 	onPrem: OnPrem | undefined;
 	staticDir: string;
 	/** Undefined when this server does not read aloud. */
@@ -68,8 +68,8 @@ export type HttpDeps = {
 	/** Long-term memory's state, shown in the sidebar while it is off. */
 	memory: MemoryStatus;
 	/**
-	 * Who may open a connection (see callers.ts): on a server, anyone but picloud's own user, as the agent's commands
-	 * are; in OnPrem on Linux, picloud's own user only. Absent: no check, as in fake mode and OnPrem elsewhere.
+	 * Who may open a connection (see callers.ts): on a server, anyone but pigui's own user, as the agent's commands
+	 * are; in OnPrem on Linux, pigui's own user only. Absent: no check, as in fake mode and OnPrem elsewhere.
 	 */
 	callerCheck?: (socket: Socket) => Promise<boolean>;
 };
@@ -164,9 +164,9 @@ function abortOnClose(response: ServerResponse): AbortSignal {
 }
 
 /**
- * How an OnPrem request names picloud: one of its loopback names at its own port (`local`, the computer's own browser),
+ * How an OnPrem request names pigui: one of its loopback names at its own port (`local`, the computer's own browser),
  * one of the names it is served under by `tailscale serve` (`tailnet`), or neither. A page elsewhere whose name was
- * pointed at 127.0.0.1 (DNS rebinding) would otherwise be same-origin with picloud as far as the browser knew, and
+ * pointed at 127.0.0.1 (DNS rebinding) would otherwise be same-origin with pigui as far as the browser knew, and
  * could read and drive it; the allowed names are ones no one else's DNS can point at this computer.
  */
 function addressedAs(request: IncomingMessage, hosts: readonly string[]): "local" | "tailnet" | undefined {
@@ -182,7 +182,7 @@ function addressedAs(request: IncomingMessage, hosts: readonly string[]): "local
 }
 
 /**
- * Whether a request that changes something comes from picloud's own page. Every browser request says where it comes
+ * Whether a request that changes something comes from pigui's own page. Every browser request says where it comes
  * from, in Sec-Fetch-Site and, on a POST, in Origin. Both are checked, because a page on any other site can send a
  * simple POST (text/plain, no preflight) that would otherwise be acted on: on a server that is any page the phone
  * opens; in OnPrem, commands on the person's computer. A request with neither header comes from a program, not from a
@@ -201,7 +201,7 @@ function fromOwnPage(request: IncomingMessage): boolean {
 		return false;
 	}
 	// The host the browser asked for. tailscale serve passes it on as Host, and as X-Forwarded-Host should a proxy
-	// rewrite Host; a cross-site page cannot set either header without a preflight, which picloud never allows.
+	// rewrite Host; a cross-site page cannot set either header without a preflight, which pigui never allows.
 	const asked = [request.headers.host, request.headers["x-forwarded-host"]].map((value) => String(value ?? "").toLowerCase());
 	return asked.includes(host);
 }
@@ -251,7 +251,7 @@ export function createHttpServer(deps: HttpDeps): Server {
 
 	function speech(): Speech {
 		if (deps.speech === undefined) {
-			throw new HttpError(404, "Reading aloud is not available on this server.", "picloud was built without speech (PICLOUD_SPEECH=off), or its model is missing.");
+			throw new HttpError(404, "Reading aloud is not available on this server.", "pigui was built without speech (PIGUI_SPEECH=off), or its model is missing.");
 		}
 		return deps.speech;
 	}
@@ -267,7 +267,7 @@ export function createHttpServer(deps: HttpDeps): Server {
 	}
 
 	function home(): string {
-		if (deps.onPrem === undefined) throw new HttpError(404, "Directories on this computer are offered only by picloud OnPrem.");
+		if (deps.onPrem === undefined) throw new HttpError(404, "Directories on this computer are offered only by pigui OnPrem.");
 		return deps.onPrem.home;
 	}
 
@@ -465,12 +465,12 @@ export function createHttpServer(deps: HttpDeps): Server {
 
 	const callerRefused: ApiError =
 		deps.onPrem === undefined
-			? { error: "This connection comes from picloud's own user, as the agent's commands do. picloud is reached through Tailscale." }
-			: { error: "This connection comes from another user of this computer. picloud OnPrem answers only the user it runs as, and Tailscale." };
+			? { error: "This connection comes from pigui's own user, as the agent's commands do. pigui is reached through Tailscale." }
+			: { error: "This connection comes from another user of this computer. pigui OnPrem answers only the user it runs as, and Tailscale." };
 
 	return createServer((request, response) => {
 		const started = Date.now();
-		const url = new URL(request.url ?? "/", "http://picloud.local");
+		const url = new URL(request.url ?? "/", "http://pigui.local");
 		const done = (status: number) => {
 			// Paths and status only: no query strings, bodies or headers, which can carry content.
 			if (!url.pathname.startsWith("/api/live")) deps.log.info("http", { method: request.method, path: url.pathname, status, ms: Date.now() - started });
@@ -484,8 +484,8 @@ export function createHttpServer(deps: HttpDeps): Server {
 			const port = request.socket.localPort;
 			const name = String(request.headers.host ?? "").replace(/:\d+$/, "");
 			refuse("http.host", {
-				error: `picloud OnPrem answers only to localhost and to the names in PICLOUD_ALLOWED_HOSTS, and not to ${name || "a request without a host"}.`,
-				hint: `Open http://localhost:${port} on this computer. To reach it as ${name || "another name"} through tailscale serve, add that name to PICLOUD_ALLOWED_HOSTS (the installer's --tailscale on does).`,
+				error: `pigui OnPrem answers only to localhost and to the names in PIGUI_ALLOWED_HOSTS, and not to ${name || "a request without a host"}.`,
+				hint: `Open http://localhost:${port} on this computer. To reach it as ${name || "another name"} through tailscale serve, add that name to PIGUI_ALLOWED_HOSTS (the installer's --tailscale on does).`,
 			});
 			return;
 		}
@@ -494,14 +494,14 @@ export function createHttpServer(deps: HttpDeps): Server {
 			if (!allowed) return refuse("http.local_caller", callerRefused);
 			const login = String(request.headers["tailscale-user-login"] ?? "").toLowerCase();
 			// On a server everything comes through Tailscale. In OnPrem, what comes through it is addressed to a tailnet
-			// name, or carries the login header tailscale serve adds should it have named picloud by localhost; the
+			// name, or carries the login header tailscale serve adds should it have named pigui by localhost; the
 			// computer's own browser at localhost has no login, and needs none.
 			const throughTailscale = deps.onPrem === undefined || addressed === "tailnet" || login !== "";
 			if (throughTailscale && deps.allowedLogins.length > 0 && !deps.allowedLogins.includes(login)) {
-				return refuse("http.forbidden", { error: "This Tailscale login is not allowed to use picloud." });
+				return refuse("http.forbidden", { error: "This Tailscale login is not allowed to use pigui." });
 			}
 			if (request.method !== "GET" && request.method !== "HEAD" && !fromOwnPage(request)) {
-				return refuse("http.cross_site", { error: "This request comes from another site, so picloud refuses it.", hint: "Use picloud from its own page." });
+				return refuse("http.cross_site", { error: "This request comes from another site, so pigui refuses it.", hint: "Use pigui from its own page." });
 			}
 			handle(request, response, url, done);
 		});

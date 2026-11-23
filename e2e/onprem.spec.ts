@@ -1,4 +1,4 @@
-// picloud OnPrem in the browser: a server on this computer, opened at localhost, whose new sessions start in a
+// pigui OnPrem in the browser: a server on this computer, opened at localhost, whose new sessions start in a
 // directory here (the home directory unless changed), with a repository the other choice.
 import { existsSync } from "node:fs";
 import { mkdir } from "node:fs/promises";
@@ -7,7 +7,7 @@ import { approveThrough, expect, startSession, test } from "./fixtures.ts";
 
 test.use({ onPrem: true });
 
-test.describe("picloud OnPrem", () => {
+test.describe("pigui OnPrem", () => {
 	test("a new session starts on this computer, in ~ unless changed, and replies there", async ({ page, errors }) => {
 		await page.goto("/");
 		await expect(page.getByRole("radio", { name: "This computer" })).toBeChecked();
