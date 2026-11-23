@@ -97,6 +97,18 @@ The prompt (`prompt.ts`) is picloud's own preamble, then sections that change ra
 `loadProjectContextFiles` rendered as Pi renders them, Pi's skills list through `loadSkills`/`formatSkillsForPrompt`,
 and repo memory. Durable re-sends only changed sections, so prompt caching stays warm.
 
+**The report runs its round in call order.** An `Agent` call and `file_report` in one round would otherwise run in
+parallel, and the report could pass its check of the session's agents before the agent's task existed. `file_report` is
+`executionMode: "sequential"`, which Durable applies to its whole round: an `Agent` call before it has dispatched its
+agent when the report checks, so the report is refused; one after it finds this run's report filed and refuses, since
+an agent started then would work for a run that has ended. *Alternative:* a lock around the two, which Durable's round
+order makes unnecessary.
+
+**No spend shown at $0.00.** Models with no price per request, a subscription's such as lunaroute's, count $0.00 for
+every reply, so the session bar shows the spend only once it is above zero: a priced model shows it from its first
+reply, an unpriced one never. *Alternative:* asking Pi's catalog whether each model is priced, which says the same
+with more to keep in step.
+
 **Skills picloud ships, through Pi's own loader.** The repository's `skills/` holds skills in Pi's layout
 (`<name>/SKILL.md`), at first the four for delegating to subagents (`subagent-orchestration` and the scout,
 implementer and verifier dispatch contracts). `skillsAt` passes the folder to `loadSkills` as a skill path, so every

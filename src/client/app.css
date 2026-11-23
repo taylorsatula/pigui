@@ -480,6 +480,7 @@ details > summary:active {
 	flex: 1;
 	min-width: 0;
 	padding: 2px 0;
+	container-type: inline-size;
 }
 
 .title {
@@ -514,6 +515,20 @@ details > summary:active {
 	min-width: 0;
 	overflow: hidden;
 	text-overflow: ellipsis;
+}
+
+/* Where the work is needs room beside the status and the spend, which do not shrink. A title too narrow to give it ten
+   characters with the longest status (a phone, with the session's buttons) reads it aloud but does not show it, as the
+   session picker does on a phone, rather than cut it to a letter. */
+@container (max-width: 19rem) {
+	.where {
+		position: absolute;
+		width: 1px;
+		height: 1px;
+		overflow: hidden;
+		clip-path: inset(50%);
+		white-space: nowrap;
+	}
 }
 
 .session-status {

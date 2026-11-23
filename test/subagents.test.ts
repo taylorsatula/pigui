@@ -325,6 +325,34 @@ describe("the report and the end of a turn", () => {
 	});
 });
 
+describe("an Agent call and the report in one round", () => {
+	test("whichever comes first, no agent works for a run whose report is filed", async () => {
+		const server = await TestServer.start();
+		try {
+			await define(server, "probe", PROBE);
+			// The agent first: the round runs in call order, so it exists by the time the report checks, which refuses.
+			const first = await server.createSession(delegate("agent probe bg [wait] forever", "report"));
+			const waiting = await server.until(first, (doc) => doc.outcome?.kind === "waiting-agents", "waiting on agents");
+			const [refused] = await results(server, first, "file_report");
+			assert.equal(refused?.isError, true);
+			assert.equal(refused?.text, "1 agent is still running or queued. Its answer arrives as a message; file the report after it has.");
+			assert.equal(waiting.report, undefined);
+			// The report first: it is filed, and the agent after it is refused, so nothing works after the report.
+			const second = await server.createSession(delegate("report", "agent probe bg [wait] forever"));
+			const reported = await server.until(second, (doc) => doc.outcome?.kind === "reported" && doc.activeRun === undefined, "reported");
+			const [filed] = await results(server, second, "file_report");
+			assert.equal(filed?.isError, false);
+			const [agent] = await results(server, second, "Agent");
+			assert.equal(agent?.isError, true);
+			assert.equal(agent?.text, "This run's report is filed, so no agent can start in it. Start agents before the report, and file it once their answers are in.");
+			assert.deepEqual(rows(reported), []);
+			await server.post(`/api/sessions/${first}/stop`);
+		} finally {
+			await server.close();
+		}
+	});
+});
+
 describe("spend", () => {
 	test("a session's spend counts its agents', and reaching the cap stops them and tells the person once", async () => {
 		const server = await TestServer.start();

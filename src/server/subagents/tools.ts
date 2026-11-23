@@ -41,6 +41,8 @@ export type ToolsHost = TaskHost & {
 	skills: Extension;
 	/** Where the session works, which its agents share. */
 	place(session: ConversationId, read: DocumentReader, context: Context): Promise<{ dir: string; branch?: string }>;
+	/** Whether the session's run under way has filed its report. */
+	reported(session: ConversationId, read: DocumentReader, context: Context): Promise<boolean>;
 };
 
 /** What a call dispatched: its run's task and its agent, memoized so a rerun after a crash finds them. */
@@ -198,6 +200,11 @@ export function subagentTools(host: ToolsHost, task: AgentTask) {
 				host.warn("subagents.settings_invalid", "subagent-settings.json", "error" in settings ? settings.error : undefined);
 				if ("error" in settings) {
 					return refuse(`No agent can start: ${settings.error}. Only the person can fix the file.`);
+				}
+				// file_report runs its round in call order, so a report before this call in the round is already filed:
+				// an agent started now would work after the run's report, for a run that has ended.
+				if (await host.reported(api.conversationId, api, context)) {
+					return refuse("This run's report is filed, so no agent can start in it. Start agents before the report, and file it once their answers are in.");
 				}
 				const dispatch = await prepare(api, args, background, context);
 				if ("refused" in dispatch) return refuse(dispatch.refused);

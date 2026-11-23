@@ -40,6 +40,8 @@ export type SubagentHost = {
 	skills: Extension;
 	/** Where the session works, which its agents share: the directory, and its branch when it is a git repository. */
 	place(session: ConversationId, read: DocumentReader, context: Context): Promise<{ dir: string; branch?: string }>;
+	/** Whether the session's run under way has filed its report: an agent started after it would answer a finished run. */
+	reported(session: ConversationId, read: DocumentReader, context: Context): Promise<boolean>;
 	/** Change an agent's row in its session's document, in the commit that changes the agent, with what else it does. */
 	row(tx: Tx, session: ConversationId, agent: number, change: (row: AgentRow | undefined) => AgentRow, effect?: SessionEffect): Promise<void>;
 	faults: AgentFaults;
@@ -89,6 +91,7 @@ export function subagentsExtension(host: SubagentHost): Extension {
 			excluded,
 			skills: host.skills,
 			place: host.place,
+			reported: host.reported,
 		},
 		task,
 	);

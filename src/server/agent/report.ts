@@ -84,6 +84,9 @@ export function reportTool(services: AgentServices) {
 			"File a report after any change you make: when the work is done, or when you cannot go further. The person reviews it beside the plan: each end-state condition with its evidence, the changes by file, the checks you ran, and where you departed from the plan. Write each item as one short line. It ends your turn, and it becomes the pull request's description if the person opens one. Refused while agents you started are still running or queued, and in a repository session while there are uncommitted changes or the branch is behind its base.",
 		parameters: unsafe<ReportArgs>(services.memory === undefined ? ReportParameters : MemoryReportParameters),
 		replay: "safe",
+		// Its round runs in call order, so an Agent call before it in the round has dispatched its agent by the time the
+		// check below reads the session's agents, and one after it finds the report filed and refuses.
+		executionMode: "sequential",
 		async execute(args, api, context): Promise<ToolExecutionResult> {
 			const session = await sessionOf(api, context);
 			const key = `report:${api.callId}`;

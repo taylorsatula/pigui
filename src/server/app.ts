@@ -203,6 +203,10 @@ export async function startApp(options: AppOptions): Promise<App> {
 				const branch = doc.place === "repo" ? doc.branch : await currentBranch(dir).catch(() => undefined);
 				return branch === undefined ? { dir } : { dir, branch };
 			},
+			reported: async (id, read, context) => {
+				const doc = await read.snapshot(SessionDocToken, id, context);
+				return doc?.outcome?.kind === "reported" && doc.activeRun !== undefined && doc.outcome.at >= doc.activeRun.startedAt;
+			},
 			row: (tx, id, agent, change, effect) =>
 				editSession(tx, id, now(), (doc) => {
 					const rows = doc.agents ?? [];

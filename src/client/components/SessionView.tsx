@@ -209,10 +209,14 @@ export function SessionView(props: { id: number }): JSX.Element {
 						<p class="subtitle" role="status">
 							<span class={`session-status ${row.tone}`}>{row.label}</span>
 							<span class="where">{doc.place === "local" ? shortDir(doc.dir, home) : `${doc.repo} · ${doc.branch}`}</span>
-							<span class={`spend ${spendTone(spent, doc.cap)}`}>
-								{formatDollars(spent)}
-								{doc.cap === undefined ? "" : ` of ${formatDollars(doc.cap)}`}
-							</span>
+							{/* Models with no price per request (a subscription's, such as lunaroute's) always read $0.00, which
+							    says nothing; the spend shows once a model has charged something. */}
+							{spent > 0 ? (
+								<span class={`spend ${spendTone(spent, doc.cap)}`}>
+									{formatDollars(spent)}
+									{doc.cap === undefined ? "" : ` of ${formatDollars(doc.cap)}`}
+								</span>
+							) : null}
 						</p>
 					</div>
 					{/* A local session works in place, with no branch to compare: there is no diff to view. */}
