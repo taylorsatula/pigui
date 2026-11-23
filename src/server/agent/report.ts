@@ -8,6 +8,7 @@ import { type Report, reportOf, type RepoSessionDoc } from "../../shared/session
 import { editSession, MemoryToken, RepoMemoryToken, repoMemoryKey } from "../docs.ts";
 import { fetchBranch, head, isAncestor, refExists, uncommitted } from "../git.ts";
 import { applyChanges } from "../memory/store.ts";
+import { liveAgentTasks } from "../subagents/extension.ts";
 import { sessionOf } from "./cards.ts";
 import { MemoryPart, type MemoryOutcome, prepareMemory } from "./memory.ts";
 import type { AgentServices } from "./services.ts";
@@ -80,7 +81,7 @@ export function reportTool(services: AgentServices) {
 	return defineTool({
 		name: FILE_REPORT,
 		description:
-			"File a report after any change you make: when the work is done, or when you cannot go further. The person reviews it beside the plan: each end-state condition with its evidence, the changes by file, the checks you ran, and where you departed from the plan. Write each item as one short line. It ends your turn, and it becomes the pull request's description if the person opens one. In a repository session, refused while there are uncommitted changes or the branch is behind its base.",
+			"File a report after any change you make: when the work is done, or when you cannot go further. The person reviews it beside the plan: each end-state condition with its evidence, the changes by file, the checks you ran, and where you departed from the plan. Write each item as one short line. It ends your turn, and it becomes the pull request's description if the person opens one. Refused while agents you started are still running or queued, and in a repository session while there are uncommitted changes or the branch is behind its base.",
 		parameters: unsafe<ReportArgs>(services.memory === undefined ? ReportParameters : MemoryReportParameters),
 		replay: "safe",
 		async execute(args, api, context): Promise<ToolExecutionResult> {
@@ -88,6 +89,15 @@ export function reportTool(services: AgentServices) {
 			const key = `report:${api.callId}`;
 			// A rerun of this call after a crash, once the report is filed: return it as it was filed, checking nothing again.
 			if (session.notified.includes(key) && session.report !== undefined) return filed(reportOf(session.report));
+			// The report ends the work, so it waits for every agent's answer, read from Durable's own task records.
+			const agents = (await api.commit((tx) => liveAgentTasks(tx, api.conversationId), context)).length;
+			if (agents > 0) {
+				return refuse(
+					agents === 1
+						? "1 agent is still running or queued. Its answer arrives as a message; file the report after it has."
+						: `${agents} agents are still running or queued. Their answers arrive as messages; file the report after they have.`,
+				);
+			}
 			const checked = session.place === "repo" ? await checkClone(services.workspace(session.id), session) : { notes: [] };
 			if ("refused" in checked) return refuse(checked.refused);
 			const { memory: memoryPart, ...parts } = args;

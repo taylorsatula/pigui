@@ -5,7 +5,7 @@
 // Failures show while folded.
 import type { JSX } from "preact";
 import { useEffect, useLayoutEffect, useRef, useState } from "preact/hooks";
-import type { SessionDoc } from "../../shared/session.ts";
+import type { AgentResultData, SessionDoc } from "../../shared/session.ts";
 import { dayHeading, describeCall, describeGroup, sameDay } from "../format.ts";
 import { live } from "../live.ts";
 import { type Block, type CallView, turnStart, type WorkItem } from "../transcript.ts";
@@ -127,6 +127,32 @@ function Work(props: { items: WorkItem[]; live: boolean }): JSX.Element {
 	);
 }
 
+/** How many of an agent's answer's lines show before it is opened. */
+const PREVIEW_LINES = 3;
+
+/**
+ * A background agent's answer, as the session's agent got it: its own block, headed by the agent, showing its first
+ * lines until it is opened to the whole answer.
+ */
+function AgentResult(props: { data: AgentResultData }): JSX.Element {
+	const { data } = props;
+	const preview = data.text.split("\n").filter((line) => line.trim() !== "").slice(0, PREVIEW_LINES).join("\n");
+	return (
+		<details class={`agent-result ${data.status}`}>
+			<summary>
+				<span class="agent-result-head">
+					<Icon name="chevron" size={14} />
+					<span class="agent-type">{data.type}</span>
+					<span class="agent-description">{data.description}</span>
+					<span class="agent-ended">{data.status === "done" ? "answered" : "failed"}</span>
+				</span>
+				<span class="agent-preview">{preview}</span>
+			</summary>
+			<Markdown text={data.text} class="agent" />
+		</details>
+	);
+}
+
 function Person(props: { data: Extract<Block, { kind: "person" }>["data"] }): JSX.Element {
 	const { data } = props;
 	return (
@@ -156,8 +182,9 @@ export function Transcript(props: {
 	blocks: Block[];
 	session: SessionDoc | undefined;
 	running: boolean;
-	cards: CardActions;
-	delivery: DeliveryActions;
+	/** Absent where nothing can be answered or delivered, as in an agent's conversation. */
+	cards?: CardActions;
+	delivery?: DeliveryActions;
 }): JSX.Element {
 	const [loading, setLoading] = useState(false);
 	// While earlier messages load, what was on screen stays where it is; the first message tells when they arrived.
@@ -230,6 +257,14 @@ export function Transcript(props: {
 						Continuing automatically ({block.data.attempt} of {block.data.limit}): no report yet.
 					</p>
 				);
+			case "agent-result":
+				return <AgentResult data={block.data} />;
+			case "agent-stopped":
+				return (
+					<p class="system-note">
+						Agent {block.data.type} ({block.data.description}) was stopped.
+					</p>
+				);
 			case "text":
 				return <Markdown text={block.text} class={`agent ${block.streaming ? "streaming" : ""}`} />;
 			case "speak":
@@ -237,8 +272,10 @@ export function Transcript(props: {
 			case "work":
 				return <Work items={block.items} live={block.live} />;
 			case "questions":
+				if (props.cards === undefined) return null;
 				return <QuestionsCard card={block.card} pending={block.pending} actions={props.cards} {...(block.answer === undefined ? {} : { answer: block.answer })} />;
 			case "plan":
+				if (props.cards === undefined) return null;
 				return (
 					<PlanCardView
 						card={block.card}
@@ -250,6 +287,7 @@ export function Transcript(props: {
 					/>
 				);
 			case "report":
+				if (props.delivery === undefined) return null;
 				return (
 					<ReportCard
 						report={block.report}

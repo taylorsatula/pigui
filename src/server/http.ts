@@ -37,11 +37,12 @@ import { trackedFiles } from "./git.ts";
 import type { RepoHost } from "./host.ts";
 import { MAX_UPLOAD_BYTES, type Uploads } from "./input.ts";
 import { absolutePath, listDirectory, localDirectory } from "./local.ts";
-import { openLines, serveLive } from "./live.ts";
+import { type LiveRequest, openLines, serveLive } from "./live.ts";
 import { errorKind, type Logger } from "./log.ts";
 import type { Presence } from "./presence.ts";
 import type { Sessions } from "./sessions.ts";
 import type { Speech } from "./speech/speech.ts";
+import { agentSession } from "./subagents/extension.ts";
 import { validPushKeys } from "./webpush.ts";
 
 export type HttpDeps = {
@@ -142,6 +143,14 @@ const TYPES: Record<string, string> = {
 function sessionId(raw: string | undefined): number {
 	const id = Number(raw);
 	if (!Number.isInteger(id) || id <= 0) throw notFound("The session");
+	return id;
+}
+
+/** An agent of the session `session`, as the phone names it; any other conversation is not found. */
+async function agentOf(harness: Harness, session: number, raw: string | null | undefined): Promise<number> {
+	const id = Number(raw);
+	const known = Number.isInteger(id) && id > 0 && (await agentSession(harness, id as ConversationId, BACKGROUND_CONTEXT)) === session;
+	if (!known) throw notFound("The agent");
 	return id;
 }
 
@@ -282,9 +291,11 @@ export function createHttpServer(deps: HttpDeps): Server {
 		}
 		if (is("GET", "live") && parts.length === 2) {
 			const session = url.searchParams.get("session");
+			const agent = url.searchParams.get("agent");
 			const from = url.searchParams.get("from");
-			const live: { session?: number; from?: number } = {};
+			const live: LiveRequest = {};
 			if (session !== null) live.session = sessionId(session);
+			if (agent !== null) live.agent = await agentOf(harness, live.session ?? 0, agent);
 			if (from !== null && /^\d+$/.test(from)) live.from = Number(from);
 			return serveLive(response, live, harness, deps.presence, context);
 		}
@@ -372,7 +383,10 @@ export function createHttpServer(deps: HttpDeps): Server {
 				}
 				if (action === "diff") return send(response, 200, await deps.delivery.diff(id, context));
 				if (action === "entries") {
-					const conversation = await harness.conversation(id as ConversationId, context);
+					// An agent's conversation, for its viewer, or the session's own.
+					const agent = url.searchParams.get("agent");
+					const shown = agent === null ? id : await agentOf(harness, id, agent);
+					const conversation = await harness.conversation(shown as ConversationId, context);
 					if (conversation === undefined) throw notFound("The session");
 					const min = url.searchParams.get("min");
 					const max = url.searchParams.get("max");
@@ -419,6 +433,12 @@ export function createHttpServer(deps: HttpDeps): Server {
 					case "retry-setup":
 						await deps.sessions.retrySetup(id, context);
 						return send(response, 200, {});
+					case "agents":
+						if (parts.length === 6 && parts[5] === "stop") {
+							await deps.sessions.stopAgent(id, await agentOf(harness, id, c), context);
+							return send(response, 200, {});
+						}
+						break;
 				}
 			}
 		}

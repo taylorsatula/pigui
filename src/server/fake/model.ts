@@ -3,7 +3,8 @@
 // once. The step a request is at is read from the ID of the newest scripted tool call, which survives compaction because
 // the scripted summarizer always keeps it. Directives in the task, such as [no-report], steer the scenario for tests.
 // With long-term memory on, every report states its memory part; [memory] also searches memory after exploring. In
-// a local session, which works in place with nothing to deliver, it lists what it wrote where it would commit.
+// a local session, which works in place with nothing to deliver, it lists what it wrote where it would commit. A
+// message with [agents] starts, steers and resumes agents instead, and an agent plays a short script of its own.
 import {
 	type AssistantMessage,
 	type AssistantMessageEventStream,
@@ -33,6 +34,7 @@ import { FILE_REPORT } from "../agent/report.ts";
 import { SUMMARIZER_PROMPT } from "../agent/summarizer.ts";
 import { SURFACE_MEMORIES } from "../memory/directives.ts";
 import { SPEECH_PROMPT } from "../speech/script.ts";
+import { AGENT, ENVIRONMENT, STEER } from "../subagents/tools.ts";
 
 const FAKE_PROVIDER = "picloud-fake";
 const FAKE_MODEL = "scripted";
@@ -77,7 +79,9 @@ const BULK = "seq 100000 102500";
 const FLOOD = 'seq -f "%032g" 1 2000';
 
 let callIds = 0;
-const call = (step: Step, name: string, args: Parameters<typeof fauxToolCall>[1]) => fauxToolCall(name, args, { id: `${step}:${++callIds}` });
+/** The calls of the [agents] scenarios, which the scenario steps above never read: a session delegating, and its agents. */
+type AgentStep = "delegate" | "wait" | "agent-run";
+const call = (step: Step | AgentStep, name: string, args: Parameters<typeof fauxToolCall>[1]) => fauxToolCall(name, args, { id: `${step}:${++callIds}` });
 const tools = (...blocks: Parameters<typeof fauxAssistantMessage>[0][]) =>
 	fauxAssistantMessage(blocks.flat() as Parameters<typeof fauxAssistantMessage>[0], { stopReason: "toolUse" });
 
@@ -147,6 +151,9 @@ function respond(context: TranscriptContext, options: SimpleStreamOptions | unde
 	if (kind === "summary") return summarize(messages);
 	if (kind === "speech") return speechScript(lastUser === undefined ? "" : textOf(lastUser));
 	if (system.includes("context summarization assistant")) return builtInSummary(messages, options);
+	if (system.includes(ENVIRONMENT)) return agentReply(messages, system);
+	const delegated = delegation(messages, memoryOffered(system));
+	if (delegated !== undefined) return delegated;
 	const people = messages.filter((message) => message.role === "user").map(textOf);
 	const directives = people.join("\n");
 	const previous = lastStep(messages);
@@ -202,6 +209,67 @@ function respond(context: TranscriptContext, options: SimpleStreamOptions | unde
 		return tools(call("recall", RECALL, { entry: Number(pointer) }));
 	}
 	return next(previous, messages, directives, nudged, memoryOffered(system), system.includes(LOCAL_RULES));
+}
+
+/** How an agent's answer or stop reaches the session's agent: as a message that names the agent first. */
+const AGENT_NOTE = /^Agent (\d+) \(/;
+
+/**
+ * The session's side of [agents]: the newest message's `agent TYPE fg|bg PROMPT`, `resume ID fg|bg PROMPT`,
+ * `steer ID MESSAGE` and `report` lines, all as one round of calls, then a reply that quotes their results. An agent's
+ * answer arriving as a message gets a short reply.
+ */
+function delegation(context: readonly Message[], memory: boolean): AssistantMessage | undefined {
+	// Sections that changed sit between the others as system messages; the scenario reads around them.
+	const messages = context.filter((message) => message.role !== "system");
+	const index = messages.findLastIndex((message) => message.role === "user");
+	const newest = messages[index];
+	if (newest === undefined) return undefined;
+	const text = textOf(newest);
+	const after = messages.slice(index + 1);
+	if (AGENT_NOTE.test(text) && after.length === 0) return fauxAssistantMessage(`Noted: ${text.split("\n")[0]}`);
+	if (!text.includes("[agents]")) return undefined;
+	if (after.length > 0) {
+		const results = after.flatMap((message) => (message.role === "toolResult" && message.toolCallId.startsWith("delegate:") ? [textOf(message)] : []));
+		return fauxAssistantMessage(`Delegated.\n\n${results.join("\n\n")}`);
+	}
+	const calls = text.split("\n").flatMap((line, at): Parameters<typeof fauxAssistantMessage>[0] => {
+		const [verb = "", first = "", second = "", ...rest] = line.trim().split(" ");
+		const background = second === "bg";
+		const description = `Task ${at}`;
+		if (verb === "agent") return [call("delegate", AGENT, { subagent_type: first, description, prompt: rest.join(" "), run_in_background: background })];
+		if (verb === "resume") return [call("delegate", AGENT, { resume: Number(first), description, prompt: rest.join(" "), run_in_background: background })];
+		if (verb === "steer") return [call("delegate", STEER, { agent_id: Number(first), message: [second, ...rest].join(" ") })];
+		if (verb === "report") {
+			const parts = { headline: "Delegated the work.", summary: "", outcome: "complete", endState: [], changes: [], checks: [], deviations: [], notes: [], learned: "" };
+			return [call("delegate", FILE_REPORT, memory ? { ...parts, memory: { create: [], helpful: [], edit: [], delete: [] } } : parts)];
+		}
+		return [];
+	});
+	return tools(...calls);
+}
+
+/**
+ * An agent's side, recognised by the environment block its instructions start with. Its prompt's `$ command` lines
+ * run with bash one at a time; [wait] keeps it working, one tool call a turn, until a message steers it; otherwise it
+ * answers at once. Each answer counts the prompts its conversation has had, so a resume shows it carried on.
+ */
+function agentReply(context: readonly Message[], system: string): AssistantMessage {
+	const messages = context.filter((message) => message.role !== "system");
+	const index = messages.findLastIndex((message) => message.role === "user");
+	const latest = index === -1 ? "" : textOf(messages[index]!);
+	const prompts = messages.filter((message, at) => message.role === "user" && messages[at - 1]?.role !== "toolResult").length;
+	if (messages[index - 1]?.role === "toolResult") return fauxAssistantMessage(`Steered: ${latest}`);
+	const ran = messages.slice(index + 1).filter((message): message is Extract<Message, { role: "toolResult" }> => message.role === "toolResult");
+	if (latest.includes("[wait]")) {
+		const bash = system.includes('"name":"bash"');
+		return tools(call("wait", bash ? "bash" : "read", bash ? { command: "sleep 0.2" } : { path: "." }));
+	}
+	const commands = latest.split("\n").flatMap((line) => line.split(" $ ").slice(line.startsWith("$ ") ? 0 : 1)).map((part) => part.replace(/^\$ /, "").trim()).filter((part) => part !== "");
+	const next = commands[ran.length];
+	if (next !== undefined) return tools(call("agent-run", "bash", { command: next }));
+	const outputs = ran.map((result, at) => `$ ${commands[at] ?? ""}\n${textOf(result)}`);
+	return fauxAssistantMessage([`Answer ${prompts}: ${latest.split("\n")[0]}`, ...outputs].join("\n\n"));
 }
 
 /** Whether the request offers surface_memories, and so whether a report must state its memory part. */

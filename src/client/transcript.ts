@@ -4,6 +4,10 @@
 import type { AssistantMessage, ToolResultMessage } from "@earendil-works/pi-ai";
 import type { EntryRecord, LiveState, TranscriptView } from "@earendil-works/pi-durable";
 import {
+	AGENT_RESULT_ENTRY,
+	AGENT_STOPPED_ENTRY,
+	type AgentResultData,
+	type AgentStoppedData,
 	type CardAnswer,
 	CHECKPOINT_ENTRY,
 	type CheckpointEntryData,
@@ -40,6 +44,9 @@ export type Block = (
 	| { kind: "gap"; key: string; gap: Gap }
 	| { kind: "person"; key: string; data: MessageEntryData }
 	| { kind: "nudge"; key: string; data: NudgeEntryData }
+	/** A background agent's answer, which reached the session's agent as a message. */
+	| { kind: "agent-result"; key: string; data: AgentResultData }
+	| { kind: "agent-stopped"; key: string; data: AgentStoppedData }
 	| { kind: "text"; key: string; text: string; streaming: boolean }
 	/** After a finished reply: its text, to read aloud. */
 	| { kind: "speak"; key: string; text: string }
@@ -187,6 +194,14 @@ export function buildBlocks(view: TranscriptView | undefined, session: SessionDo
 				flush();
 				add({ kind: "nudge", key, data: entry.data as NudgeEntryData });
 				break;
+			case AGENT_RESULT_ENTRY:
+				flush();
+				add({ kind: "agent-result", key, data: entry.data as AgentResultData });
+				break;
+			case AGENT_STOPPED_ENTRY:
+				flush();
+				add({ kind: "agent-stopped", key, data: entry.data as AgentStoppedData });
+				break;
 			case "pi.user":
 				flush();
 				add({ kind: "person", key, data: { text: userText(entry), references: [], attachments: [] } });
@@ -222,8 +237,8 @@ export function buildBlocks(view: TranscriptView | undefined, session: SessionDo
 	return withSpeakers(withLiveWork(blocks, running && session?.card === undefined), running);
 }
 
-/** What starts a turn of work: the person writing, an automatic continuation, or a card they answered. */
-const TURN_STARTS = new Set<Block["kind"]>(["person", "nudge", "questions", "plan", "report"]);
+/** What starts a turn of work: the person writing, an automatic continuation, a card they answered, or an agent's answer. */
+const TURN_STARTS = new Set<Block["kind"]>(["person", "nudge", "questions", "plan", "report", "agent-result"]);
 
 /** Where the newest turn starts among `blocks`, or -1 when its start is not loaded. */
 export function turnStart(blocks: readonly Block[]): number {

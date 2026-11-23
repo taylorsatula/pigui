@@ -29,6 +29,7 @@ import { NodeExecutionEnv } from "@earendil-works/pi-durable/env/node";
 import type { OnPrem } from "./config.ts";
 import { NO_PROMPT_ENV } from "./git.ts";
 import { type Access, Grants, type Sandbox } from "./sandbox.ts";
+import { agentSession } from "./subagents/extension.ts";
 
 /** Durable's shell for a command string, chosen here because the launcher, not Durable, starts it. */
 const SHELL = existsSync("/bin/bash") ? "/bin/bash" : "/bin/sh";
@@ -237,11 +238,13 @@ export type SessionEnvsOptions = {
 
 /**
  * Durable's `env` option: each session's environment, built at each use. Commands start in the conversation's cwd:
- * a repository session's clone, or a local session's chosen directory.
+ * a repository session's clone, or a local session's chosen directory. An agent's conversation is its session's for
+ * this, so the agent's commands run exactly where and as the session's own agent's do.
  */
-export function sessionEnvs(options: SessionEnvsOptions): (target: EnvTarget) => Promise<ExecutionEnv> {
-	return async ({ conversationId, cwd }) => {
-		const { workspace, scratch } = options.dirs(conversationId as number);
+export function sessionEnvs(options: SessionEnvsOptions): (target: EnvTarget, context: Context) => Promise<ExecutionEnv> {
+	return async ({ conversationId, cwd, read }, context) => {
+		const session = (await agentSession(read, conversationId, context)) ?? conversationId;
+		const { workspace, scratch } = options.dirs(session as number);
 		if (options.onPrem !== undefined) {
 			const { home } = options.onPrem;
 			return new SessionEnv({ cwd: cwd ?? workspace, home, tmp: tmpdir(), environment: personEnvironment(home) });

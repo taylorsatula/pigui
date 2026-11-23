@@ -5,9 +5,10 @@ import type { SessionDoc } from "../../shared/session.ts";
 import type { Logger } from "../log.ts";
 import type { Memory } from "../memory/store.ts";
 import type { Notifications } from "../notify.ts";
+import type { AgentFaults } from "../subagents/extension.ts";
 
 /** Test seams: points where a test can hold the code still to simulate a crash at an exact moment. */
-export type Faults = {
+export type Faults = AgentFaults & {
 	/** After a card's commit, before its tool parks. */
 	afterCard?: (context: Context) => Promise<void>;
 	/** At the start of the backstop's compaction hook; throwing leaves the compaction to Durable's built-in summarizer. */

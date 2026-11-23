@@ -8,7 +8,6 @@ import { SURFACE_MEMORIES } from "../memory/directives.ts";
 import { describeEndState, describePlan, SUBMIT_PLAN, UPDATE_PROGRESS } from "./plan.ts";
 import { ASK_MULTIPLE, ASK_SINGLE } from "./questions.ts";
 import { FILE_REPORT } from "./report.ts";
-import { projectContext, renderProjectContext, renderSkills, skillsAt } from "./resources.ts";
 import type { AgentServices } from "./services.ts";
 
 export const ATTACHMENTS_DIR = ".picloud/attachments";
@@ -161,16 +160,6 @@ export function promptSections(services: AgentServices): PromptSection[] {
 		section("session", async (input, context) => {
 			const doc = await session(input, context);
 			return doc?.id === undefined ? undefined : renderSession(doc, services.workingDir(doc));
-		}),
-		section("project_context", async (input, context) => {
-			const doc = await session(input, context);
-			if (doc?.id === undefined || doc.setup.status !== "ready") return undefined;
-			return renderProjectContext(projectContext(services.workingDir(doc), services.agentDir));
-		}),
-		section("skills", async (input, context) => {
-			const doc = await session(input, context);
-			if (doc?.id === undefined || doc.setup.status !== "ready") return undefined;
-			return renderSkills(skillsAt(services.workingDir(doc), services.agentDir));
 		}),
 		section("repo_memory", async (input, context) => {
 			const doc = await session(input, context);

@@ -1032,6 +1032,115 @@ implementation rather than duplicating it; a wrapper that shells out to `deploy/
 which cannot run the OnPrem steps on the server without a checkout there (the piped-from-curl path clones one and
 re-runs itself instead).
 
+## Subagents
+
+**Agents the person defines, each a Durable conversation driven by a Durable task.** Pi's `Agent` tool starts an agent
+from a Markdown file in the data directory; the agent works in a conversation of its own, in the foreground or the
+background, a set number at a time per session. Every mechanism is Pi Durable's, used as its README describes them:
+- **an agent** is a conversation (`createConversation`) owned by the task of its first run;
+- **one run** is a task of kind `picloud.agent` (`src/server/subagents/task.ts`, versioned), with an abort handler;
+- **the queue** is the session's own agent tasks: a run's first phase reads them with `scanTasks` and either submits
+  its prompt or commits a `waiting` state on the runs ahead of it, `policy: "any"`, and looks again when one ends;
+- **starting** submits the prompt with a `requestId` and `notify`, and sleeps on `SubmissionSettled`;
+- **the foreground** is a task the `Agent` call owns and parks on (`wait`, `allSettled`), so stopping the parent's run
+  stops the call, its task and the agent's run;
+- **the background** is a task its conversation owns, with `background: true`, which in the commit that ends it submits
+  the answer to the parent as an input (its own `requestId`, an `entry` the phone shows, `onAbort: "keep"`);
+- **steering** is a submission with `whenBusy: "steer"` and `whenIdle: "reject"`, **resuming** a new run on the same
+  conversation, **stopping** `abortTask()`, whose handler aborts the agent's run and, for the background, writes a
+  note with model content that the parent reads at its next boundary and that starts no run;
+- **watching** is the agent conversation's own `watch()` and its `pi.live`, `pi.usage` and `pi.agent`.
+
+Nothing of it lives in memory: a restart resumes parked calls, waiting and sleeping runs and the agents' own runs where
+they were. The extension (`picloud-subagents`, the parent's only) takes a small interface from picloud (the data
+directory, where a session works, where to write an agent's row) and imports nothing else of picloud's server; picloud
+calls it through `liveAgentTasks`, `stopAgents`, `stopAgent` and `agentSession`. *Alternatives:* porting pi-subagents'
+manager, queue, runner and completion outbox would keep agents and their order in one process's memory, which a
+restart loses, and would rebuild what Durable already does; a separate npm package buys nothing until something other
+than picloud uses it.
+
+**Foreground by default.** The parent's turn usually needs the answer before it goes on, and the report rule makes the
+background a deliberate choice. pi-subagents defaults to the background; this is the one place picloud differs on
+purpose.
+
+**An agent's id is its conversation's.** It stays the same across resumes, each a new task, so steering, resuming,
+stopping and the viewer all name one thing. The conversation is owned by the first run's task, and a task's input is
+fixed when it is created, before the conversation exists, so a first run finds its conversation through Durable's
+ownership index (`scanConversations` by owner) and records it in its checkpoint; a resumed run gets it in its input.
+A small conversation document, `picloud.agent`, holds the agent's session and current run: `env`, the project's
+prompt sections and the spend cap resolve an agent's conversation to its session through it, so an agent's commands run
+where and as its session's do, inside its sandbox.
+
+**The `agents` rows of a session's document are a view.** The phone cannot read Durable's task records, so each run
+writes its agent's row in the same commit as each change of its own state, as session rows are written into the
+index. Nothing decides from them but where an agent's conversation and current run are: the queue, the report rule,
+Stop and the supervisor read Durable's tasks.
+
+**Waiting one's turn: the free places go to the oldest runs waiting.** The brief's rule was to start when under the
+limit and no older run waits, and otherwise to wait on the running ones. Several `Agent` calls of one round create
+their runs in one go, and the younger can look first: under that rule it would wait for the older, which had not looked
+yet, and with nothing running it would have nothing to wait on. So a run starts when it is among the oldest waiting runs
+the free places cover, and otherwise waits for any of the runs ahead of it, running or covered, to end. Order stays
+oldest first, no run waits on a younger one, so the waits never form a cycle, and nothing is counted outside Durable's
+records.
+
+**A settings file that cannot be read starts nothing, and a run with nothing to wait for ends.** The file is never
+guessed at: `Agent` returns its error, and a waiting run that looks again while it is broken waits for the runs still
+going. When none is going, nothing in Durable could wake it, and only a poll of the file could, which picloud does not
+do; so such a run ends `failed` with the file's error, which the parent hears like any failure, and can be resumed
+once the file is fixed. *Alternative:* waiting for ever, which shows the person an agent queued with nothing to show
+why.
+
+**Dispatch happens once.** `Agent` is replay-safe. It creates its run, the agent's conversation, its configuration,
+its `picloud.agent` document and its row in one commit, then memoizes their ids. A rerun cut off between that commit
+and the memo looks for the run by the call's id in its input before creating one, so a crash never starts a second
+agent.
+
+**What an agent sees of the project is its own small extension.** `picloud-project` (the project's instructions and the
+spend-cap hook) is selected by the parent and every agent; `picloud-skills` (Pi's skills list) by the parent and by
+every agent whose definition does not say `skills: false`; `picloud`, the session's own tools and prompt, and
+`picloud-subagents` by the parent only, so agents neither ask, plan nor report, and start no agents. The sections render
+for the session's directory at each request, so the parent and its agents read the same text. Splitting them out moved
+`repo_memory` before the project's instructions in the parent's prompt; the preamble's "below" still holds. The
+subagent tools and the list of agents grew the parent's prompt by about 1k tokens, so the compaction tests' context
+windows grew by 1.5k to keep their scenarios. *Alternative:* the sections in picloud's extension, read by agents through
+a copy, which would be two renderings of one thing.
+
+**The cap counts and stops the whole session.** A session's spend is its own `pi.usage` and each agent's. The cap is
+checked after every round of the parent or of an agent; when it is reached, the task records it and tells the person
+first (one notification per cap), then stops every agent of the session, then ends its round's run. In an agent's
+round that stop includes the task's own run, so its last commit is refused and its abort handler ends it; the parent's
+own hook ends the parent's run at its next round. Stop and archiving stop the agents too.
+
+**The end of a turn with agents at work.** The report is refused while the session has an agent run that has not
+ended, since their answers would arrive after it. A run that ends with agents still at work records `waiting-agents`
+("Waiting on agents", in the working tone) and notifies no one; the first answer starts the next run, and the commit
+that sends it records that submission as the session's `activeRun`, so the supervisor follows it as any other. When the
+person stops the last agent of an idle session, the outcome becomes "Stopped", with Continue.
+
+**Definitions in pi-subagents' format, read when used.** The person's definitions are written for the Pi CLI and must
+work unchanged, so picloud accepts the fields whose meaning it gives: `name`, `description`, `tools`, `model`,
+`thinking`, `max_turns`; `prompt_mode` as `replace`, `extensions` as `false` and `skills` as `true` or `false`, which
+is what picloud does anyway; and `color` and `display_name`, which only decorate the CLI. Any other field, or another
+value of those three, refuses the agent with the field named, since it would change what the agent does in a way
+picloud does not. Without `tools` an agent gets every tool of the installed coding tools, read from the registry. A
+tool picloud does not have is left out, logged once, and named in the agent's line of the list the parent reads ("here
+it has read, bash; grep, find and ls are not available in picloud"), since the rest of the agent works as written; one
+with none of its tools is refused. Definitions and the setting are read at every use, so an edit applies with no
+restart and nothing caches them. *Alternative:* refusing an agent for any tool it names that picloud lacks, which would
+refuse the person's own definitions, written for a CLI with `grep`, `find` and `ls`.
+
+**picloud seeds the files itself.** At startup, when the data directory has no `agents/` folder, picloud copies the
+repository's bundled definitions into it, and writes the setting when it is missing; after that both are the person's.
+One step covers the installer, OnPrem and Docker alike. *Alternative:* each installer and the image doing it, three
+ways.
+
+**What the phone shows of an agent.** The session's live stream watches each agent's `pi.live`, `pi.usage` and
+`pi.agent` from the moment its row appears, for the panel and the spend; `/api/live?agent=` streams one agent's
+conversation for its viewer, refused for an agent of another session. A running row shows the tool the agent runs and
+the last line it printed, or "thinking" or "writing": a model-issued call's arguments are in its transcript entry, not
+in `pi.live`, and following every agent's transcript for one word of the panel would cost far more than it shows.
+
 ## Dependencies
 
 Pinned exactly, with the lockfile committed: the five `@earendil-works/*` packages at 1.6.0; `preact`, `marked` and

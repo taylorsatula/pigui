@@ -1,9 +1,11 @@
 // picloud's Durable documents. Everything picloud remembers lives here, changed in the same commits as the agent's own
 // state, so there is no second store to drift from it.
+import type { Context } from "@earendil-works/chord/context";
 import type { Draft } from "@earendil-works/chord/delta";
-import { type ConversationId, defineDoc, defineDocFamily, type Tx } from "@earendil-works/pi-durable";
+import { type ConversationId, defineDoc, defineDocFamily, type DocumentReader, type Tx } from "@earendil-works/pi-durable";
 import { type SessionDoc, type SessionIndex, sessionRow } from "../shared/session.ts";
 import { DIRECTIVE_VERSION } from "./memory/directives.ts";
+import { agentSession } from "./subagents/extension.ts";
 
 // Store a full base every 50 deltas, so loading a long-lived document never replays an unbounded chain.
 const checkpointWhen = (_value: unknown, _ops: unknown, info: { deltasSinceBase: number }): boolean => info.deltasSinceBase >= 50;
@@ -123,6 +125,16 @@ export async function editSession<T>(
 	const key = String(conversationId);
 	if (JSON.stringify(index.rows[key]) !== JSON.stringify(row)) index.rows[key] = row;
 	return result;
+}
+
+/**
+ * The session a conversation works for: its own document, or for an agent's conversation the session that started the
+ * agent, whose directory, project and spend cap the agent shares.
+ */
+export async function sessionFor(read: Pick<DocumentReader, "snapshot">, conversationId: ConversationId, context: Context): Promise<Readonly<SessionDoc> | undefined> {
+	const session = (await agentSession(read, conversationId, context)) ?? conversationId;
+	const doc = await read.snapshot(SessionDocToken, session, context);
+	return doc?.id === undefined ? undefined : doc;
 }
 
 /** The session's document as committed, or undefined for a conversation that is not a session. */

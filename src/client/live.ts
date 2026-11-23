@@ -1,6 +1,7 @@
-// The live connection: one streamed response carrying the drawer index and the open session. It applies Chord
-// operations to the values it holds, keeps the transcript in Durable's ConversationTranscript (which loads older
-// entries on demand and fills gaps), and reconnects on its own, asking only for what it missed.
+// The live connection: one streamed response carrying the drawer index and the open session, with its agents' state or,
+// in an agent's viewer, that agent's conversation. It applies Chord operations to the values it holds, keeps the
+// transcript in Durable's ConversationTranscript (which loads older entries on demand and fills gaps), and reconnects on
+// its own, asking only for what it missed.
 import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
 import { applyImmutable, type Op } from "@earendil-works/chord/delta";
 import {
@@ -18,11 +19,16 @@ import { store } from "./store.ts";
 
 export type Gap = Extract<TranscriptItem, { kind: "gap" }>;
 
-function loader(id: number): EntryLoader {
+/** What the stream follows: a session, and in an agent's viewer one of its agents. */
+type Followed = { session: number; agent?: number };
+
+function loader(followed: Followed): EntryLoader {
+	const id = followed.session;
 	return async (query, limit) => {
 		const params = new URLSearchParams({ limit: String(limit), order: query.order ?? "descending" });
 		if (query.minEntryId !== undefined) params.set("min", String(query.minEntryId));
 		if (query.maxEntryId !== undefined) params.set("max", String(query.maxEntryId));
+		if (followed.agent !== undefined) params.set("agent", String(followed.agent));
 		const response = await fetch(`/api/sessions/${id}/entries?${params}`);
 		if (!response.ok) throw new Error(`Loading history failed with ${response.status}`);
 		return (await response.json()) as Page<EntryRecord, Cursor>;
@@ -31,20 +37,21 @@ function loader(id: number): EntryLoader {
 
 class Live {
 	#controller: AbortController | undefined;
-	#session: number | undefined;
+	#followed: Followed | undefined;
 	#transcript: ConversationTranscript | undefined;
 	#view: ConversationView | undefined;
 	#retry = 0;
 	#timer: ReturnType<typeof setTimeout> | undefined;
 	#watchdog: ReturnType<typeof setTimeout> | undefined;
 
-	/** Follow `session` (or only the index); keeps what it has of a session it already follows. */
-	follow(session: number | undefined): void {
-		if (session !== this.#session) {
-			this.#session = session;
-			this.#transcript = session === undefined ? undefined : new ConversationTranscript(loader(session));
+	/** Follow `session`, or one of its agents (or only the index); keeps what it has of what it already follows. */
+	follow(session: number | undefined, agent?: number): void {
+		const followed = session === undefined ? undefined : agent === undefined ? { session } : { session, agent };
+		if (followed?.session !== this.#followed?.session || followed?.agent !== this.#followed?.agent) {
+			this.#followed = followed;
+			this.#transcript = followed === undefined ? undefined : new ConversationTranscript(loader(followed));
 			this.#view = undefined;
-			store.set({ session: undefined, view: undefined, missing: false });
+			store.set({ session: undefined, view: undefined, agents: {}, missing: false });
 		}
 		this.#connect();
 	}
@@ -74,8 +81,9 @@ class Live {
 		const controller = new AbortController();
 		this.#controller = controller;
 		const params = new URLSearchParams();
-		if (this.#session !== undefined) {
-			params.set("session", String(this.#session));
+		if (this.#followed !== undefined) {
+			params.set("session", String(this.#followed.session));
+			if (this.#followed.agent !== undefined) params.set("agent", String(this.#followed.agent));
 			const from = this.#transcript?.resume?.from;
 			if (from !== undefined) params.set("from", String(from));
 		}
@@ -94,6 +102,12 @@ class Live {
 
 	async #read(controller: AbortController, params: URLSearchParams): Promise<void> {
 		const response = await fetch(`/api/live?${params}`, { signal: controller.signal });
+		if (response.status === 404) {
+			// What it asked for is not there, such as an agent of another session: nothing to come back for.
+			this.#controller = undefined;
+			store.set({ missing: true });
+			return;
+		}
 		if (!response.ok || response.body === null) throw new Error(`Live stream failed with ${response.status}`);
 		this.#arm(controller);
 		this.#retry = 0;
@@ -135,6 +149,18 @@ class Live {
 				this.#view = applyImmutable(this.#view, message.ops as Op[]);
 				this.#merge();
 				return;
+			case "agent-doc": {
+				const { agent, doc, value } = message;
+				store.set((state) => ({ agents: { ...state.agents, [agent]: { ...state.agents[agent], [doc]: value } } }));
+				return;
+			}
+			case "agent-doc-ops": {
+				const { agent, doc, ops } = message;
+				const value = store.get().agents[agent]?.[doc];
+				if (value === undefined) return;
+				store.set((state) => ({ agents: { ...state.agents, [agent]: { ...state.agents[agent], [doc]: applyImmutable(value, ops as Op[]) } } }));
+				return;
+			}
 			case "missing":
 				store.set({ missing: true });
 				return;

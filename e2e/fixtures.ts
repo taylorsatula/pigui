@@ -23,6 +23,8 @@ type ServerOptions = { tokensPerSecond: number; memory: "on" | "off"; onPrem: bo
 
 export class FakeServer {
 	readonly url: string;
+	/** The server's data directory, where a test can put the files the person edits over SSH. */
+	readonly dataDir: string;
 	/** OnPrem's stand-in for the person's home directory. */
 	readonly home: string | undefined;
 	readonly #env: NodeJS.ProcessEnv;
@@ -32,6 +34,7 @@ export class FakeServer {
 	private constructor(port: number, dataDir: string, agentDir: string, home: string | undefined, options: ServerOptions) {
 		// OnPrem is opened as the installer opens it, at localhost.
 		this.url = `http://${options.onPrem ? "localhost" : "127.0.0.1"}:${port}`;
+		this.dataDir = dataDir;
 		this.home = home;
 		this.#dirs = [dataDir, agentDir, ...(home === undefined ? [] : [home])];
 		this.#env = {

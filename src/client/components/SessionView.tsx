@@ -4,13 +4,14 @@ import type { LiveState, UsageState } from "@earendil-works/pi-durable";
 import type { JSX } from "preact";
 import { useCallback, useEffect, useMemo, useState } from "preact/hooks";
 import { runFailureText, type SessionDoc, sessionRow } from "../../shared/session.ts";
-import { formatDollars, spentOf } from "../../shared/spend.ts";
+import { formatDollars, sessionSpent } from "../../shared/spend.ts";
 import { api, describeFailure } from "../api.ts";
 import { shortDir } from "../format.ts";
 import { stopReading } from "../speech.ts";
 import { navigate, showToast, useStore } from "../store.ts";
 import { buildBlocks } from "../transcript.ts";
 import { pinToEnd } from "../viewport.ts";
+import { AgentsButton, AgentsPanel } from "./Agents.tsx";
 import type { CardActions, DeliveryActions } from "./Cards.tsx";
 import { Composer, ComposerDock } from "./Composer.tsx";
 import { DiffSheet } from "./Diff.tsx";
@@ -94,6 +95,7 @@ function Banner(props: { doc: SessionDoc; spent: number; running: boolean; onAct
 					</button>
 				</div>
 			);
+		case "waiting-agents":
 		case "replied":
 		case "reported":
 			return null;
@@ -105,8 +107,10 @@ export function SessionView(props: { id: number }): JSX.Element {
 	const view = useStore((state) => state.view);
 	const missing = useStore((state) => state.missing);
 	const home = useStore((state) => state.bootstrap?.onPrem?.home);
+	const agents = useStore((state) => state.agents);
 	const [focus, setFocus] = useState(0);
 	const [diff, setDiff] = useState(false);
+	const [agentsOpen, setAgentsOpen] = useState(false);
 	const doc = session?.id === props.id ? session : undefined;
 	const live = view?.docs["pi.live"] as LiveState | undefined;
 	// Durable's run, and picloud's until the supervisor has handled its end: in the commit between, a run that ends in
@@ -115,7 +119,11 @@ export function SessionView(props: { id: number }): JSX.Element {
 	const blocks = useMemo(() => buildBlocks(view, doc, running), [view, doc, running]);
 	// A reading belongs to the session on screen: leaving it stops the reading, while locking the phone does not.
 	useEffect(() => () => stopReading(), []);
-	const spent = spentOf(view?.docs["pi.usage"] as UsageState | undefined);
+	// The whole session's: its own agent's, and every agent it started.
+	const spent = sessionSpent(
+		view?.docs["pi.usage"] as UsageState | undefined,
+		(doc?.agents ?? []).map((agent) => agents[agent.id]?.["pi.usage"]),
+	);
 
 	const act = useCallback((work: () => Promise<unknown>) => {
 		work().catch((error: unknown) => {
@@ -213,6 +221,7 @@ export function SessionView(props: { id: number }): JSX.Element {
 							<Icon name="diff" />
 						</button>
 					) : null}
+					<AgentsButton doc={doc} open={agentsOpen} onToggle={() => setAgentsOpen((open) => !open)} />
 					<button type="button" class="icon-button" aria-label="Archive session" onClick={archive}>
 						<Icon name="archive" />
 					</button>
@@ -244,6 +253,7 @@ export function SessionView(props: { id: number }): JSX.Element {
 				/>
 			</ComposerDock>
 			{diff ? <DiffSheet session={props.id} onClose={() => setDiff(false)} /> : null}
+			{agentsOpen ? <AgentsPanel doc={doc} onClose={() => setAgentsOpen(false)} /> : null}
 		</div>
 	);
 }
