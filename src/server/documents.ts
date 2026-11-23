@@ -1,9 +1,11 @@
 // pigui's Durable documents. Everything pigui remembers lives here, changed in the same commits as the agent's own
 // state, so there is no second store to drift from it.
+import type { Context } from "@earendil-works/chord/context";
 import type { Draft } from "@earendil-works/chord/delta";
-import { type ConversationId, defineDoc, defineDocFamily, type Tx } from "@earendil-works/pi-durable";
+import { type ConversationId, defineDoc, defineDocFamily, type DocumentReader, type Tx } from "@earendil-works/pi-durable";
 import { type SessionDoc, type SessionIndex, sessionRow } from "../shared/session.ts";
 import { DIRECTIVE_VERSION } from "./memory/directives.ts";
+import { agentSession } from "./subagents/task.ts";
 
 // Store a full base every 50 deltas, so loading a long-lived document never replays an unbounded chain.
 const checkpointWhen = (_value: unknown, _ops: unknown, info: { deltasSinceBase: number }): boolean => info.deltasSinceBase >= 50;
@@ -142,4 +144,18 @@ export function handledRequest(doc: Draft<SessionDoc>, requestId: string): strin
 export function rememberRequest(doc: Draft<SessionDoc>, requestId: string, result: string, now: number): void {
 	doc.requests.push({ id: requestId, at: now, result });
 	if (doc.requests.length > REQUEST_MEMORY) doc.requests.splice(0, doc.requests.length - REQUEST_MEMORY);
+}
+
+/**
+ * The session a conversation works for: its own document, or for an agent's conversation the session that started the
+ * agent — whose directory, project and spend cap the agent shares.
+ */
+export async function sessionFor(
+	read: Pick<DocumentReader, "snapshot">,
+	conversationId: ConversationId,
+	context: Context,
+): Promise<Readonly<SessionDoc> | undefined> {
+	const session = (await agentSession(read, conversationId, context)) ?? conversationId;
+	const doc = await read.snapshot(SessionDocToken, session, context);
+	return doc?.id === undefined ? undefined : doc;
 }
