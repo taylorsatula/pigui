@@ -55,12 +55,20 @@ for name in "$@"; do
 	[[ " ${SETS[*]} " == *" $name "* ]] || { echo "There is no model set '$name'; the sets are: ${SETS[*]}." >&2; exit 2; }
 done
 
-# sha256sum where there is one (Linux); macOS has shasum instead, which reads the same checksum lines.
-if command -v sha256sum >/dev/null; then
+# sha256sum where there is one that understands --check --status (Linux); macOS ships a /sbin/sha256sum without
+# --status, so there shasum does the checking, which reads the same checksum lines.
+probe=$(mktemp)
+printf x >"$probe"
+if command -v sha256sum >/dev/null && echo "$(sha256sum "$probe" | cut -d' ' -f1)  $probe" | sha256sum --check --status >/dev/null 2>&1; then
 	sha256() { sha256sum "$@"; }
-else
+elif command -v shasum >/dev/null; then
 	sha256() { shasum -a 256 "$@"; }
+else
+	rm -f "$probe"
+	echo "picloud needs sha256sum or shasum to check the models it downloads." >&2
+	exit 1
 fi
+rm -f "$probe"
 matches() { echo "$1  $2" | sha256 --check --status 2>/dev/null; }
 
 fetch() {
