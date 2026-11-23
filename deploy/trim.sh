@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Trim a machine that does nothing but run picloud, set up by the installer or with Docker, so more of a small
+# Trim a machine that does nothing but run pigui, set up by the installer or with Docker, so more of a small
 # droplet is left for the agent's builds and tests:
 #   - stop and mask services such a machine never uses (units a system does not have are skipped);
 #   - add a swap file, so a test run that spikes past memory slows down instead of being killed;
@@ -11,8 +11,8 @@
 #   sudo deploy/trim.sh [options]
 #
 # Options (each may also be given as the environment variable in brackets):
-#   --dry-run       show every step without changing anything               [PICLOUD_DRY_RUN=1]
-#   --swap SIZE     swap file size, such as 2G or 512M; 0 for none (2G)     [PICLOUD_SWAP]
+#   --dry-run       show every step without changing anything               [PIGUI_DRY_RUN=1]
+#   --swap SIZE     swap file size, such as 2G or 512M; 0 for none (2G)     [PIGUI_SWAP]
 #   -h, --help      show this help
 set -euo pipefail
 
@@ -20,8 +20,8 @@ readonly SWAP_FILE=/swapfile
 readonly JOURNAL_CAP=200M
 readonly SOURCE_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 
-DRY_RUN=${PICLOUD_DRY_RUN:-0}
-SWAP=${PICLOUD_SWAP:-2G}
+DRY_RUN=${PIGUI_DRY_RUN:-0}
+SWAP=${PIGUI_SWAP:-2G}
 
 usage() { sed -n '2,16p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; }
 
@@ -41,7 +41,7 @@ done
 # Units that go, a group per line with why it can go. Masked rather than disabled, because several are started on
 # demand over D-Bus, which disabling does not stop.
 readonly UNUSED=(
-	"snapd.service snapd.socket snapd.seeded.service|snap packages: nothing picloud uses comes from one"
+	"snapd.service snapd.socket snapd.seeded.service|snap packages: nothing pigui uses comes from one"
 	"multipathd.service multipathd.socket|multipath storage, which a droplet's disk does not use"
 	"iscsid.socket iscsid.service open-iscsi.service|iSCSI disks"
 	"ModemManager.service|mobile modems"
@@ -114,17 +114,17 @@ fi
 if [[ $SWAP != 0 ]]; then
 	# A minimal system may have no /etc/sysctl.d, with its defaults in /usr/lib/sysctl.d only.
 	run install -d -m 0755 /etc/sysctl.d
-	write_file /etc/sysctl.d/90-picloud.conf 0644 root:root <<EOF
+	write_file /etc/sysctl.d/90-pigui.conf 0644 root:root <<EOF
 # Swap only under memory pressure: it catches a test run's spike without slowing everyday work. From deploy/trim.sh.
 vm.swappiness=10
 EOF
-	run sysctl -q -p /etc/sysctl.d/90-picloud.conf
+	run sysctl -q -p /etc/sysctl.d/90-pigui.conf
 fi
 
 step "Cap the system journal at $JOURNAL_CAP"
 run install -d -m 0755 /etc/systemd/journald.conf.d
-write_file /etc/systemd/journald.conf.d/90-picloud.conf 0644 root:root <<EOF
-# picloud logs every request; this keeps the journal from filling a small disk. From deploy/trim.sh.
+write_file /etc/systemd/journald.conf.d/90-pigui.conf 0644 root:root <<EOF
+# pigui logs every request; this keeps the journal from filling a small disk. From deploy/trim.sh.
 [Journal]
 SystemMaxUse=$JOURNAL_CAP
 EOF
@@ -134,5 +134,5 @@ step "Status"
 note "memory: $(memory)"
 printf '\n== To undo\n'
 [[ ${#masked[@]} -gt 0 ]] && note "sudo systemctl unmask ${masked[*]}, then reboot"
-note "swap: sudo swapoff $SWAP_FILE, delete it and its line in /etc/fstab, and /etc/sysctl.d/90-picloud.conf"
-note "journal: delete /etc/systemd/journald.conf.d/90-picloud.conf and restart systemd-journald"
+note "swap: sudo swapoff $SWAP_FILE, delete it and its line in /etc/fstab, and /etc/sysctl.d/90-pigui.conf"
+note "journal: delete /etc/systemd/journald.conf.d/90-pigui.conf and restart systemd-journald"

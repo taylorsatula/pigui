@@ -1,5 +1,5 @@
 // Speech synthesis with Kokoro-82M through kokoro-js: the 8-bit model on the CPU, in the af_heart voice. kokoro-js is an
-// optional dependency that a build leaves out with PICLOUD_SPEECH=off, so it is imported only where it is installed.
+// optional dependency that a build leaves out with PIGUI_SPEECH=off, so it is imported only where it is installed.
 // deploy/models.sh bakes the model into the app's models directory; the voice ships inside kokoro-js, which reads
 // it from its own package in Node. At runtime nothing touches the network or writes a cache (see transformers.ts): the
 // container's root is read-only.
@@ -60,7 +60,7 @@ function trimSilence(samples: Float32Array, rate: number): Float32Array {
 }
 
 /**
- * Kokoro, about 600 MB resident while loaded (in about 0.7 s on two vCPU), held as PICLOUD_MODELS_UNLOAD says, reading
+ * Kokoro, about 600 MB resident while loaded (in about 0.7 s on two vCPU), held as PIGUI_MODELS_UNLOAD says, reading
  * one text at a time: on two CPUs a second synthesis would only slow the first.
  */
 export function kokoroSynthesizer(log: Logger, unloadAfterMs: number | undefined): Synthesizer {

@@ -113,7 +113,7 @@ export function SessionView(props: { id: number }): JSX.Element {
 	const [agentsOpen, setAgentsOpen] = useState(false);
 	const doc = session?.id === props.id ? session : undefined;
 	const live = view?.docs["pi.live"] as LiveState | undefined;
-	// Durable's run, and picloud's until the supervisor has handled its end: in the commit between, a run that ends in
+	// Durable's run, and pigui's until the supervisor has handled its end: in the commit between, a run that ends in
 	// an automatic continuation would otherwise read as stopped for a moment.
 	const running = live?.run !== undefined || doc?.activeRun !== undefined;
 	const blocks = useMemo(() => buildBlocks(view, doc, running), [view, doc, running]);

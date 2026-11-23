@@ -1,15 +1,15 @@
-// picloud-sandbox: run one program confined by Landlock to the paths it is given. picloud starts every agent command
+// pigui-sandbox: run one program confined by Landlock to the paths it is given. pigui starts every agent command
 // through it, so a command can reach its session's workspace, home and tmp, and read the system, and nothing else.
 //
-//   picloud-sandbox [--ro PATH]... [--rw PATH]... -- PROGRAM [ARGS]...
-//   picloud-sandbox --abi
+//   pigui-sandbox [--ro PATH]... [--rw PATH]... -- PROGRAM [ARGS]...
+//   pigui-sandbox --abi
 //
 // --ro grants reading and executing below PATH, --rw grants every right. Paths that do not exist are skipped, so a
 // policy can name directories some machines lack (/lib32, a skills directory not created yet), and so are paths this
 // user cannot open, which stay out of reach either way. Every filesystem right the running kernel knows is handled, as
 // the kernel's samples/landlock/sandboxer.c does, so a newer kernel restricts more without a rebuild. From ABI 6,
 // signals and abstract unix sockets are scoped to the command's own processes. TCP is left alone. --abi prints the
-// kernel's Landlock ABI, for picloud's startup check.
+// kernel's Landlock ABI, for pigui's startup check.
 //
 // Exit codes follow env(1): 125 when the sandbox cannot be set up, 126 when PROGRAM cannot run, 127 when it is not
 // found. Otherwise the exit code is PROGRAM's.
@@ -74,8 +74,8 @@ struct ruleset_attr {
 	(LANDLOCK_ACCESS_FS_EXECUTE | LANDLOCK_ACCESS_FS_WRITE_FILE | LANDLOCK_ACCESS_FS_READ_FILE |                       \
 	 LANDLOCK_ACCESS_FS_TRUNCATE | LANDLOCK_ACCESS_FS_IOCTL_DEV)
 
-static const char USAGE[] = "usage: picloud-sandbox [--ro PATH]... [--rw PATH]... -- PROGRAM [ARGS]...\n"
-			    "       picloud-sandbox --abi\n";
+static const char USAGE[] = "usage: pigui-sandbox [--ro PATH]... [--rw PATH]... -- PROGRAM [ARGS]...\n"
+			    "       pigui-sandbox --abi\n";
 
 static int landlock_abi(void) {
 	return (int)syscall(__NR_landlock_create_ruleset, NULL, 0, LANDLOCK_CREATE_RULESET_VERSION);
@@ -83,7 +83,7 @@ static int landlock_abi(void) {
 
 static void unavailable(void) {
 	fprintf(stderr,
-		"picloud-sandbox: Landlock is not available (%s). It needs Linux 5.13 or later with Landlock enabled; "
+		"pigui-sandbox: Landlock is not available (%s). It needs Linux 5.13 or later with Landlock enabled; "
 		"Debian 13's kernel has it.\n",
 		strerror(errno));
 }
@@ -94,19 +94,19 @@ static int allow(int ruleset, const char *path, __u64 access) {
 	int fd = open(path, O_PATH | O_CLOEXEC);
 	if (fd < 0) {
 		if (errno == ENOENT || errno == ENOTDIR || errno == EACCES) return 0;
-		fprintf(stderr, "picloud-sandbox: cannot open %s: %s\n", path, strerror(errno));
+		fprintf(stderr, "pigui-sandbox: cannot open %s: %s\n", path, strerror(errno));
 		return -1;
 	}
 	struct stat info;
 	if (fstat(fd, &info) != 0) {
-		fprintf(stderr, "picloud-sandbox: cannot stat %s: %s\n", path, strerror(errno));
+		fprintf(stderr, "pigui-sandbox: cannot stat %s: %s\n", path, strerror(errno));
 		close(fd);
 		return -1;
 	}
 	if (!S_ISDIR(info.st_mode)) access &= ACCESS_FILE;
 	struct landlock_path_beneath_attr rule = {.allowed_access = access, .parent_fd = fd};
 	int result = (int)syscall(__NR_landlock_add_rule, ruleset, LANDLOCK_RULE_PATH_BENEATH, &rule, 0);
-	if (result != 0) fprintf(stderr, "picloud-sandbox: cannot allow %s: %s\n", path, strerror(errno));
+	if (result != 0) fprintf(stderr, "pigui-sandbox: cannot allow %s: %s\n", path, strerror(errno));
 	close(fd);
 	return result;
 }
@@ -158,7 +158,7 @@ int main(int argc, char *argv[]) {
 
 	int ruleset = (int)syscall(__NR_landlock_create_ruleset, &attr, sizeof(attr), 0);
 	if (ruleset < 0) {
-		fprintf(stderr, "picloud-sandbox: cannot create a Landlock ruleset: %s\n", strerror(errno));
+		fprintf(stderr, "pigui-sandbox: cannot create a Landlock ruleset: %s\n", strerror(errno));
 		return 125;
 	}
 	for (int index = 1; index < program - 1; index += 2) {
@@ -167,16 +167,16 @@ int main(int argc, char *argv[]) {
 	}
 	// Without no_new_privs an unprivileged process may not restrict itself, and a setuid program could escape.
 	if (prctl(PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0) != 0) {
-		fprintf(stderr, "picloud-sandbox: cannot set no_new_privs: %s\n", strerror(errno));
+		fprintf(stderr, "pigui-sandbox: cannot set no_new_privs: %s\n", strerror(errno));
 		return 125;
 	}
 	if (syscall(__NR_landlock_restrict_self, ruleset, 0) != 0) {
-		fprintf(stderr, "picloud-sandbox: cannot restrict itself: %s\n", strerror(errno));
+		fprintf(stderr, "pigui-sandbox: cannot restrict itself: %s\n", strerror(errno));
 		return 125;
 	}
 	close(ruleset);
 
 	execvp(argv[program], &argv[program]);
-	fprintf(stderr, "picloud-sandbox: %s: %s\n", argv[program], strerror(errno));
+	fprintf(stderr, "pigui-sandbox: %s: %s\n", argv[program], strerror(errno));
 	return errno == ENOENT ? 127 : 126;
 }

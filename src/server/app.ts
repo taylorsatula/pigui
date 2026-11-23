@@ -1,4 +1,4 @@
-// Assembles picloud: one Harness over one SQLite storage, the extensions it runs, and the HTTP server in front. Tests
+// Assembles pigui: one Harness over one SQLite storage, the extensions it runs, and the HTTP server in front. Tests
 // build the server through `startApp` exactly as `main.ts` does, with fake mode and a temporary data directory.
 import type { AddressInfo } from "node:net";
 import { mkdir } from "node:fs/promises";
@@ -11,7 +11,7 @@ import { createFitImagesExtension } from "@earendil-works/pi-durable/images/fit"
 import { createNodePhotonImages } from "@earendil-works/pi-durable/images/node";
 import { openNodeSqliteStorage } from "@earendil-works/pi-durable/storage/sqlite/node";
 import { createCodingTools } from "@earendil-works/pi-durable/tools";
-import { picloudAgent } from "./agent/extension.ts";
+import { piguiAgent } from "./agent/extension.ts";
 import { projectExtension, skillsExtension } from "./agent/project.ts";
 import { BUNDLED_SKILLS } from "./agent/resources.ts";
 import type { AgentServices, Faults } from "./agent/services.ts";
@@ -57,13 +57,13 @@ export type AppOptions = {
 	fakeModel?: ScriptedModelOptions;
 	log?: Logger;
 	faults?: Faults;
-	/** The clock picloud stamps its records with; tests move it to make sessions old. */
+	/** The clock pigui stamps its records with; tests move it to make sessions old. */
 	now?: () => number;
 	/** Where the built client is; default `dist/public` beside the sources. */
 	staticDir?: string;
 	/**
-	 * Check who opened each connection (see callers.ts): on a server, refuse picloud's own user; in OnPrem on Linux,
-	 * allow only it and root (tailscaled). On in real mode; off in fake mode, where tests connect as picloud's own user.
+	 * Check who opened each connection (see callers.ts): on a server, refuse pigui's own user; in OnPrem on Linux,
+	 * allow only it and root (tailscaled). On in real mode; off in fake mode, where tests connect as pigui's own user.
 	 */
 	checkCallers?: boolean;
 	/**
@@ -96,19 +96,19 @@ export async function startApp(options: AppOptions): Promise<App> {
 	// OnPrem runs agent commands as the person, so there is nothing to open.
 	const sandbox = config.onPrem === undefined ? await openSandbox({ enabled: config.sandbox, fake: config.fake, log }) : undefined;
 	const paths = {
-		database: join(config.dataDir, "picloud.sqlite"),
+		database: join(config.dataDir, "pigui.sqlite"),
 		workspaces: join(config.dataDir, "workspaces"),
 		uploads: join(config.dataDir, "uploads"),
 		backups: join(config.dataDir, "backups"),
 		sandbox: join(config.dataDir, "sandbox"),
 	};
 	for (const dir of [config.dataDir, paths.workspaces, paths.uploads, paths.backups]) await mkdir(dir, { recursive: true });
-	// Seeded here, for every way picloud is installed; once there, both are the person's to edit.
+	// Seeded here, for every way pigui is installed; once there, both are the person's to edit.
 	await seedAgents(config.dataDir, join(import.meta.dirname, "..", "..", "agents"));
 	await seedSettings(config.dataDir);
-	/** picloud's own directory for a session: a repository session's clone, and every session's attachments. */
+	/** pigui's own directory for a session: a repository session's clone, and every session's attachments. */
 	const workspace = (id: number) => join(paths.workspaces, String(id));
-	/** A session's own home, tmp and gh configuration, which its commands get instead of picloud's (not in OnPrem). */
+	/** A session's own home, tmp and gh configuration, which its commands get instead of pigui's (not in OnPrem). */
 	const scratch = (id: number) => join(paths.sandbox, String(id));
 	/** Where the agent works: a repository session's clone, or the directory a local session chose. */
 	const workingDir = (doc: Readonly<SessionDoc>) => (doc.place === "local" ? doc.dir : workspace(doc.id));
@@ -177,12 +177,12 @@ export async function startApp(options: AppOptions): Promise<App> {
 
 	const registry = createRegistry();
 	const coding = createCodingTools({ images });
-	const session = picloudAgent(services);
+	const session = piguiAgent(services);
 	const skills = skillsExtension(services);
 	registry.install(coding);
 	registry.install(createFitImagesExtension(images));
 	registry.install(session);
-	registry.install(defineExtension({ name: "picloud-sessions", tasks: [sessions.setupTask, notifications.task, maintenance.task] }));
+	registry.install(defineExtension({ name: "pigui-sessions", tasks: [sessions.setupTask, notifications.task, maintenance.task] }));
 	registry.install(projectExtension(services));
 	registry.install(skills);
 	registry.install(
@@ -197,7 +197,7 @@ export async function startApp(options: AppOptions): Promise<App> {
 			skills,
 			place: async (id, read, context) => {
 				const doc = await read.snapshot(SessionDocToken, id, context);
-				if (doc?.id === undefined) throw new Error("Agents are started by a picloud session.");
+				if (doc?.id === undefined) throw new Error("Agents are started by a pigui session.");
 				const dir = workingDir(doc);
 				// A local session's directory may be a repository, on whatever branch the person left it.
 				const branch = doc.place === "repo" ? doc.branch : await currentBranch(dir).catch(() => undefined);
@@ -240,8 +240,8 @@ export async function startApp(options: AppOptions): Promise<App> {
 		{
 			models: pi.models,
 			registry,
-			identity: { attribution: { name: "picloud", url: "https://github.com/taylorsatula/picloud" } },
-			// Durable's defaults otherwise, so a change to them reaches picloud. Fake mode fails fast, so a scripted model
+			identity: { attribution: { name: "pigui", url: "https://github.com/taylorsatula/pigui" } },
+			// Durable's defaults otherwise, so a change to them reaches pigui. Fake mode fails fast, so a scripted model
 			// failure ends its run in milliseconds.
 			...(config.fake ? { settings: { retry: { maxRetries: 1, baseDelayMs: 10 } } } : {}),
 			env,
@@ -258,8 +258,8 @@ export async function startApp(options: AppOptions): Promise<App> {
 		context,
 	);
 	// The drawer's document exists from the start, so a phone can watch it before the first session. Its rows are a
-	// projection of each session, recomputed here so rows an earlier picloud wrote take the current shape. Sessions
-	// an earlier picloud created with a turn limit lose it: a run takes as many tool rounds as its work needs. Sessions
+	// projection of each session, recomputed here so rows an earlier pigui wrote take the current shape. Sessions
+	// an earlier pigui created with a turn limit lose it: a run takes as many tool rounds as its work needs. Sessions
 	// from before local sessions were all repository sessions, and say so from here on.
 	await opened.commit(async (tx) => {
 		const index = await tx.doc(SessionIndexToken);
@@ -327,9 +327,9 @@ export async function startApp(options: AppOptions): Promise<App> {
 }
 
 /**
- * The caller check, when on. OnPrem allows only picloud's own user and root (tailscaled) where the kernel's socket
+ * The caller check, when on. OnPrem allows only pigui's own user and root (tailscaled) where the kernel's socket
  * table says who that is, on Linux; elsewhere it checks no caller, and any user of the computer can reach it (README,
- * "PiCloud OnPrem").
+ * "PiGUI OnPrem").
  */
 function callers(on: boolean, onPrem: boolean): { callerCheck?: ReturnType<typeof callerCheck> } {
 	if (!on) return {};

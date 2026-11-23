@@ -15,8 +15,8 @@ import { checkpoints, context, modelText, TestServer, type TestOptions } from ".
 
 /**
  * Context windows for the [long] scenario, whose builds print about 4k tokens each beside a system prompt of about 6k:
- * picloud's own, its bundled skills (about 1k) and the subagent tools with the list of agents (about 1k). The trigger
- * sits between Durable's thresholds and the agent's start, so these are calibrated by the scenario: at 26.5k picloud
+ * pigui's own, its bundled skills (about 1k) and the subagent tools with the list of agents (about 1k). The trigger
+ * sits between Durable's thresholds and the agent's start, so these are calibrated by the scenario: at 26.5k pigui
  * compacts once, after the second build; at 21.5k after each build; at 35.5k the [backstop] flood starts Durable's
  * background compaction and the next build its blocking one.
  */
@@ -74,9 +74,9 @@ async function contextAfter(server: TestServer, id: number, entries: readonly En
 }
 
 describe("compaction", () => {
-	test("picloud asks for a handoff note at the trigger, compacts after it, and the run reaches its report on its own", async () => {
+	test("pigui asks for a handoff note at the trigger, compacts after it, and the run reaches its report on its own", async () => {
 		// An unusable summarizer model falls back to the session's.
-		const server = await start({ fakeModel: { contextWindow: ONE_COMPACTION }, env: { PICLOUD_COMPACTION_MODEL: "nowhere/none" } });
+		const server = await start({ fakeModel: { contextWindow: ONE_COMPACTION }, env: { PIGUI_COMPACTION_MODEL: "nowhere/none" } });
 		try {
 			const id = await server.createSession("Add a shout() function [long]");
 			await server.approveThrough(id);
@@ -100,7 +100,7 @@ describe("compaction", () => {
 			assert.ok(order.every((index) => index >= 0));
 			assert.equal(entries.filter((entry) => entry.kind === "pi.compaction").length, 0, "Durable's backstop never ran");
 			assert.equal(done.outcome?.kind, "reported");
-			assert.deepEqual(done.words.map((word) => word.kind), ["task", "answer", "approval"], "picloud's steers are not the person's words");
+			assert.deepEqual(done.words.map((word) => word.kind), ["task", "answer", "approval"], "pigui's steers are not the person's words");
 			assert.equal(done.continuations, 0);
 			assert.equal(done.handoff?.compactions, 1);
 			assert.equal(done.handoff?.requestedAt, undefined, "the cycle ended");
@@ -168,7 +168,7 @@ describe("compaction", () => {
 			const entries = await server.entries(id);
 			const [marker] = markers(entries);
 			assert.equal(dataOf(marker!).selection, "fallback");
-			assert.match(modelText(marker!), /\(picloud: The summarizer's cut, entry \d+, is not one of the valid cuts it was shown\. The context continues from entry \d+\.\)/);
+			assert.match(modelText(marker!), /\(pigui: The summarizer's cut, entry \d+, is not one of the valid cuts it was shown\. The context continues from entry \d+\.\)/);
 			// The earliest cut keeps the most the cap allows: here from the first build's progress mark.
 			assert.match(callIn(entries.find((entry) => entry.id === marker!.head))?.id ?? "", /^progress-1:/);
 			assert.equal(done.outcome?.kind, "reported");
@@ -245,7 +245,7 @@ describe("compaction", () => {
 		}
 	});
 
-	test("a restart during picloud's compaction makes one summarizer call and places one marker and one resume turn", async () => {
+	test("a restart during pigui's compaction makes one summarizer call and places one marker and one resume turn", async () => {
 		let summaries = 0;
 		let holding = false;
 		let reached!: () => void;
@@ -291,7 +291,7 @@ describe("compaction", () => {
 				const [marker] = markers(await server.entries(id));
 				const text = modelText(marker!);
 				assert.equal(dataOf(marker!).selection, "fallback");
-				assert.match(text, /\(picloud: the working state was not updated at this compaction \(.+\); it is the previous one, carried forward unchanged\.\)/);
+				assert.match(text, /\(pigui: the working state was not updated at this compaction \(.+\); it is the previous one, carried forward unchanged\.\)/);
 				assert.match(text, /No working state has been written yet\./);
 				assert.ok(text.includes(`[Task]\n"""\nAdd a shout() function [long] ${directive}\n"""`));
 				assert.match(text, /## Repository, computed at compaction\nOn branch pi\//);
@@ -321,7 +321,7 @@ describe("compaction", () => {
 		}
 	});
 
-	test("the backstop: a round that passes Durable's thresholds at once is compacted by Durable, with picloud's checkpoint", async () => {
+	test("the backstop: a round that passes Durable's thresholds at once is compacted by Durable, with pigui's checkpoint", async () => {
 		const server = await start({ fakeModel: { contextWindow: ONE_COMPACTION } });
 		try {
 			const id = await server.createSession("Add a shout() function [long] [backstop]");
@@ -330,7 +330,7 @@ describe("compaction", () => {
 			const entries = await server.entries(id);
 			const durable = entries.findIndex((entry) => entry.kind === "pi.compaction");
 			assert.ok(durable >= 0, "Durable compacted");
-			assert.ok(modelText(entries[durable]!).includes(CHECKPOINT_HEADER), "with picloud's checkpoint as its summary");
+			assert.ok(modelText(entries[durable]!).includes(CHECKPOINT_HEADER), "with pigui's checkpoint as its summary");
 			assert.ok(!entries.slice(0, durable).some((entry) => entry.kind === COMPACTION_NOTE_ENTRY), "no handoff was asked for first");
 			// Its cut is the summarizer's own, so no marker moves it; the cycle compacts again later as usual.
 			assert.ok(markers(entries).every((marker) => dataOf(marker).durableCut === undefined));
@@ -357,7 +357,7 @@ describe("compaction", () => {
 			await server.approveThrough(id);
 			const failed = await server.settled(id, "the failed run", 60_000);
 			assert.equal(failed.outcome?.kind, "failed");
-			// Durable retried the summary under its retry settings before the run failed; picloud does not retry again.
+			// Durable retried the summary under its retry settings before the run failed; pigui does not retry again.
 			assert.match(failed.outcome?.kind === "failed" ? (failed.outcome.detail ?? "") : "", /^Compaction failed: /);
 			assert.ok(failed.notified.some((key) => key.startsWith("run:")), "the person is told");
 			await server.post(`/api/sessions/${id}/continue`);
@@ -492,7 +492,7 @@ describe("cuts and checkpoint text", () => {
 				number: 2,
 				at: 0,
 				body,
-				notes: ["A NOTE FROM PICLOUD."],
+				notes: ["A NOTE FROM PIGUI."],
 				compacted: { first: id(1), last: id(99) },
 				cut: id(100),
 				budgetTokens,
@@ -503,7 +503,7 @@ describe("cuts and checkpoint text", () => {
 		assert.ok(!medium.includes("docs/read-0.md"), "files read go first");
 		assert.ok(medium.includes("src/edit-0.ts") && medium.includes("src/file-0.ts"), "the rest outlast them");
 		const tiny = render(100);
-		const kept = ["THE TASK, exactly as typed", "1. [x] First step", "2. [ ] Second step", "On branch pi/t-1 at abcdef123456.", "2 commits ahead of origin/main", body, "(picloud: A NOTE FROM PICLOUD.)", "continues verbatim from entry 100", "## Before you act"];
+		const kept = ["THE TASK, exactly as typed", "1. [x] First step", "2. [ ] Second step", "On branch pi/t-1 at abcdef123456.", "2 commits ahead of origin/main", body, "(pigui: A NOTE FROM PIGUI.)", "continues verbatim from entry 100", "## Before you act"];
 		for (const text of kept) assert.ok(tiny.includes(text), `never shed: ${text.slice(0, 40)}`);
 		assert.ok(!tiny.includes("docs/read-0.md") && !tiny.includes("src/edit-0.ts") && !tiny.includes("src/file-0.ts") && !tiny.includes("c0 commit 0"));
 		assert.match(tiny, /older files read left out to fit/);

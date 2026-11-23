@@ -1,84 +1,84 @@
 #!/usr/bin/env bash
-# picloud installer: one decision tree for every way to run picloud. Installs, and when run again updates in place.
+# pigui installer: one decision tree for every way to run pigui. Installs, and when run again updates in place.
 #
-#   curl -fsSL https://raw.githubusercontent.com/taylorsatula/picloud/main/install.sh | bash -s --
+#   curl -fsSL https://raw.githubusercontent.com/taylorsatula/pigui/main/install.sh | bash -s --
 #   install.sh                       ask where and how, then install (or update) there
 #   install.sh --where local --how full --pi-config standalone
 #                                    the same, without the questions
 #   install.sh --local-full [options]
-#                                    only the OnPrem path (picloud on this computer, as you); what deploy/onprem.sh runs
+#                                    only the OnPrem path (pigui on this computer, as you); what deploy/onprem.sh runs
 #
-# The four ways to run picloud, chosen by three questions:
+# The four ways to run pigui, chosen by three questions:
 #   1. Container or not?  Sandboxed (a container, or a confined service) or full access (as you, or as a user you
 #      choose, with no sandbox).
 #   2. This computer or a remote server (over SSH)?
 #   3. The flags: speech, memory, Tailscale, and the rest, each with a default.
 #
-#   Remote (sandboxed)  a server you reach over SSH, picloud in a systemd service as its own user, agent commands
+#   Remote (sandboxed)  a server you reach over SSH, pigui in a systemd service as its own user, agent commands
 #                       confined by Landlock. Runs deploy/install.sh on the server.
-#   Remote (full)       a server you reach over SSH, picloud as a user of your choosing with that user's full access
+#   Remote (full)       a server you reach over SSH, pigui as a user of your choosing with that user's full access
 #                       (OnPrem over SSH). Creates the user, copies your GitHub and Pi credentials to it, and installs.
 #   Local (sandboxed)   this computer, in Docker (two containers, nothing published on this computer's ports; access
 #                       through the tailnet). Needs Docker; installs nothing else.
 #   Local (full)        this computer, as you, with your full access (OnPrem): either sharing your Pi configuration
-#                       (~/.pi/agent) or totally standalone (~/.picloud/pi-agent, with PI_CODING_AGENT_DIR set).
+#                       (~/.pi/agent) or totally standalone (~/.pigui/pi-agent, with PI_CODING_AGENT_DIR set).
 #
 # Options (each may also be given as the environment variable in brackets):
-#   --where local|remote        this computer, or a server over SSH                       [PICLOUD_WHERE]
-#   --remote IP                 the server's address; implies --where remote              [PICLOUD_REMOTE]
-#   --ssh-user USER             the SSH user for the server (default root)                [PICLOUD_SSH_USER]
-#   --how sandboxed|full        confined, or your full access                             [PICLOUD_HOW]
+#   --where local|remote        this computer, or a server over SSH                       [PIGUI_WHERE]
+#   --remote IP                 the server's address; implies --where remote              [PIGUI_REMOTE]
+#   --ssh-user USER             the SSH user for the server (default root)                [PIGUI_SSH_USER]
+#   --how sandboxed|full        confined, or your full access                             [PIGUI_HOW]
 #   --pi-config overlap|standalone
-#                               full only: share ~/.pi/agent, or a standalone directory   [PICLOUD_PI_CONFIG]
-#   --pi-agent-dir DIR          standalone's directory (default ~/.picloud/pi-agent)      [PICLOUD_PI_AGENT_DIR]
-#   --user NAME                 remote full: the user to create and run picloud as (default taylor)   [PICLOUD_USER]
-#   --ref REF                   the branch, tag or commit of picloud to install (default main)        [PICLOUD_REF]
-#   --speech on|off             read replies aloud with Kokoro (default on)                           [PICLOUD_SPEECH]
-#   --memory-local on|off       embed long-term memory on the machine (default off)                   [PICLOUD_MEMORY_LOCAL]
+#                               full only: share ~/.pi/agent, or a standalone directory   [PIGUI_PI_CONFIG]
+#   --pi-agent-dir DIR          standalone's directory (default ~/.pigui/pi-agent)      [PIGUI_PI_AGENT_DIR]
+#   --user NAME                 remote full: the user to create and run pigui as (default taylor)   [PIGUI_USER]
+#   --ref REF                   the branch, tag or commit of pigui to install (default main)        [PIGUI_REF]
+#   --speech on|off             read replies aloud with Kokoro (default on)                           [PIGUI_SPEECH]
+#   --memory-local on|off       embed long-term memory on the machine (default off)                   [PIGUI_MEMORY_LOCAL]
 #   --models-unload never|MINUTES
 #                               keep the speech and memory models loaded from start (never), or load them on use
 #                               and unload them after MINUTES idle, for a machine short of memory (default never)
-#                                                                                       [PICLOUD_MODELS_UNLOAD]
-#   --port PORT                 local full: the localhost port (default 2025)                         [PICLOUD_PORT]
-#   --hostname NAME             the Tailscale machine name (default picloud)                           [PICLOUD_TS_HOSTNAME]
-#   --tailscale on|off          serve picloud to your tailnet (default off)                           [PICLOUD_TAILSCALE]
-#   --allowed-logins LIST       comma-separated Tailscale logins allowed in through the tailnet       [PICLOUD_ALLOWED_LOGINS]
+#                                                                                       [PIGUI_MODELS_UNLOAD]
+#   --port PORT                 local full: the localhost port (default 2025)                         [PIGUI_PORT]
+#   --hostname NAME             the Tailscale machine name (default pigui)                           [PIGUI_TS_HOSTNAME]
+#   --tailscale on|off          serve pigui to your tailnet (default off)                           [PIGUI_TAILSCALE]
+#   --allowed-logins LIST       comma-separated Tailscale logins allowed in through the tailnet       [PIGUI_ALLOWED_LOGINS]
 #   --tailscale-auth-key KEY    join the tailnet without a browser login                  [TS_AUTHKEY]
-#   --push-subject URL          remote sandboxed: mailto: or https: contact for push services        [PICLOUD_PUSH_SUBJECT]
-#   --spend-cap DOLLARS         remote sandboxed: default per-session spend cap                       [PICLOUD_SPEND_CAP]
-#   --github-token-file FILE    remote sandboxed: picloud's own token, from FILE (default: this computer's .env, else gh)
-#                                                                                       [PICLOUD_GITHUB_TOKEN_FILE]
+#   --push-subject URL          remote sandboxed: mailto: or https: contact for push services        [PIGUI_PUSH_SUBJECT]
+#   --spend-cap DOLLARS         remote sandboxed: default per-session spend cap                       [PIGUI_SPEND_CAP]
+#   --github-token-file FILE    remote sandboxed: pigui's own token, from FILE (default: this computer's .env, else gh)
+#                                                                                       [PIGUI_GITHUB_TOKEN_FILE]
 #   --agent-github-token-file FILE
 #                               remote sandboxed: the agent's read-only token, from FILE (default: this computer's .env)
-#                                                                                       [PICLOUD_AGENT_GITHUB_TOKEN_FILE]
+#                                                                                       [PIGUI_AGENT_GITHUB_TOKEN_FILE]
 #   --local-full                run only the OnPrem path, without the questions
 #   --uninstall                 with --local-full: stop and remove the service and the app; the data stays
 #   --dry-run                   show every step without changing anything
 #   -h, --help                  show this help
 #
 # With no options and a terminal, the questions are asked. Re-running an install updates it in place; the OnPrem path
-# keeps its choices in ~/.picloud/onprem.conf, the tree keeps its own in ~/.picloud/install.conf. Precedence:
+# keeps its choices in ~/.pigui/onprem.conf, the tree keeps its own in ~/.pigui/install.conf. Precedence:
 # flags, then the environment, then the saved choices, then the defaults.
 set -euo pipefail
 
-readonly REPOSITORY=https://github.com/taylorsatula/picloud.git
-ROOT=$HOME/.picloud
+readonly REPOSITORY=https://github.com/taylorsatula/pigui.git
+ROOT=$HOME/.pigui
 APP=$ROOT/app
 DATA=$ROOT/data
 LOGS=$ROOT/logs
 readonly NODE_MINIMUM=22.19.0
-readonly LABEL=com.github.taylorsatula.picloud
+readonly LABEL=com.github.taylorsatula.pigui
 CONF=$ROOT/onprem.conf
 TREE_CONF=$ROOT/install.conf
 
-# As root, picloud is root's, in root's home whatever HOME says, so running this with sudo from an account never leaves
+# As root, pigui is root's, in root's home whatever HOME says, so running this with sudo from an account never leaves
 # root's files in that account's home.
 AS_ROOT=0
 if [[ $(id -u) == 0 ]]; then
 	AS_ROOT=1
 	if [[ $(uname -s) == Linux ]]; then HOME=/root; else HOME=$(eval echo ~root); fi
 	export HOME
-	ROOT=$HOME/.picloud
+	ROOT=$HOME/.pigui
 	APP=$ROOT/app
 	DATA=$ROOT/data
 	LOGS=$ROOT/logs
@@ -92,26 +92,26 @@ ARGS=("$@")
 DRY_RUN=0
 UNINSTALL=0
 LOCAL_FULL=0
-WHERE=${PICLOUD_WHERE:-}
-REMOTE=${PICLOUD_REMOTE:-}
-SSH_USER=${PICLOUD_SSH_USER:-}
-HOW=${PICLOUD_HOW:-}
-PI_CONFIG=${PICLOUD_PI_CONFIG:-}
-PI_AGENT_DIR=${PICLOUD_PI_AGENT_DIR:-}
-RUSER=${PICLOUD_USER:-}
-SPEECH=${PICLOUD_SPEECH:-}
-MEMORY_LOCAL=${PICLOUD_MEMORY_LOCAL:-}
-MODELS_UNLOAD=${PICLOUD_MODELS_UNLOAD:-}
-PORT=${PICLOUD_PORT:-}
-REF=${PICLOUD_REF:-}
-TAILSCALE=${PICLOUD_TAILSCALE:-}
-ALLOWED_LOGINS=${PICLOUD_ALLOWED_LOGINS:-}
+WHERE=${PIGUI_WHERE:-}
+REMOTE=${PIGUI_REMOTE:-}
+SSH_USER=${PIGUI_SSH_USER:-}
+HOW=${PIGUI_HOW:-}
+PI_CONFIG=${PIGUI_PI_CONFIG:-}
+PI_AGENT_DIR=${PIGUI_PI_AGENT_DIR:-}
+RUSER=${PIGUI_USER:-}
+SPEECH=${PIGUI_SPEECH:-}
+MEMORY_LOCAL=${PIGUI_MEMORY_LOCAL:-}
+MODELS_UNLOAD=${PIGUI_MODELS_UNLOAD:-}
+PORT=${PIGUI_PORT:-}
+REF=${PIGUI_REF:-}
+TAILSCALE=${PIGUI_TAILSCALE:-}
+ALLOWED_LOGINS=${PIGUI_ALLOWED_LOGINS:-}
 TS_AUTHKEY=${TS_AUTHKEY:-}
-PUSH_SUBJECT=${PICLOUD_PUSH_SUBJECT:-}
-SPEND_CAP=${PICLOUD_SPEND_CAP:-}
-GITHUB_TOKEN_FILE=${PICLOUD_GITHUB_TOKEN_FILE:-}
-AGENT_GITHUB_TOKEN_FILE=${PICLOUD_AGENT_GITHUB_TOKEN_FILE:-}
-HOSTNAME_OPTION=${PICLOUD_TS_HOSTNAME:-}
+PUSH_SUBJECT=${PIGUI_PUSH_SUBJECT:-}
+SPEND_CAP=${PIGUI_SPEND_CAP:-}
+GITHUB_TOKEN_FILE=${PIGUI_GITHUB_TOKEN_FILE:-}
+AGENT_GITHUB_TOKEN_FILE=${PIGUI_AGENT_GITHUB_TOKEN_FILE:-}
+HOSTNAME_OPTION=${PIGUI_TS_HOSTNAME:-}
 
 # The last install's choices, as defaults the options below override. Read as plain values, never run.
 # The saved choices fill what the environment did not set; the flags fill what neither did.
@@ -130,7 +130,7 @@ if [[ -f $CONF ]]; then
 	done <"$CONF"
 fi
 # What neither the environment nor the saved choices set, the defaults do.
-: "${SSH_USER:=root}" "${RUSER:=taylor}" "${SPEECH:=on}" "${MEMORY_LOCAL:=off}" "${MODELS_UNLOAD:=never}" "${PORT:=2025}" "${REF:=main}" "${TAILSCALE:=off}" "${HOSTNAME_OPTION:=picloud}"
+: "${SSH_USER:=root}" "${RUSER:=taylor}" "${SPEECH:=on}" "${MEMORY_LOCAL:=off}" "${MODELS_UNLOAD:=never}" "${PORT:=2025}" "${REF:=main}" "${TAILSCALE:=off}" "${HOSTNAME_OPTION:=pigui}"
 
 usage() { sed -n '2,/^#   -h/p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; }
 
@@ -172,7 +172,7 @@ done
 [[ $PI_CONFIG == "" || $PI_CONFIG == overlap || $PI_CONFIG == standalone ]] || { echo "--pi-config must be overlap or standalone." >&2; exit 2; }
 [[ $SPEECH == on || $SPEECH == off ]] || { echo "--speech must be on or off." >&2; exit 2; }
 [[ $MEMORY_LOCAL == on || $MEMORY_LOCAL == off ]] || { echo "--memory-local must be on or off." >&2; exit 2; }
-# The same rule picloud applies to PICLOUD_MODELS_UNLOAD as it starts, so a bad value stops here rather than there.
+# The same rule pigui applies to PIGUI_MODELS_UNLOAD as it starts, so a bad value stops here rather than there.
 unload_valid() { [[ $1 == never ]] || { [[ $1 =~ ^[1-9][0-9]*$ ]] && (($1 <= 1440)); }; }
 unload_valid "$MODELS_UNLOAD" || { echo "--models-unload must be never, or a whole number of idle minutes from 1 to 1440." >&2; exit 2; }
 [[ $TAILSCALE == on || $TAILSCALE == off ]] || { echo "--tailscale must be on or off." >&2; exit 2; }
@@ -187,16 +187,16 @@ if [[ -n ${BASH_SOURCE[0]:-} && -f $(dirname "${BASH_SOURCE[0]}")/deploy/lib.sh 
 	SOURCE_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 fi
 if [[ -z $SOURCE_DIR ]]; then
-	command -v git >/dev/null || { echo "picloud needs git. macOS: xcode-select --install. Linux: your package manager, for example sudo apt install git." >&2; exit 1; }
+	command -v git >/dev/null || { echo "pigui needs git. macOS: xcode-select --install. Linux: your package manager, for example sudo apt install git." >&2; exit 1; }
 	if [[ -d $APP/.git ]]; then exec bash "$APP/install.sh" ${ARGS[@]+"${ARGS[@]}"}; fi
 	if [[ $DRY_RUN == 1 || $UNINSTALL == 1 ]]; then
 		scratch=$(mktemp -d)
 		trap 'rm -rf "$scratch"' EXIT
-		echo "picloud is not installed in $APP: fetching $REF into a temporary directory to run this from"
-		git init --quiet "$scratch/picloud"
-		git -C "$scratch/picloud" fetch --quiet --depth 1 "$REPOSITORY" "$REF"
-		git -C "$scratch/picloud" checkout --quiet FETCH_HEAD
-		bash "$scratch/picloud/install.sh" ${ARGS[@]+"${ARGS[@]}"}
+		echo "pigui is not installed in $APP: fetching $REF into a temporary directory to run this from"
+		git init --quiet "$scratch/pigui"
+		git -C "$scratch/pigui" fetch --quiet --depth 1 "$REPOSITORY" "$REF"
+		git -C "$scratch/pigui" checkout --quiet FETCH_HEAD
+		bash "$scratch/pigui/install.sh" ${ARGS[@]+"${ARGS[@]}"}
 		exit
 	fi
 	mkdir -p "$ROOT"
@@ -231,7 +231,7 @@ xml() {
 unit_value() { printf '%s' "${1//%/%%}"; }
 
 # The SSH command, overridable for tests. BatchMode: never prompt, so a missing key is an error, not a hang.
-SSH=${PICLOUD_SSH:-ssh}
+SSH=${PIGUI_SSH:-ssh}
 ssh_target() { printf '%s@%s' "$SSH_USER" "$REMOTE"; }
 
 # A reachable server with a key already installed, or say what is missing and stop.
@@ -296,7 +296,7 @@ ask_tree() {
 	# 1. Container or not.
 	if [[ -z $HOW ]]; then
 		local choice
-		choice=$(choose "Run picloud in a container (sandboxed), or with full access?" 0 \
+		choice=$(choose "Run pigui in a container (sandboxed), or with full access?" 0 \
 			"Container (sandboxed): confined agent commands" \
 			"Full access: as you, or as a user you choose, no sandbox")
 		HOW=$([[ $choice == 0 ]] && echo sandboxed || echo full)
@@ -316,9 +316,9 @@ ask_tree() {
 	# 3. Full access: which Pi configuration.
 	if [[ $HOW == full && -z $PI_CONFIG ]]; then
 		local choice
-		choice=$(choose "Which Pi configuration should picloud use?" 0 \
+		choice=$(choose "Which Pi configuration should pigui use?" 0 \
 			"Overlap: share your existing ~/.pi/agent (sign-in, model, skills)" \
-			"Standalone: a separate directory (~/.picloud/pi-agent), no overlap")
+			"Standalone: a separate directory (~/.pigui/pi-agent), no overlap")
 		PI_CONFIG=$([[ $choice == 0 ]] && echo overlap || echo standalone)
 	fi
 	# 4. The flags, each with its default.
@@ -326,7 +326,7 @@ ask_tree() {
 		PORT=$(ask "The localhost port" "$PORT")
 	fi
 	if [[ $HOW == full && $WHERE == remote ]]; then
-		RUSER=$(ask "The user to create and run picloud as" "$RUSER")
+		RUSER=$(ask "The user to create and run pigui as" "$RUSER")
 	fi
 	SPEECH=$(ask "Read replies aloud with Kokoro (on/off)" "$SPEECH")
 	MEMORY_LOCAL=$(ask "Embed long-term memory on the machine (on/off)" "$MEMORY_LOCAL")
@@ -337,7 +337,7 @@ ask_tree() {
 			echo "never, or a whole number of minutes from 1 to 1440." >&2
 		done
 	fi
-	TAILSCALE=$(ask "Serve picloud to your tailnet (on/off)" "$TAILSCALE")
+	TAILSCALE=$(ask "Serve pigui to your tailnet (on/off)" "$TAILSCALE")
 	if [[ $TAILSCALE == on ]]; then
 		ALLOWED_LOGINS=$(ask "Tailscale logins allowed in, comma-separated (empty for everyone)" "$ALLOWED_LOGINS")
 		HOSTNAME_OPTION=$(ask "The Tailscale machine name" "$HOSTNAME_OPTION")
@@ -353,7 +353,7 @@ ask_tree() {
 }
 
 # Non-interactive runs need the answers as flags; a terminal is asked instead.
-if [[ $LOCAL_FULL == 0 && ( ! -t 0 || -n ${PICLOUD_ASSUME_YES:-} ) ]]; then
+if [[ $LOCAL_FULL == 0 && ( ! -t 0 || -n ${PIGUI_ASSUME_YES:-} ) ]]; then
 	[[ -n $WHERE ]] || { echo "--where is required without a terminal (local or remote)." >&2; exit 2; }
 	[[ -n $HOW ]] || { echo "--how is required without a terminal (sandboxed or full)." >&2; exit 2; }
 	[[ $HOW != full || -n $PI_CONFIG ]] || PI_CONFIG=overlap
@@ -363,33 +363,33 @@ fi
 [[ $HOW == full && -z $PI_CONFIG ]] && PI_CONFIG=overlap
 [[ $PI_CONFIG == standalone && -z $PI_AGENT_DIR ]] && PI_AGENT_DIR=$ROOT/pi-agent
 
-# ---- The OnPrem path: picloud on this computer, as you. Also the second phase of a remote full install.
+# ---- The OnPrem path: pigui on this computer, as you. Also the second phase of a remote full install.
 
 run_onprem() {
-	# picloud OnPrem: picloud on this computer, macOS or Linux, as a web app at http://localhost:2025 whose sessions run
+	# pigui OnPrem: pigui on this computer, macOS or Linux, as a web app at http://localhost:2025 whose sessions run
 	# as you, with your full access — or, as root on a Linux server, as root, as a system service, with the machine's
-	# full access. Installs, and when run again updates in place, in the home directory: the app in ~/.picloud/app, its
-	# data in ~/.picloud/data, and a service that keeps it running (a LaunchAgent on macOS, a systemd user unit — or, as
-	# root, a system unit picloud-onprem.service — on Linux). Nothing outside the home directory changes, and nothing
+	# full access. Installs, and when run again updates in place, in the home directory: the app in ~/.pigui/app, its
+	# data in ~/.pigui/data, and a service that keeps it running (a LaunchAgent on macOS, a systemd user unit — or, as
+	# root, a system unit pigui-onprem.service — on Linux). Nothing outside the home directory changes, and nothing
 	# needs sudo, unless it is root itself.
 
 	case $(uname -s) in
 		Darwin) SYSTEM=macos ;;
 		Linux) SYSTEM=linux ;;
-		*) echo "picloud OnPrem runs on macOS and Linux; this is $(uname -s)." >&2; exit 1 ;;
+		*) echo "pigui OnPrem runs on macOS and Linux; this is $(uname -s)." >&2; exit 1 ;;
 	esac
 	PLIST=$HOME/Library/LaunchAgents/$LABEL.plist
-	# A user's own unit; as root, a system unit, named apart from the server installer's picloud.service.
+	# A user's own unit; as root, a system unit, named apart from the server installer's pigui.service.
 	if [[ $AS_ROOT == 1 ]]; then
-		SERVICE=picloud-onprem.service
+		SERVICE=pigui-onprem.service
 		UNIT=/etc/systemd/system/$SERVICE
 		SCOPE=()
-		LOG_COMMAND="journalctl -u picloud-onprem"
+		LOG_COMMAND="journalctl -u pigui-onprem"
 	else
-		SERVICE=picloud.service
+		SERVICE=pigui.service
 		UNIT=${XDG_CONFIG_HOME:-$HOME/.config}/systemd/user/$SERVICE
 		SCOPE=(--user)
-		LOG_COMMAND="journalctl --user -u picloud"
+		LOG_COMMAND="journalctl --user -u pigui"
 	fi
 	DOMAIN=gui/$(id -u)
 	OWNER=$(id -un):$(id -gn)
@@ -413,7 +413,7 @@ run_onprem() {
 	# The Tailscale CLI: on PATH, or inside the macOS app, which does not put it there.
 	tailscale_cli() {
 		command -v tailscale 2>/dev/null && return 0
-		local app=${PICLOUD_TAILSCALE_APP:-/Applications/Tailscale.app/Contents/MacOS/Tailscale}
+		local app=${PIGUI_TAILSCALE_APP:-/Applications/Tailscale.app/Contents/MacOS/Tailscale}
 		if [[ -x $app ]]; then echo "$app"; fi
 	}
 
@@ -428,7 +428,7 @@ run_onprem() {
 	# Where tailscale serve sends https://NAME/ now, or nothing.
 	served_to() { "$TS" serve status --json 2>/dev/null | json_get "[\"Web\",\"$1:443\",\"Handlers\",\"/\",\"Proxy\"]"; }
 
-	# ---- Uninstall: the service, the app and picloud's own tailscale serve go; the data and logs stay.
+	# ---- Uninstall: the service, the app and pigui's own tailscale serve go; the data and logs stay.
 
 	if [[ $UNINSTALL == 1 ]]; then
 		step "Stop and remove the service"
@@ -446,7 +446,7 @@ run_onprem() {
 		if [[ -n $TS ]] && command -v node >/dev/null; then
 			name=$(tailnet_name)
 			if [[ -n $name && $(served_to "$name") == "http://127.0.0.1:$PORT" ]]; then
-				step "Stop serving picloud to the tailnet"
+				step "Stop serving pigui to the tailnet"
 				run "$TS" serve --https=443 off
 			fi
 		fi
@@ -460,11 +460,11 @@ run_onprem() {
 	# ---- Checks before anything changes.
 
 	if [[ $AS_ROOT == 1 && $SYSTEM == macos ]]; then
-		echo "On macOS, run this as yourself, without sudo: picloud OnPrem there is a LaunchAgent of your own user." >&2
+		echo "On macOS, run this as yourself, without sudo: pigui OnPrem there is a LaunchAgent of your own user." >&2
 		exit 1
 	fi
 	if [[ $AS_ROOT == 1 ]] && command -v apt-get >/dev/null; then
-		step "Install what picloud needs (apt)"
+		step "Install what pigui needs (apt)"
 		apt_install ca-certificates curl gnupg git
 		current_node=$(node --version 2>/dev/null | sed 's/^v//' || true)
 		if [[ -n $current_node ]] && version_at_least "$current_node" "$NODE_MINIMUM"; then
@@ -481,8 +481,8 @@ run_onprem() {
 	step "Check this computer"
 	note "$([[ $SYSTEM == macos ]] && echo "macOS $(sw_vers -productVersion 2>/dev/null || true)" || echo "Linux $(uname -r)")"
 	if [[ $AS_ROOT == 1 ]]; then
-		note "as root: picloud runs as root, as a system service, from $ROOT; its sessions can do anything on this machine"
-		if [[ -n ${SUDO_USER:-} && $SUDO_USER != root ]]; then note "you ran this with sudo from $SUDO_USER; to install picloud as $SUDO_USER instead, run it without sudo"; fi
+		note "as root: pigui runs as root, as a system service, from $ROOT; its sessions can do anything on this machine"
+		if [[ -n ${SUDO_USER:-} && $SUDO_USER != root ]]; then note "you ran this with sudo from $SUDO_USER; to install pigui as $SUDO_USER instead, run it without sudo"; fi
 	elif sudo -n true 2>/dev/null; then
 		note "sudo needs no password here, so the agent's commands can act as root"
 	else
@@ -491,11 +491,11 @@ run_onprem() {
 	NODE=$(command -v node || true)
 	node_version=$([[ -n $NODE ]] && "$NODE" --version | sed 's/^v//' || true)
 	if [[ -z $node_version ]] || ! version_at_least "$node_version" "$NODE_MINIMUM"; then
-		echo "picloud needs Node.js $NODE_MINIMUM or newer${node_version:+; this is $node_version}. Install it, for example with Homebrew (brew install node@22) or nvm (nvm install 22), then run this again." >&2
+		echo "pigui needs Node.js $NODE_MINIMUM or newer${node_version:+; this is $node_version}. Install it, for example with Homebrew (brew install node@22) or nvm (nvm install 22), then run this again." >&2
 		exit 1
 	fi
 	note "node $node_version ($NODE)"
-	command -v git >/dev/null || { echo "picloud OnPrem needs git. macOS: xcode-select --install. Linux: your package manager." >&2; exit 1; }
+	command -v git >/dev/null || { echo "pigui OnPrem needs git. macOS: xcode-select --install. Linux: your package manager." >&2; exit 1; }
 	note "$(git --version)"
 	if ! command -v gh >/dev/null; then
 		note "gh is not installed: sessions on this computer work; repository sessions need gh, signed in (https://cli.github.com)"
@@ -508,7 +508,7 @@ run_onprem() {
 		if [[ $DRY_RUN == 1 ]]; then
 			note "systemd's user instance is not running for you; the install would stop here"
 		else
-			echo "systemd's user instance is not running for you, so there is nothing to keep picloud running. Log in to a desktop session, or run 'loginctl enable-linger $USER', then run this again." >&2
+			echo "systemd's user instance is not running for you, so there is nothing to keep pigui running. Log in to a desktop session, or run 'loginctl enable-linger $USER', then run this again." >&2
 			exit 1
 		fi
 	fi
@@ -516,8 +516,8 @@ run_onprem() {
 
 	# ---- The app: the repository at --ref, refusing to overwrite changes made in it.
 
-	step "Fetch picloud ($REF) into $APP"
-	if [[ ${PICLOUD_ONPREM_FETCHED:-} == "$REF" && $SOURCE_DIR == "$APP" ]]; then
+	step "Fetch pigui ($REF) into $APP"
+	if [[ ${PIGUI_ONPREM_FETCHED:-} == "$REF" && $SOURCE_DIR == "$APP" ]]; then
 		note "at $(git -C "$APP" rev-parse --short HEAD)"
 	else
 		if [[ -d $APP/.git ]]; then
@@ -535,7 +535,7 @@ run_onprem() {
 		run git -C "$APP" fetch --quiet origin "$REF"
 		run git -C "$APP" checkout --quiet --detach FETCH_HEAD
 		# The rest of the install is the one at --ref, whatever version of this script fetched it.
-		if [[ $DRY_RUN != 1 ]]; then PICLOUD_ONPREM_FETCHED=$REF exec bash "$APP/install.sh" --local-full ${ARGS[@]+"${ARGS[@]}"}; fi
+		if [[ $DRY_RUN != 1 ]]; then PIGUI_ONPREM_FETCHED=$REF exec bash "$APP/install.sh" --local-full ${ARGS[@]+"${ARGS[@]}"}; fi
 	fi
 
 	step "Install its packages and build it"
@@ -544,7 +544,7 @@ run_onprem() {
 	run sh -c "cd '$APP' && npm run build"
 
 	step "Install the local models (speech $SPEECH, memory $MEMORY_LOCAL)"
-	# As deploy/install.sh does: on fetches a model, checked against pinned checksums; off removes it, since picloud turns
+	# As deploy/install.sh does: on fetches a model, checked against pinned checksums; off removes it, since pigui turns
 	# a feature on wherever it finds the model. With both off, the optional packages that run the models go too.
 	models=()
 	if [[ $SPEECH == on ]]; then
@@ -593,7 +593,7 @@ run_onprem() {
 		fi
 		if [[ ! -f $PI_AGENT_DIR/auth.json ]]; then
 			# An empty auth.json: OAuth entries here would fight the ones in ~/.pi/agent over refresh-token rotation, and
-			# the key in models.json is what picloud signs with.
+			# the key in models.json is what pigui signs with.
 			printf '{}' | run tee "$PI_AGENT_DIR/auth.json" >/dev/null
 			[[ $DRY_RUN == 1 ]] || chmod 600 "$PI_AGENT_DIR/auth.json"
 			note "wrote an empty auth.json"
@@ -603,7 +603,7 @@ run_onprem() {
 	fi
 
 	step "Check Pi's sign-in"
-	# picloud's own check, as it runs at every start: Pi's default model, with credentials, in your Pi configuration.
+	# pigui's own check, as it runs at every start: Pi's default model, with credentials, in your Pi configuration.
 	if [[ ! -d $APP/node_modules ]]; then
 		note "dry run: Pi's sign-in is checked once the app is installed"
 	elif (
@@ -616,12 +616,12 @@ run_onprem() {
 	' </dev/null); then
 		note "Pi has a default model it can sign in to"
 	else
-		echo "Pi is not signed in, so picloud cannot run it. Run $APP/node_modules/.bin/pi (or pi, if you have it), type /login and then /model, then run this again." >&2
+		echo "Pi is not signed in, so pigui cannot run it. Run $APP/node_modules/.bin/pi (or pi, if you have it), type /login and then /model, then run this again." >&2
 		[[ $DRY_RUN == 1 ]] || exit 1
 	fi
 
-	# ---- Tailscale. On, picloud is served to the tailnet at https://NAME/ and answers to that name, for a phone on the
-	# tailnet; off, picloud's own serve, if it had one, comes down. Never funnel, which would put it on the internet.
+	# ---- Tailscale. On, pigui is served to the tailnet at https://NAME/ and answers to that name, for a phone on the
+	# tailnet; off, pigui's own serve, if it had one, comes down. Never funnel, which would put it on the internet.
 
 	step "Tailscale ($TAILSCALE)"
 	TS=$(tailscale_cli || true)
@@ -659,21 +659,21 @@ run_onprem() {
 		run "$TS" serve --https=443 off
 		TS_NAME=""
 	else
-		note "off: picloud answers at $URL only"
+		note "off: pigui answers at $URL only"
 		TS_NAME=""
 	fi
 
 	# What the service is told beyond the basics: how it holds its local models, the tailnet name it answers to, the
 	# logins it lets in through it, and, for a standalone Pi configuration, where it is.
-	plist_env=$'\n\t\t<key>PICLOUD_MODELS_UNLOAD</key>\n\t\t<string>'"$MODELS_UNLOAD</string>"
-	unit_env=$'\n'"Environment=PICLOUD_MODELS_UNLOAD=$MODELS_UNLOAD"
+	plist_env=$'\n\t\t<key>PIGUI_MODELS_UNLOAD</key>\n\t\t<string>'"$MODELS_UNLOAD</string>"
+	unit_env=$'\n'"Environment=PIGUI_MODELS_UNLOAD=$MODELS_UNLOAD"
 	if [[ -n $TS_NAME ]]; then
-		plist_env+=$'\n\t\t<key>PICLOUD_ALLOWED_HOSTS</key>\n\t\t<string>'"$(xml "$TS_NAME")</string>"
-		unit_env+=$'\n'"Environment=\"PICLOUD_ALLOWED_HOSTS=$(unit_value "$TS_NAME")\""
+		plist_env+=$'\n\t\t<key>PIGUI_ALLOWED_HOSTS</key>\n\t\t<string>'"$(xml "$TS_NAME")</string>"
+		unit_env+=$'\n'"Environment=\"PIGUI_ALLOWED_HOSTS=$(unit_value "$TS_NAME")\""
 	fi
 	if [[ -n $ALLOWED_LOGINS ]]; then
-		plist_env+=$'\n\t\t<key>PICLOUD_ALLOWED_LOGINS</key>\n\t\t<string>'"$(xml "$ALLOWED_LOGINS")</string>"
-		unit_env+=$'\n'"Environment=\"PICLOUD_ALLOWED_LOGINS=$(unit_value "$ALLOWED_LOGINS")\""
+		plist_env+=$'\n\t\t<key>PIGUI_ALLOWED_LOGINS</key>\n\t\t<string>'"$(xml "$ALLOWED_LOGINS")</string>"
+		unit_env+=$'\n'"Environment=\"PIGUI_ALLOWED_LOGINS=$(unit_value "$ALLOWED_LOGINS")\""
 	fi
 	if [[ -n $PI_AGENT_DIR ]]; then
 		plist_env+=$'\n\t\t<key>PI_CODING_AGENT_DIR</key>\n\t\t<string>'"$(xml "$PI_AGENT_DIR")</string>"
@@ -684,7 +684,7 @@ run_onprem() {
 	# builds (Homebrew, nvm and the like), which is what the agent's commands then find.
 
 	step "Install the service ($([[ $SYSTEM == macos ]] && echo "LaunchAgent $LABEL" || echo "systemd $([[ $AS_ROOT == 1 ]] && echo "system" || echo "user") unit $SERVICE"))"
-	login_path=$("${SHELL:-/bin/sh}" -lic 'printf "\n__PICLOUD_PATH__%s\n" "$PATH"' </dev/null 2>/dev/null | sed -n 's/^__PICLOUD_PATH__//p' | tail -n1 || true)
+	login_path=$("${SHELL:-/bin/sh}" -lic 'printf "\n__PIGUI_PATH__%s\n" "$PATH"' </dev/null 2>/dev/null | sed -n 's/^__PIGUI_PATH__//p' | tail -n1 || true)
 	SERVICE_PATH=${login_path:-$PATH}
 	[[ -n $login_path ]] || note "your login shell did not report a PATH; the service gets this one"
 	# The node found now runs the service, so its own directory goes first.
@@ -711,11 +711,11 @@ run_onprem() {
 	<dict>
 		<key>PATH</key>
 		<string>$(xml "$SERVICE_PATH")</string>
-		<key>PICLOUD_ONPREM</key>
+		<key>PIGUI_ONPREM</key>
 		<string>on</string>
-		<key>PICLOUD_DATA_DIR</key>
+		<key>PIGUI_DATA_DIR</key>
 		<string>$(xml "$DATA")</string>
-		<key>PICLOUD_PORT</key>
+		<key>PIGUI_PORT</key>
 		<string>$PORT</string>$plist_env
 	</dict>
 	<key>RunAtLoad</key>
@@ -725,9 +725,9 @@ run_onprem() {
 	<key>ProcessType</key>
 	<string>Interactive</string>
 	<key>StandardOutPath</key>
-	<string>$(xml "$LOGS/picloud.log")</string>
+	<string>$(xml "$LOGS/pigui.log")</string>
 	<key>StandardErrorPath</key>
-	<string>$(xml "$LOGS/picloud.log")</string>
+	<string>$(xml "$LOGS/pigui.log")</string>
 </dict>
 </plist>
 EOF
@@ -737,15 +737,15 @@ EOF
 		unit_after=$([[ $AS_ROOT == 1 ]] && printf '\nWants=network-online.target\nAfter=network-online.target tailscaled.service' || true)
 		write_file "$UNIT" 0644 "$OWNER" <<EOF
 [Unit]
-Description=picloud OnPrem: the Pi coding agent on this computer, at $URL$unit_after
+Description=pigui OnPrem: the Pi coding agent on this computer, at $URL$unit_after
 
 [Service]
 Type=simple
 WorkingDirectory=$(unit_value "$APP")
 Environment="PATH=$(unit_value "$SERVICE_PATH")"
-Environment=PICLOUD_ONPREM=on
-Environment="PICLOUD_DATA_DIR=$(unit_value "$DATA")"
-Environment=PICLOUD_PORT=$PORT$unit_env
+Environment=PIGUI_ONPREM=on
+Environment="PIGUI_DATA_DIR=$(unit_value "$DATA")"
+Environment=PIGUI_PORT=$PORT$unit_env
 ExecStart="$(unit_value "$NODE")" --disable-warning=ExperimentalWarning "$(unit_value "$APP/src/server/main.ts")"
 Restart=on-failure
 RestartSec=5
@@ -758,7 +758,7 @@ WantedBy=$([[ $AS_ROOT == 1 ]] && echo multi-user.target || echo default.target)
 EOF
 	fi
 
-	step "Start (or restart) picloud"
+	step "Start (or restart) pigui"
 	if [[ $SYSTEM == macos ]]; then
 		stop_launch_agent
 		run launchctl bootstrap "$DOMAIN" "$PLIST"
@@ -767,7 +767,7 @@ EOF
 		run systemctl ${SCOPE[@]+"${SCOPE[@]}"} enable "$SERVICE"
 		run systemctl ${SCOPE[@]+"${SCOPE[@]}"} restart "$SERVICE"
 	fi
-	logs=$([[ $SYSTEM == macos ]] && echo "$LOGS/picloud.log" || echo "$LOG_COMMAND")
+	logs=$([[ $SYSTEM == macos ]] && echo "$LOGS/pigui.log" || echo "$LOG_COMMAND")
 	if [[ $DRY_RUN == 1 ]]; then
 		note "dry run: would wait for $URL/api/bootstrap"
 	else
@@ -780,11 +780,11 @@ EOF
 			sleep 1
 		done
 		if [[ $ready == 0 ]]; then
-			echo "picloud did not answer at $URL within a minute. Its log says why: $logs" >&2
+			echo "pigui did not answer at $URL within a minute. Its log says why: $logs" >&2
 			exit 1
 		fi
 	fi
-	# Kept for the next run, which updates picloud with the same choices unless told otherwise.
+	# Kept for the next run, which updates pigui with the same choices unless told otherwise.
 	write_file "$CONF" 0644 "$OWNER" <<EOF
 SPEECH=$SPEECH
 MEMORY_LOCAL=$MEMORY_LOCAL
@@ -796,7 +796,7 @@ ALLOWED_LOGINS=$ALLOWED_LOGINS
 PI_AGENT_DIR=$PI_AGENT_DIR
 EOF
 
-	printf '\npicloud OnPrem %s at %s\n' "$([[ $DRY_RUN == 1 ]] && echo "would run" || echo "is running")" "$URL"
+	printf '\npigui OnPrem %s at %s\n' "$([[ $DRY_RUN == 1 ]] && echo "would run" || echo "is running")" "$URL"
 	if [[ -n $TS_NAME ]]; then
 		printf 'On your phone, with Tailscale connected: https://%s/ (in Safari, Share, then Add to Home Screen).\n' "$TS_NAME"
 	fi
@@ -832,7 +832,7 @@ install_local_sandboxed() {
 		run cp "$SOURCE_DIR/.env.example" "$env_file"
 		note "created .env from .env.example"
 	fi
-	# The tokens: the environment, else this computer's .env, else this computer's gh login for picloud's own token;
+	# The tokens: the environment, else this computer's .env, else this computer's gh login for pigui's own token;
 	# the agent's read-only token has no source to derive from, so it is asked for or the install stops with instructions.
 	local gh_token=${GH_TOKEN:-}
 	[[ -z $gh_token ]] && gh_token=$(grep '^GH_TOKEN=' "$env_file" | cut -d= -f2-)
@@ -840,7 +840,7 @@ install_local_sandboxed() {
 	[[ -z $agent_token ]] && agent_token=$(grep '^AGENT_GH_TOKEN=' "$env_file" | cut -d= -f2-)
 	if [[ -z $gh_token ]]; then
 		if command -v gh >/dev/null && gh auth token >/dev/null 2>&1; then
-			if ask_yes_no "Use this computer's gh token as picloud's own token (GH_TOKEN)?" y; then
+			if ask_yes_no "Use this computer's gh token as pigui's own token (GH_TOKEN)?" y; then
 				gh_token=$(gh auth token)
 				[[ $DRY_RUN == 1 ]] || sed -i.bak "s|^GH_TOKEN=.*|GH_TOKEN=$gh_token|" "$env_file" && rm -f "$env_file.bak"
 				note "GH_TOKEN set from gh auth token"
@@ -861,11 +861,11 @@ install_local_sandboxed() {
 	[[ -z $agent_token ]] && agent_token=$(grep '^AGENT_GH_TOKEN=' "$env_file" | cut -d= -f2-)
 	# The answers about the local models go where compose reads them: speech and memory at the build, unloading at start.
 	local key value
-	for key in PICLOUD_SPEECH PICLOUD_MEMORY_LOCAL PICLOUD_MODELS_UNLOAD; do
+	for key in PIGUI_SPEECH PIGUI_MEMORY_LOCAL PIGUI_MODELS_UNLOAD; do
 		case $key in
-			PICLOUD_SPEECH) value=$SPEECH ;;
-			PICLOUD_MEMORY_LOCAL) value=$MEMORY_LOCAL ;;
-			PICLOUD_MODELS_UNLOAD) value=$MODELS_UNLOAD ;;
+			PIGUI_SPEECH) value=$SPEECH ;;
+			PIGUI_MEMORY_LOCAL) value=$MEMORY_LOCAL ;;
+			PIGUI_MODELS_UNLOAD) value=$MODELS_UNLOAD ;;
 		esac
 		if [[ $DRY_RUN == 1 ]]; then
 			note "[dry run] $key=$value in .env"
@@ -883,16 +883,16 @@ install_local_sandboxed() {
 	step "Build the image"
 	run docker compose -f "$SOURCE_DIR/compose.yaml" --project-directory "$SOURCE_DIR" build
 
-	step "Start picloud"
+	step "Start pigui"
 	run docker compose -f "$SOURCE_DIR/compose.yaml" --project-directory "$SOURCE_DIR" up -d
 
-	printf '\npicloud is starting. Access is through the tailnet only: https://%s.<tailnet>.ts.net\n' "${PICLOUD_TS_HOSTNAME:-picloud}"
-	printf 'Sign Pi in once: docker compose -f %s/compose.yaml run --rm picloud pi   (then /login, /model, /quit)\n' "$SOURCE_DIR"
-	printf 'Then: docker compose -f %s/compose.yaml restart picloud\n' "$SOURCE_DIR"
-	printf 'Logs: docker compose -f %s/compose.yaml logs -f picloud\n' "$SOURCE_DIR"
+	printf '\npigui is starting. Access is through the tailnet only: https://%s.<tailnet>.ts.net\n' "${PIGUI_TS_HOSTNAME:-pigui}"
+	printf 'Sign Pi in once: docker compose -f %s/compose.yaml run --rm pigui pi   (then /login, /model, /quit)\n' "$SOURCE_DIR"
+	printf 'Then: docker compose -f %s/compose.yaml restart pigui\n' "$SOURCE_DIR"
+	printf 'Logs: docker compose -f %s/compose.yaml logs -f pigui\n' "$SOURCE_DIR"
 }
 
-# ---- Remote (sandboxed): a server over SSH, picloud in a systemd service as its own user, agent commands confined by
+# ---- Remote (sandboxed): a server over SSH, pigui in a systemd service as its own user, agent commands confined by
 # Landlock. Runs deploy/install.sh on the server.
 
 install_remote_sandboxed() {
@@ -901,7 +901,7 @@ install_remote_sandboxed() {
 	local target
 	target=$(ssh_target)
 
-	step "Clone picloud ($REF) on $REMOTE"
+	step "Clone pigui ($REF) on $REMOTE"
 	# A private repository: the server signs in to GitHub first, with this computer's token, so the clone works.
 	local gh_token=${GH_TOKEN:-}
 	if [[ -n $GITHUB_TOKEN_FILE ]]; then gh_token=$(cat "$GITHUB_TOKEN_FILE"); fi
@@ -918,7 +918,7 @@ install_remote_sandboxed() {
 		printf '%s' "$gh_token" | "$SSH" "$target" "gh auth status >/dev/null 2>&1 || gh auth login --with-token"
 	fi
 	run "$SSH" "$target" "gh auth setup-git"
-	run "$SSH" "$target" "if [ -d /root/picloud-src/.git ]; then git -C /root/picloud-src fetch --quiet origin '$REF' && git -C /root/picloud-src checkout --quiet --detach FETCH_HEAD; else git clone --quiet --branch '$REF' '$REPOSITORY' /root/picloud-src; fi"
+	run "$SSH" "$target" "if [ -d /root/pigui-src/.git ]; then git -C /root/pigui-src fetch --quiet origin '$REF' && git -C /root/pigui-src checkout --quiet --detach FETCH_HEAD; else git clone --quiet --branch '$REF' '$REPOSITORY' /root/pigui-src; fi"
 
 	step "Copy the tokens to $REMOTE"
 	local agent_token=${AGENT_GH_TOKEN:-}
@@ -944,12 +944,12 @@ install_remote_sandboxed() {
 	extra+=(--hostname "$HOSTNAME_OPTION" --speech "$SPEECH" --memory-local "$MEMORY_LOCAL" --models-unload "$MODELS_UNLOAD")
 	extra+=(--github-token-file /root/github-token --agent-github-token-file /root/agent-github-token)
 	printf -v extra_quoted '%q ' "${extra[@]}"
-	run "$SSH" "$target" "bash /root/picloud-src/deploy/install.sh $extra_quoted"
+	run "$SSH" "$target" "bash /root/pigui-src/deploy/install.sh $extra_quoted"
 
-	printf '\npicloud is installing on %s. When it finishes, the steps that need a person are printed there (sign Pi in, open the phone app).\n' "$REMOTE"
+	printf '\npigui is installing on %s. When it finishes, the steps that need a person are printed there (sign Pi in, open the phone app).\n' "$REMOTE"
 }
 
-# ---- Remote (full): a server over SSH, picloud as a user of your choosing with that user's full access (OnPrem over
+# ---- Remote (full): a server over SSH, pigui as a user of your choosing with that user's full access (OnPrem over
 # SSH). Creates the user, copies this computer's GitHub and Pi credentials to it, and installs.
 
 install_remote_full() {
@@ -989,12 +989,12 @@ install_remote_full() {
 	else
 		# Standalone: the local standalone directory when there is one, else one built from ~/.pi/agent's models.json.
 		if [[ -d $ROOT/pi-agent ]]; then
-			run "$SSH" "$target" "mkdir -p /home/'$RUSER'/.picloud && chown '$RUSER':'$RUSER' /home/'$RUSER'/.picloud"
-			run bash -c "tar -C '$ROOT' -czf - pi-agent | '$SSH' '$target' \"tar -C /home/'$RUSER'/.picloud -xzf - && chown -R '$RUSER':'$RUSER' /home/'$RUSER'/.picloud\""
+			run "$SSH" "$target" "mkdir -p /home/'$RUSER'/.pigui && chown '$RUSER':'$RUSER' /home/'$RUSER'/.pigui"
+			run bash -c "tar -C '$ROOT' -czf - pi-agent | '$SSH' '$target' \"tar -C /home/'$RUSER'/.pigui -xzf - && chown -R '$RUSER':'$RUSER' /home/'$RUSER'/.pigui\""
 		else
-			run "$SSH" "$target" "mkdir -p /home/'$RUSER'/.picloud/pi-agent && chown -R '$RUSER':'$RUSER' /home/'$RUSER'/.picloud"
+			run "$SSH" "$target" "mkdir -p /home/'$RUSER'/.pigui/pi-agent && chown -R '$RUSER':'$RUSER' /home/'$RUSER'/.pigui"
 			if [[ -f $HOME/.pi/agent/models.json ]]; then
-				run bash -c "tar -C '$HOME/.pi/agent' -czf - models.json | '$SSH' '$target' \"tar -C /home/'$RUSER'/.picloud/pi-agent -xzf - && chmod 600 /home/'$RUSER'/.picloud/pi-agent/models.json && chown -R '$RUSER':'$RUSER' /home/'$RUSER'/.picloud\""
+				run bash -c "tar -C '$HOME/.pi/agent' -czf - models.json | '$SSH' '$target' \"tar -C /home/'$RUSER'/.pigui/pi-agent -xzf - && chmod 600 /home/'$RUSER'/.pigui/pi-agent/models.json && chown -R '$RUSER':'$RUSER' /home/'$RUSER'/.pigui\""
 			fi
 		fi
 	fi
@@ -1015,14 +1015,14 @@ install_remote_full() {
 		run "$SSH" "$target" "tailscale set --operator='$RUSER'"
 	fi
 
-	step "Install picloud on $REMOTE"
+	step "Install pigui on $REMOTE"
 	local remote_args=(--local-full --ref "$REF" --speech "$SPEECH" --memory-local "$MEMORY_LOCAL" --models-unload "$MODELS_UNLOAD" --tailscale "$TAILSCALE" --allowed-logins "$ALLOWED_LOGINS" --hostname "$HOSTNAME_OPTION")
-	[[ $PI_CONFIG == standalone ]] && remote_args+=(--pi-config standalone --pi-agent-dir /home/"$RUSER"/.picloud/pi-agent)
+	[[ $PI_CONFIG == standalone ]] && remote_args+=(--pi-config standalone --pi-agent-dir /home/"$RUSER"/.pigui/pi-agent)
 	printf -v remote_quoted '%q ' "${remote_args[@]}"
 	# The script pipes itself to the server, which clones the repository and runs the OnPrem path there as the user.
 	run "$SSH" "$(printf '%s@%s' "$RUSER" "$REMOTE")" "XDG_RUNTIME_DIR=/run/user/\$(id -u) bash -s -- $remote_quoted" <"$SOURCE_DIR/install.sh"
 
-	printf '\npicloud is installing on %s as %s. When it finishes: https://%s.<tailnet>.ts.net (or http://%s:2025 on the server).\n' "$REMOTE" "$RUSER" "$HOSTNAME_OPTION" "$REMOTE"
+	printf '\npigui is installing on %s as %s. When it finishes: https://%s.<tailnet>.ts.net (or http://%s:2025 on the server).\n' "$REMOTE" "$RUSER" "$HOSTNAME_OPTION" "$REMOTE"
 }
 
 # ---- Dispatch.

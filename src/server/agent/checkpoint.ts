@@ -1,7 +1,7 @@
 // The compaction checkpoint: the text the agent reads in place of the context it lost. What code can recompute (the
 // person's words, the plan, the session, the repository, the files touched; see facts.ts) is rebuilt at every
 // compaction; only the working state comes from the summarizer, which evolves the previous one. Both ways a compaction
-// happens, picloud's own after a handoff note and Durable's through the backstop hook, write their checkpoint here.
+// happens, pigui's own after a handoff note and Durable's through the backstop hook, write their checkpoint here.
 import type { Context } from "@earendil-works/chord/context";
 import type { Api, Model } from "@earendil-works/pi-ai";
 import type { ContextView, EntryDraft, EntryId, EntryRecord, HookApi, Tx } from "@earendil-works/pi-durable";
@@ -21,7 +21,7 @@ export const CHECKPOINT_HEADER = "HISTORICAL CHECKPOINT.";
 const FACTS_SHARE = 0.1;
 /** The summarizer's input, as a share of its context window; the rest is for its instructions and reply. */
 const PROMPT_SHARE = 0.6;
-const MEMO = "picloud.checkpoint";
+const MEMO = "pigui.checkpoint";
 
 /** What both compaction paths may use: committed reads and the compaction task's memos. */
 type CheckpointApi = Pick<HookApi, "taskId" | "conversationId" | "models" | "memo" | "snapshot" | "entries">;
@@ -46,7 +46,7 @@ export function renderCheckpoint(input: {
 	at: number;
 	/** The summarizer's working state; undefined before any was written. */
 	body: string | undefined;
-	/** Notes from picloud on this checkpoint: a cut adjustment, a summarizer failure. */
+	/** Notes from pigui on this checkpoint: a cut adjustment, a summarizer failure. */
 	notes: string[];
 	compacted: { first: EntryId; last: EntryId } | undefined;
 	cut: EntryId;
@@ -66,7 +66,7 @@ export function renderCheckpoint(input: {
 		return lines;
 	};
 	const working = [
-		...input.notes.map((note) => `(picloud: ${note})`),
+		...input.notes.map((note) => `(pigui: ${note})`),
 		...(input.notes.length === 0 ? [] : [""]),
 		input.body ?? "No working state has been written yet. Work from the plan progress, the repository state and the messages after this checkpoint.",
 	].join("\n");
@@ -84,7 +84,7 @@ export function renderCheckpoint(input: {
 				];
 	const facts = (): string =>
 		[
-			`${CHECKPOINT_HEADER} picloud compacted this session's earlier context into checkpoint ${input.number}, at ${new Date(input.at).toISOString()}. The files on disk and the messages after this checkpoint are newer than it: where they disagree with it, they win.`,
+			`${CHECKPOINT_HEADER} pigui compacted this session's earlier context into checkpoint ${input.number}, at ${new Date(input.at).toISOString()}. The files on disk and the messages after this checkpoint are newer than it: where they disagree with it, they win.`,
 			"",
 			"## Before you act",
 			ground === undefined
@@ -129,7 +129,7 @@ export function renderCheckpoint(input: {
 	return render();
 }
 
-/** Whether a head marker holds a picloud checkpoint: its own marker, or Durable's summary carrying one. */
+/** Whether a head marker holds a pigui checkpoint: its own marker, or Durable's summary carrying one. */
 function isCheckpoint(entry: EntryRecord | undefined): boolean {
 	if (entry === undefined) return false;
 	return entry.kind === CHECKPOINT_ENTRY || messagesText(entry.model ?? []).includes(CHECKPOINT_HEADER);

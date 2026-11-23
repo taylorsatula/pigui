@@ -70,7 +70,7 @@ describe("a subagent's run", () => {
 	};
 
 	test("a foreground agent's answer is the call's result, from commands run where and as the session's are", async (t) => {
-		const id = await server.createSession(delegate(`agent probe fg $ pwd $ echo "$HOME" $ cat ${join(server.dataDir, "picloud.sqlite")}`));
+		const id = await server.createSession(delegate(`agent probe fg $ pwd $ echo "$HOME" $ cat ${join(server.dataDir, "pigui.sqlite")}`));
 		const done = await server.settled(id);
 		const row = rows(done)[0];
 		assert.equal(row?.status, "done");
@@ -100,7 +100,7 @@ describe("a subagent's run", () => {
 		assert.equal(child.skills, parent.skills);
 		assert.match(child.instructions ?? "", /^<instructions>\n# Environment\nWorking directory: .*\nGit repository: yes\nBranch: pi\/delegate-agents-\d+\nPlatform: \w+\n\nYou run the commands/);
 		// Nothing of the session's own agent: its prompt, its tools, nor Agent itself.
-		assert.equal(child.picloud, undefined);
+		assert.equal(child.pigui, undefined);
 		assert.match(parent.subagents ?? "", /- probe: Runs what it is told/);
 		assert.match(parent.subagents ?? "", /- thought-partner: /);
 		const tools = (await server.entries(agent)).flatMap((entry) => (entry.kind === "pi.system" ? ((entry.model?.[0] as { toolsAdded?: { name: string }[] }).toolsAdded ?? []) : [])).map((tool) => tool.name);
@@ -424,7 +424,7 @@ describe("definitions and the setting", () => {
 	});
 	after(() => server.close());
 
-	test("a definition missing a field, on an unknown model, with none of its tools, or asking for what picloud does not do is refused with why", async () => {
+	test("a definition missing a field, on an unknown model, with none of its tools, or asking for what pigui does not do is refused with why", async () => {
 		const refusals: Record<string, string> = {
 			nodesc: "---\ntools: read\n---\nHello.\n",
 			badmodel: "---\ndescription: On a model there is not\ntools: read\nmodel: nowhere/nothing\n---\nHello.\n",
@@ -443,12 +443,12 @@ describe("definitions and the setting", () => {
 		const said = (pattern: RegExp) => assert.ok(refused.some((result) => result.isError && pattern.test(result.text)), `${pattern}: ${refused.map((result) => result.text).join(" | ")}`);
 		said(/The agent nodesc cannot run: description is required\. Its file is agents\/nodesc\.md/);
 		said(/The agent badmodel cannot run: model nowhere\/nothing is not one of Pi's configured models/);
-		said(/The agent remembers cannot run: "memory" is a field picloud does not support/);
+		said(/The agent remembers cannot run: "memory" is a field pigui does not support/);
 		said(/The agent appender cannot run: prompt_mode "append" is not supported/);
 		said(/The agent extender cannot run: extensions must be false or left out/);
 		said(/The agent picker cannot run: extensions must be false or left out/);
 		said(/The agent preloader cannot run: skills must be true or false/);
-		// picloud's own tools are the session's agent's alone, so they count as missing too.
+		// pigui's own tools are the session's agent's alone, so they count as missing too.
 		said(/The agent nothere cannot run: none of its tools is available here \(teleport, file_report\)/);
 		const sections = (await server.entries(id)).flatMap((entry) => (entry.kind === "pi.system" ? [(entry.model?.[0] as { sections?: Record<string, string> }).sections?.subagents ?? ""] : []));
 		assert.doesNotMatch(sections.join("\n"), new RegExp(Object.keys(refusals).join("|")), "refused agents are not offered");
@@ -474,7 +474,7 @@ describe("definitions and the setting", () => {
 		assert.match(partial.sections.skills ?? "", /release-notes/);
 		assert.match(parent.sections.skills ?? "", /release-notes/, "the session's agent keeps its skills list");
 		assert.deepEqual(partial.tools, ["read"]);
-		assert.match(parent.sections.subagents ?? "", /- partial: Searches Here it has read; grep and find are not available in picloud\./);
+		assert.match(parent.sections.subagents ?? "", /- partial: Searches Here it has read; grep and find are not available in pigui\./);
 		assert.match(parent.sections.subagents ?? "", /- plain: Codes without skills\n/);
 	});
 
@@ -500,7 +500,7 @@ describe("definitions and the setting", () => {
 		const id = await server.createSession(delegate("agent later fg hi"));
 		await server.settled(id);
 		assert.match((await results(server, id, "Agent"))[0]!.text, /the body, the agent's prompt, is empty/);
-		await define(server, "later", "---\ndescription: Ready now\ntools: read\nmodel: picloud-fake/scripted\nthinking: low\nmax_turns: 3\ncolor: blue\n---\nYou answer.\n");
+		await define(server, "later", "---\ndescription: Ready now\ntools: read\nmodel: pigui-fake/scripted\nthinking: low\nmax_turns: 3\ncolor: blue\n---\nYou answer.\n");
 		await server.send(id, delegate("agent later fg hi again"));
 		const done = await server.settled(id);
 		assert.equal(rows(done)[0]?.status, "done");
@@ -508,7 +508,7 @@ describe("definitions and the setting", () => {
 		const configured = await agent!.agent(context);
 		assert.equal(configured.maxTurns, 3);
 		assert.equal(configured.thinkingLevel, "low");
-		assert.deepEqual(configured.model, { provider: "picloud-fake", modelId: "scripted" });
+		assert.deepEqual(configured.model, { provider: "pigui-fake", modelId: "scripted" });
 	});
 
 	test("a settings file that does not validate refuses dispatch, and leaves a queued agent queued while anything could wake it", async () => {

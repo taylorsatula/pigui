@@ -1,4 +1,4 @@
-// How a local model (Kokoro for speech, LEAF for memory) is held in memory, as PICLOUD_MODELS_UNLOAD says: loaded as
+// How a local model (Kokoro for speech, LEAF for memory) is held in memory, as PIGUI_MODELS_UNLOAD says: loaded as
 // the server starts and kept, so the first use waits on no load; or loaded on first use and released once it has sat
 // idle that long, giving its memory back on a machine with little to spare at the cost of a load on the next use.
 import { errorKind, type Logger } from "./log.ts";

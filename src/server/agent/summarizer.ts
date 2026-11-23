@@ -18,7 +18,7 @@ Think of the session as a hurdle race. The checkpoint records the race so far: w
 
 You are given:
 - <previous_checkpoint>, after the first compaction: the working state written last time. Treat it as frozen history and evolve it.
-- <picloud_facts>: computed by picloud from its records and the workspace: the person's words verbatim, the plan and its progress, the session's state, the repository's state, and the files read and modified. picloud puts them in the checkpoint unchanged, so rely on them and do not restate them.
+- <pigui_facts>: computed by pigui from its records and the workspace: the person's words verbatim, the plan and its progress, the session's state, the repository's state, and the files read and modified. pigui puts them in the checkpoint unchanged, so rely on them and do not restate them.
 - <agent_handoff>, when present: the agent's own first-person note, written just now, on what it is doing, what it learned and its exact next step. It is the freshest account, and it stays verbatim after the checkpoint. Use it, and do not copy it.
 - <new_history_to_compact>: entries this checkpoint replaces. Integrate all of them.
 - <kept_recent_context>: the entries after them, as boundary evidence. You choose where the verbatim runway starts among them.
@@ -37,9 +37,9 @@ Cut-point strategy:
 - Prefer a message from the person, if one is in range: it gives the agent a concrete instruction.
 - Keep at least one coherent unit: a request and its response, or the start of the current action. Do not leave the agent looking at an orphaned result.
 - Between tasks, cut late: routine reads, searches and edits are safe to summarize, since their outcomes are on disk and in the checkpoint. Mid-task, keep the active instruction and the partial results or errors needed to finish the current step.
-- picloud caps how much is kept and may move your cut later. Write as if your cut is honoured.
+- pigui caps how much is kept and may move your cut later. Write as if your cut is honoured.
 
-Condensing, optional: a tool result at or after your cut that the agent no longer needs verbatim, such as a long log whose outcome you recorded, can be condensed. picloud replaces its content, in what the agent sees, with your one-line note and a pointer to the full result. Only tool results can be condensed, and never the handoff note's.
+Condensing, optional: a tool result at or after your cut that the agent no longer needs verbatim, such as a long log whose outcome you recorded, can be condensed. pigui replaces its content, in what the agent sees, with your one-line note and a pointer to the full result. Only tool results can be condensed, and never the handoff note's.
 
 Reply in exactly this form, without a code fence. Leave out <condense> when you condense nothing.
 
@@ -173,10 +173,10 @@ export function summarizerPrompt(input: {
 	const kept = keptText(input.kept, input.valid, Math.floor(input.budgetChars / 3));
 	const parts = [
 		...(input.previous === undefined ? [] : [`<previous_checkpoint>\n${input.previous}\n</previous_checkpoint>`]),
-		`<picloud_facts>\n${input.facts}\n</picloud_facts>`,
+		`<pigui_facts>\n${input.facts}\n</pigui_facts>`,
 		...(input.handoff === undefined ? [] : [`<agent_handoff>\n${input.handoff}\n</agent_handoff>`]),
 		`<new_history_to_compact>\n${historyText(input.history, input.budgetChars - kept.text.length)}\n</new_history_to_compact>`,
-		`<kept_recent_context>\nBoundary evidence, oldest first. Its first valid cut keeps the most that picloud allows.\n${kept.text}\n</kept_recent_context>`,
+		`<kept_recent_context>\nBoundary evidence, oldest first. Its first valid cut keeps the most that pigui allows.\n${kept.text}\n</kept_recent_context>`,
 		'Choose the cut from <kept_recent_context> (valid_cutpoint="true" only), then write the checkpoint in the required form.',
 	];
 	return { text: parts.join("\n\n"), presented: kept.presented };

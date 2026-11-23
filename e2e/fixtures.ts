@@ -39,18 +39,18 @@ export class FakeServer {
 		this.#dirs = [dataDir, agentDir, ...(home === undefined ? [] : [home])];
 		this.#env = {
 			...process.env,
-			PICLOUD_PORT: String(port),
-			PICLOUD_DATA_DIR: dataDir,
+			PIGUI_PORT: String(port),
+			PIGUI_DATA_DIR: dataDir,
 			PI_CODING_AGENT_DIR: agentDir,
-			PICLOUD_FAKE_TOKENS_PER_SECOND: String(options.tokensPerSecond),
-			PICLOUD_FAKE_MEMORY: options.memory,
-			...(home === undefined ? {} : { PICLOUD_ONPREM: "on", HOME: home }),
+			PIGUI_FAKE_TOKENS_PER_SECOND: String(options.tokensPerSecond),
+			PIGUI_FAKE_MEMORY: options.memory,
+			...(home === undefined ? {} : { PIGUI_ONPREM: "on", HOME: home }),
 		};
 	}
 
 	static async start(options: ServerOptions): Promise<FakeServer> {
-		const home = options.onPrem ? await mkdtemp(join(tmpdir(), "picloud-home-")) : undefined;
-		const server = new FakeServer(await freePort(), await mkdtemp(join(tmpdir(), "picloud-e2e-")), await mkdtemp(join(tmpdir(), "picloud-pi-")), home, options);
+		const home = options.onPrem ? await mkdtemp(join(tmpdir(), "pigui-home-")) : undefined;
+		const server = new FakeServer(await freePort(), await mkdtemp(join(tmpdir(), "pigui-e2e-")), await mkdtemp(join(tmpdir(), "pigui-pi-")), home, options);
 		await server.#spawn();
 		return server;
 	}
@@ -65,7 +65,7 @@ export class FakeServer {
 			let output = "";
 			child.stdout?.on("data", (chunk: Buffer) => {
 				output += chunk.toString();
-				if (output.includes("picloud fake mode on")) resolve();
+				if (output.includes("pigui fake mode on")) resolve();
 			});
 			child.once("exit", (code) => reject(new Error(`The fake server exited with ${code}`)));
 		});
@@ -95,7 +95,7 @@ export const test = base.extend<{ errors: string[] }, { server: FakeServer; toke
 	tokensPerSecond: [300, { scope: "worker", option: true }],
 	/** Off starts the server as one without an embedder. */
 	memory: ["on", { scope: "worker", option: true }],
-	/** On starts picloud OnPrem, as on the person's own computer. */
+	/** On starts pigui OnPrem, as on the person's own computer. */
 	onPrem: [false, { scope: "worker", option: true }],
 	server: [
 		async ({ tokensPerSecond, memory, onPrem }, use) => {

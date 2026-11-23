@@ -1,4 +1,4 @@
-// What picloud's agent gets: `Agent` starts or resumes an agent, `steer_subagent` sends one a message while it runs,
+// What pigui's agent gets: `Agent` starts or resumes an agent, `steer_subagent` sends one a message while it runs,
 // and a prompt section lists the agents it can start, read from their files at every request.
 import type { Context } from "@earendil-works/chord/context";
 import type { JsonValue } from "@earendil-works/chord/json";
@@ -35,7 +35,7 @@ export type ToolsHost = TaskHost & {
 	catalog(): Promise<Catalog>;
 	/** The tools behind a definition's names, from the registry as this call sees it. */
 	tools(api: ToolExecutionApi, names: readonly string[]): ToolRegistration[];
-	/** The extensions an agent never gets: picloud's session extension, and this one, so agents start no agents. */
+	/** The extensions an agent never gets: pigui's session extension, and this one, so agents start no agents. */
 	excluded(): readonly Extension[];
 	/** The extension of the skills list, which an agent whose definition says `skills: false` does not select. */
 	skills: Extension;
@@ -249,7 +249,7 @@ export function subagentTools(host: ToolsHost, task: AgentTask) {
 
 /**
  * The agents the parent can start, read from their files at each request: a refused one is logged and left out, and
- * one naming tools picloud does not have says so, since its prompt may count on them.
+ * one naming tools pigui does not have says so, since its prompt may count on them.
  */
 export function agentsSection(host: Pick<ToolsHost, "dataDir" | "catalog" | "warn">): PromptSection {
 	return section("subagents", async () => {
@@ -268,5 +268,5 @@ function entry(agent: Definition): string {
 	const line = `- ${agent.name}: ${agent.description}`;
 	if (agent.missing.length === 0) return line;
 	const missing = agent.missing.length === 1 ? `${agent.missing[0]} is` : `${agent.missing.slice(0, -1).join(", ")} and ${agent.missing.at(-1)} are`;
-	return `${line} Here it has ${agent.tools.join(", ")}; ${missing} not available in picloud.`;
+	return `${line} Here it has ${agent.tools.join(", ")}; ${missing} not available in pigui.`;
 }

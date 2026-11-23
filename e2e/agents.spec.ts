@@ -31,7 +31,7 @@ test.describe("agents", () => {
 		await expect(rows.nth(0)).toContainText("queued, next in line");
 		await expect(rows.nth(0).locator(".indicator")).toHaveClass(/\bidle\b/);
 		await expect(rows.nth(1).locator(".indicator")).toHaveClass(/\bworking\b/);
-		await expect(rows.nth(1).locator(".agent-detail")).toContainText(/picloud-fake\/scripted · (bash|thinking|writing).* · \d+ turns? · [\d.]+k? tokens/);
+		await expect(rows.nth(1).locator(".agent-detail")).toContainText(/pigui-fake\/scripted · (bash|thinking|writing).* · \d+ turns? · [\d.]+k? tokens/);
 		await expect(rows.nth(1).locator(".agent-type")).toHaveText("waiter");
 		await noHorizontalScroll(page);
 		await page.keyboard.press("Escape");

@@ -13,7 +13,7 @@ export type MemoryConfig = {
 };
 
 /**
- * picloud OnPrem (`PICLOUD_ONPREM=on`): it runs on the person's own computer, as them, with their home directory. Agent
+ * pigui OnPrem (`PIGUI_ONPREM=on`): it runs on the person's own computer, as them, with their home directory. Agent
  * commands get their environment and credentials, unconfined; local sessions work in any directory. It answers to
  * localhost, and to `hosts`: the names it is reached by through `tailscale serve`, from a phone on the tailnet.
  */
@@ -29,7 +29,7 @@ export type Config = {
 	/** VAPID subject sent to push services: a `mailto:` or `https:` URL that identifies the operator. */
 	pushSubject: string;
 	/**
-	 * Tailscale logins allowed in; empty allows everyone who can reach picloud through the tailnet. In OnPrem it applies
+	 * Tailscale logins allowed in; empty allows everyone who can reach pigui through the tailnet. In OnPrem it applies
 	 * to what comes through Tailscale, not to the computer's own browser at localhost.
 	 */
 	allowedLogins: string[];
@@ -39,13 +39,13 @@ export type Config = {
 	compactionModel: ModelRef | undefined;
 	/** Scripted model and a local GitHub stand-in: the whole product without credentials. */
 	fake: boolean;
-	/** The read-only GitHub token agent commands get as GH_TOKEN, never picloud's own; required in real mode, never in OnPrem. */
+	/** The read-only GitHub token agent commands get as GH_TOKEN, never pigui's own; required in real mode, never in OnPrem. */
 	agentGitHubToken: string | undefined;
-	/** Landlock around every agent command and file tool (`PICLOUD_SANDBOX`, on unless `off`; always off in OnPrem). */
+	/** Landlock around every agent command and file tool (`PIGUI_SANDBOX`, on unless `off`; always off in OnPrem). */
 	sandbox: boolean;
 	memory: MemoryConfig;
 	/**
-	 * How the local speech and memory models are held (`PICLOUD_MODELS_UNLOAD`): undefined, loaded as picloud starts and
+	 * How the local speech and memory models are held (`PIGUI_MODELS_UNLOAD`): undefined, loaded as pigui starts and
 	 * kept; otherwise loaded on first use and released after this many milliseconds idle.
 	 */
 	modelsUnloadAfterMs: number | undefined;
@@ -55,45 +55,45 @@ export class ConfigError extends Error {}
 
 /** Read the configuration from environment variables; every variable is documented in README.md. */
 export function readConfig(env: NodeJS.ProcessEnv): Config {
-	const fake = flag(env.PICLOUD_FAKE, "PICLOUD_FAKE");
-	const onPrem = onOff(env.PICLOUD_ONPREM, "PICLOUD_ONPREM", false);
+	const fake = flag(env.PIGUI_FAKE, "PIGUI_FAKE");
+	const onPrem = onOff(env.PIGUI_ONPREM, "PIGUI_ONPREM", false);
 	if (onPrem) refuseWithOnPrem(env);
-	else if ((env.PICLOUD_ALLOWED_HOSTS ?? "").trim() !== "") {
+	else if ((env.PIGUI_ALLOWED_HOSTS ?? "").trim() !== "") {
 		throw new ConfigError(
-			"PICLOUD_ALLOWED_HOSTS applies only with PICLOUD_ONPREM=on: a server is reached through Tailscale alone and checks no host name. Remove it, or turn OnPrem on.",
+			"PIGUI_ALLOWED_HOSTS applies only with PIGUI_ONPREM=on: a server is reached through Tailscale alone and checks no host name. Remove it, or turn OnPrem on.",
 		);
 	}
-	const dataDir = env.PICLOUD_DATA_DIR;
+	const dataDir = env.PIGUI_DATA_DIR;
 	if (dataDir === undefined || dataDir.trim() === "") {
-		throw new ConfigError("PICLOUD_DATA_DIR is not set. Set it to the directory picloud keeps its database and workspaces in.");
+		throw new ConfigError("PIGUI_DATA_DIR is not set. Set it to the directory pigui keeps its database and workspaces in.");
 	}
-	const host = env.PICLOUD_HOST ?? "127.0.0.1";
+	const host = env.PIGUI_HOST ?? "127.0.0.1";
 	if (!isLoopback(host)) {
 		throw new ConfigError(
-			`PICLOUD_HOST is ${host}, which is not a loopback address. picloud listens on loopback only; Tailscale serve, or in OnPrem this computer's browser, is the way in.`,
+			`PIGUI_HOST is ${host}, which is not a loopback address. pigui listens on loopback only; Tailscale serve, or in OnPrem this computer's browser, is the way in.`,
 		);
 	}
 	return {
-		onPrem: onPrem ? { home: resolve(env.HOME?.trim() || homedir()), hosts: hostNames(env.PICLOUD_ALLOWED_HOSTS) } : undefined,
+		onPrem: onPrem ? { home: resolve(env.HOME?.trim() || homedir()), hosts: hostNames(env.PIGUI_ALLOWED_HOSTS) } : undefined,
 		dataDir: resolve(dataDir),
 		host,
-		port: integer(env.PICLOUD_PORT, "PICLOUD_PORT", onPrem ? 2025 : 8787, 0, 65535),
-		pushSubject: pushSubject(env.PICLOUD_PUSH_SUBJECT),
-		allowedLogins: (env.PICLOUD_ALLOWED_LOGINS ?? "")
+		port: integer(env.PIGUI_PORT, "PIGUI_PORT", onPrem ? 2025 : 8787, 0, 65535),
+		pushSubject: pushSubject(env.PIGUI_PUSH_SUBJECT),
+		allowedLogins: (env.PIGUI_ALLOWED_LOGINS ?? "")
 			.split(",")
 			.map((login) => login.trim().toLowerCase())
 			.filter((login) => login.length > 0),
-		spendCap: dollars(env.PICLOUD_SPEND_CAP),
-		compactionModel: modelRef(env.PICLOUD_COMPACTION_MODEL),
+		spendCap: dollars(env.PIGUI_SPEND_CAP),
+		compactionModel: modelRef(env.PIGUI_COMPACTION_MODEL),
 		fake,
-		agentGitHubToken: onPrem ? undefined : agentToken(env.PICLOUD_AGENT_GH_TOKEN, fake),
-		sandbox: !onPrem && onOff(env.PICLOUD_SANDBOX, "PICLOUD_SANDBOX", true),
+		agentGitHubToken: onPrem ? undefined : agentToken(env.PIGUI_AGENT_GH_TOKEN, fake),
+		sandbox: !onPrem && onOff(env.PIGUI_SANDBOX, "PIGUI_SANDBOX", true),
 		memory: {
-			provider: env.PICLOUD_MEMORY_PROVIDER?.trim() || "lunaroute",
-			embedModel: env.PICLOUD_MEMORY_EMBED_MODEL?.trim() || "emb-qwen3",
-			embedUrl: httpUrl(env.PICLOUD_MEMORY_EMBED_URL, "PICLOUD_MEMORY_EMBED_URL"),
+			provider: env.PIGUI_MEMORY_PROVIDER?.trim() || "lunaroute",
+			embedModel: env.PIGUI_MEMORY_EMBED_MODEL?.trim() || "emb-qwen3",
+			embedUrl: httpUrl(env.PIGUI_MEMORY_EMBED_URL, "PIGUI_MEMORY_EMBED_URL"),
 		},
-		modelsUnloadAfterMs: unloadAfter(env.PICLOUD_MODELS_UNLOAD),
+		modelsUnloadAfterMs: unloadAfter(env.PIGUI_MODELS_UNLOAD),
 	};
 }
 
@@ -122,7 +122,7 @@ function dollars(value: string | undefined): number | undefined {
 	if (value === undefined || value === "" || value === "0") return undefined;
 	const parsed = Number(value);
 	if (!Number.isFinite(parsed) || parsed <= 0) {
-		throw new ConfigError(`PICLOUD_SPEND_CAP must be a positive number of US dollars, not ${JSON.stringify(value)}.`);
+		throw new ConfigError(`PIGUI_SPEND_CAP must be a positive number of US dollars, not ${JSON.stringify(value)}.`);
 	}
 	return parsed;
 }
@@ -134,7 +134,7 @@ function modelRef(value: string | undefined): ModelRef | undefined {
 	const provider = value.slice(0, slash).trim();
 	const modelId = value.slice(slash + 1).trim();
 	if (slash === -1 || provider === "" || modelId === "") {
-		throw new ConfigError(`PICLOUD_COMPACTION_MODEL must be provider/modelId, as Pi names models (for example anthropic/claude-sonnet-4-5), not ${JSON.stringify(value)}.`);
+		throw new ConfigError(`PIGUI_COMPACTION_MODEL must be provider/modelId, as Pi names models (for example anthropic/claude-sonnet-4-5), not ${JSON.stringify(value)}.`);
 	}
 	return { provider, modelId };
 }
@@ -144,7 +144,7 @@ function agentToken(value: string | undefined, fake: boolean): string | undefine
 	if (token !== "") return token;
 	if (fake) return undefined;
 	throw new ConfigError(
-		"PICLOUD_AGENT_GH_TOKEN is not set. Set it to a read-only fine-grained GitHub token (Contents and Metadata: read) for the agent's commands; picloud keeps GH_TOKEN for its own GitHub work.",
+		"PIGUI_AGENT_GH_TOKEN is not set. Set it to a read-only fine-grained GitHub token (Contents and Metadata: read) for the agent's commands; pigui keeps GH_TOKEN for its own GitHub work.",
 	);
 }
 
@@ -154,7 +154,7 @@ function unloadAfter(value: string | undefined): number | undefined {
 	if (given === "" || given === "never") return undefined;
 	const minutes = Number(given);
 	if (!Number.isInteger(minutes) || minutes < 1 || minutes > 1440) {
-		throw new ConfigError(`PICLOUD_MODELS_UNLOAD must be never, or a whole number of idle minutes from 1 to 1440, not ${JSON.stringify(value)}.`);
+		throw new ConfigError(`PIGUI_MODELS_UNLOAD must be never, or a whole number of idle minutes from 1 to 1440, not ${JSON.stringify(value)}.`);
 	}
 	return minutes * 60_000;
 }
@@ -168,23 +168,23 @@ function onOff(value: string | undefined, name: string, fallback: boolean): bool
 
 /**
  * OnPrem gives the agent the person's own access, so the settings that confine it or stand in for the person's own
- * credentials mean nothing there. Given anyway, they say the operator expects a protection that is not in place, so picloud refuses to start.
+ * credentials mean nothing there. Given anyway, they say the operator expects a protection that is not in place, so pigui refuses to start.
  */
 function refuseWithOnPrem(env: NodeJS.ProcessEnv): void {
-	if (env.PICLOUD_SANDBOX === "on") {
+	if (env.PIGUI_SANDBOX === "on") {
 		throw new ConfigError(
-			"PICLOUD_SANDBOX=on cannot be combined with PICLOUD_ONPREM=on: OnPrem runs agent commands as you, with your full access, so there is no sandbox. Remove PICLOUD_SANDBOX, or turn OnPrem off.",
+			"PIGUI_SANDBOX=on cannot be combined with PIGUI_ONPREM=on: OnPrem runs agent commands as you, with your full access, so there is no sandbox. Remove PIGUI_SANDBOX, or turn OnPrem off.",
 		);
 	}
-	if ((env.PICLOUD_AGENT_GH_TOKEN ?? "").trim() !== "") {
+	if ((env.PIGUI_AGENT_GH_TOKEN ?? "").trim() !== "") {
 		throw new ConfigError(
-			"PICLOUD_AGENT_GH_TOKEN cannot be combined with PICLOUD_ONPREM=on: OnPrem's agent uses your own gh and git credentials. Remove PICLOUD_AGENT_GH_TOKEN, or turn OnPrem off.",
+			"PIGUI_AGENT_GH_TOKEN cannot be combined with PIGUI_ONPREM=on: OnPrem's agent uses your own gh and git credentials. Remove PIGUI_AGENT_GH_TOKEN, or turn OnPrem off.",
 		);
 	}
 }
 
 /**
- * `PICLOUD_ALLOWED_HOSTS`: host names, without a port, such as the computer's MagicDNS name. Each is one a page on this
+ * `PIGUI_ALLOWED_HOSTS`: host names, without a port, such as the computer's MagicDNS name. Each is one a page on this
  * computer cannot be pointed at by someone else's DNS, which is what the host check guards against.
  */
 function hostNames(value: string | undefined): string[] {
@@ -194,7 +194,7 @@ function hostNames(value: string | undefined): string[] {
 		.filter((name) => name !== "");
 	for (const name of names) {
 		if (!/^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)*$/.test(name)) {
-			throw new ConfigError(`PICLOUD_ALLOWED_HOSTS must be host names separated by commas, without a scheme or port (for example mac.tail1234.ts.net), not ${JSON.stringify(name)}.`);
+			throw new ConfigError(`PIGUI_ALLOWED_HOSTS must be host names separated by commas, without a scheme or port (for example mac.tail1234.ts.net), not ${JSON.stringify(name)}.`);
 		}
 	}
 	return names;
@@ -213,9 +213,9 @@ function httpUrl(value: string | undefined, name: string): string | undefined {
 }
 
 function pushSubject(value: string | undefined): string {
-	const subject = value === undefined || value === "" ? "mailto:picloud@localhost" : value;
+	const subject = value === undefined || value === "" ? "mailto:pigui@localhost" : value;
 	if (!/^(mailto:|https:\/\/)/.test(subject)) {
-		throw new ConfigError(`PICLOUD_PUSH_SUBJECT must start with mailto: or https://, not ${JSON.stringify(subject)}.`);
+		throw new ConfigError(`PIGUI_PUSH_SUBJECT must start with mailto: or https://, not ${JSON.stringify(subject)}.`);
 	}
 	return subject;
 }

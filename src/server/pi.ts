@@ -1,17 +1,17 @@
-// Real mode's models: Pi's own configuration, read through Pi's own classes. picloud adds no provider code.
+// Real mode's models: Pi's own configuration, read through Pi's own classes. pigui adds no provider code.
 import { join } from "node:path";
 import { ModelRuntime, SettingsManager } from "@earendil-works/pi-coding-agent";
 import type { ModelRef } from "@earendil-works/pi-durable";
 
-const SIGN_IN_MESSAGE = `Pi has no default model with credentials, so picloud cannot run it.
+const SIGN_IN_MESSAGE = `Pi has no default model with credentials, so pigui cannot run it.
 
-Sign in with Pi as the user picloud runs as: run pi, type /login, then /model.
-  With Docker:        docker compose run --rm picloud pi
-                      then: docker compose restart picloud
-  With the installer: sudo -u picloud -i pi
-                      then: sudo systemctl restart picloud
+Sign in with Pi as the user pigui runs as: run pi, type /login, then /model.
+  With Docker:        docker compose run --rm pigui pi
+                      then: docker compose restart pigui
+  With the installer: sudo -u pigui -i pi
+                      then: sudo systemctl restart pigui
   With OnPrem:        pi, as yourself
-                      then run the OnPrem one-liner again (README, "PiCloud OnPrem")`;
+                      then run the OnPrem one-liner again (README, "PiGUI OnPrem")`;
 
 export class NotSignedIn extends Error {}
 

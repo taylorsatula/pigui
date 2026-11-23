@@ -11,7 +11,7 @@ describe("restarts", () => {
 			const waiting = await server.until(id, (doc) => doc.card?.kind === "questions", "questions");
 			await server.parked(id);
 			// While it waits, nothing runs: the tool is parked on a signal and holds no invocation.
-			const tasks = (await server.app.harness.inspect(context)).tasks.filter((task) => task.record.conversationId === id && task.record.kind !== "picloud.notify");
+			const tasks = (await server.app.harness.inspect(context)).tasks.filter((task) => task.record.conversationId === id && task.record.kind !== "pigui.notify");
 			assert.ok(tasks.some((task) => task.state.kind === "sleeping"));
 			assert.ok(tasks.length > 0 && tasks.every((task) => task.state.kind !== "running"), "no task of the session is running");
 			await server.restart();

@@ -1,5 +1,5 @@
 {
-  "name": "picloud",
+  "name": "pigui",
   "version": "1.0.0",
   "private": true,
   "description": "A self-hosted harness for driving the Pi coding agent from a phone.",

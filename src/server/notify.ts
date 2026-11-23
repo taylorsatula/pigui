@@ -44,7 +44,7 @@ export class Notifications {
 	constructor(deps: NotificationsDeps) {
 		this.#deps = deps;
 		this.task = defineTask<Notice, { phase: "send" }, null, object>({
-			name: "picloud.notify",
+			name: "pigui.notify",
 			version: 1,
 			initial: () => ({ phase: "send" }),
 			phases: {

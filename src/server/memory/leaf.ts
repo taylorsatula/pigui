@@ -3,7 +3,7 @@
 // into that model's vector space; a memory, which is embedded once and searched many times, by arctic itself. Both run
 // through transformers.js on the CPU, 8-bit, from the ONNX exports of the two repositories the asymmetric model is
 // packaged from (its own weights are byte-identical to theirs). `deploy/models.sh DIR memory` bakes them in; the build
-// switch is PICLOUD_MEMORY_LOCAL.
+// switch is PIGUI_MEMORY_LOCAL.
 import { access } from "node:fs/promises";
 import { join } from "node:path";
 import { heldModel } from "../held-model.ts";
@@ -57,7 +57,7 @@ async function load() {
 }
 
 /**
- * LEAF, about 300 MB resident while loaded (in about half a second), held as PICLOUD_MODELS_UNLOAD says. Both exports
+ * LEAF, about 300 MB resident while loaded (in about half a second), held as PIGUI_MODELS_UNLOAD says. Both exports
  * end in the model's own pooling and normalisation (mean and a dense projection to 768 dimensions for the query model,
  * the CLS token for arctic), as the `sentence_embedding` output, so a text's vector is that output as it stands.
  */

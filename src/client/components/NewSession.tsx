@@ -1,5 +1,5 @@
 // Starting a session. On a server: a repository (the last one used), a branch choice (a new branch from the default
-// branch unless changed), then the composer. In picloud OnPrem, a directory on this computer comes first, the home
+// branch unless changed), then the composer. In pigui OnPrem, a directory on this computer comes first, the home
 // directory unless changed, with the starred and recent directories under it to choose from, and a repository is the
 // other choice where gh can list them. File and skill pickers read the chosen directory, or the chosen branch, before
 // anything starts.

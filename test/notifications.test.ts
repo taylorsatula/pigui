@@ -20,7 +20,7 @@ function hangUntilAborted(context: Context): Promise<void> {
 }
 
 async function notifications(server: TestServer, id: number) {
-	const page = await server.app.harness.commit((tx) => tx.scanTasks({ conversationId: id as ConversationId, kind: "picloud.notify" }, 100), context);
+	const page = await server.app.harness.commit((tx) => tx.scanTasks({ conversationId: id as ConversationId, kind: "pigui.notify" }, 100), context);
 	return [...page.items];
 }
 

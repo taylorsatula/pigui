@@ -10,14 +10,14 @@ import { reportTool } from "./report.ts";
 import type { AgentServices } from "./services.ts";
 
 /**
- * What picloud adds to Pi for a session's own agent: its tools, prompt sections, the compaction cycle and long-term
+ * What pigui adds to Pi for a session's own agent: its tools, prompt sections, the compaction cycle and long-term
  * memory. What the agents it starts see as well (the project's instructions, skills and the spend cap) is in project.ts.
  */
-export function picloudAgent(services: AgentServices): Extension {
+export function piguiAgent(services: AgentServices): Extension {
 	const compaction = compactionCycle(services);
 	const memory = services.memory === undefined ? [] : [surfaceTool(services, services.memory)];
 	return defineExtension({
-		name: "picloud",
+		name: "pigui",
 		tools: [...questionTools(services), ...planTools(services), reportTool(services), ...memory, recallTool(), handoffTool()],
 		sections: promptSections(services),
 		hooks: compaction.hooks,

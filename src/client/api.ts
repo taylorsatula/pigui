@@ -42,14 +42,14 @@ export function newRequestId(): string {
 const RETRIES = 3;
 
 /**
- * What to say when picloud does not answer: opened at localhost, it is OnPrem on this computer; otherwise it is reached
+ * What to say when pigui does not answer: opened at localhost, it is OnPrem on this computer; otherwise it is reached
  * through Tailscale, whether a server or OnPrem on a computer of the tailnet.
  */
 function unreachable(): ApiError {
 	const here = ["localhost", "127.0.0.1", "[::1]"].includes(location.hostname);
-	if (here) return { error: "picloud cannot be reached.", hint: "Check that picloud is running on this computer." };
+	if (here) return { error: "pigui cannot be reached.", hint: "Check that pigui is running on this computer." };
 	const onPrem = store.get().bootstrap?.onPrem !== undefined;
-	return { error: "picloud cannot be reached.", hint: onPrem ? "Check that Tailscale is connected, and that picloud is running on its computer." : "Check that Tailscale is connected." };
+	return { error: "pigui cannot be reached.", hint: onPrem ? "Check that Tailscale is connected, and that pigui is running on its computer." : "Check that Tailscale is connected." };
 }
 
 async function call<T>(method: "GET" | "POST", path: string, body?: unknown): Promise<T> {

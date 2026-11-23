@@ -1,4 +1,4 @@
-// picloud OnPrem's local sessions: a directory on the person's own computer, worked in place with their full access.
+// pigui OnPrem's local sessions: a directory on the person's own computer, worked in place with their full access.
 // A temporary directory stands in for the home directory, and another for the rest of the computer.
 import assert from "node:assert/strict";
 import { existsSync } from "node:fs";
@@ -21,13 +21,13 @@ async function refused(promise: Promise<unknown>, status: number, message: RegEx
 	});
 }
 
-describe("local sessions in picloud OnPrem", () => {
+describe("local sessions in pigui OnPrem", () => {
 	let server: TestServer;
 	let home: string;
 	let elsewhere: string;
 	before(async () => {
-		home = realpathSync(await mkdtemp(join(tmpdir(), "picloud-home-")));
-		elsewhere = await mkdtemp(join(tmpdir(), "picloud-elsewhere-"));
+		home = realpathSync(await mkdtemp(join(tmpdir(), "pigui-home-")));
+		elsewhere = await mkdtemp(join(tmpdir(), "pigui-elsewhere-"));
 		await writeFile(join(home, "notes.txt"), "a note in the home directory\n");
 		await mkdir(join(home, "code", "app"), { recursive: true });
 		await writeFile(join(home, "code", "app", "README.md"), "# app\n");
@@ -41,9 +41,9 @@ describe("local sessions in picloud OnPrem", () => {
 		await mkdir(join(home, "tree", "node_modules", "dep"), { recursive: true });
 		await writeFile(join(home, "tree", "node_modules", "dep", "index.js"), "\n");
 		await writeFile(join(elsewhere, "outside.txt"), "outside the working directory\n");
-		// picloud's own settings, in the server's environment as an installed OnPrem has them; commands never see them.
-		process.env.PICLOUD_TEST_SETTING = "picloud-only";
-		server = await TestServer.start({ env: { PICLOUD_ONPREM: "on", HOME: home } });
+		// pigui's own settings, in the server's environment as an installed OnPrem has them; commands never see them.
+		process.env.PIGUI_TEST_SETTING = "pigui-only";
+		server = await TestServer.start({ env: { PIGUI_ONPREM: "on", HOME: home } });
 	});
 	after(async () => {
 		await server.close();
@@ -65,7 +65,7 @@ describe("local sessions in picloud OnPrem", () => {
 		assert.equal(done.dir, home, "~ is resolved when the session is created");
 		assert.equal(done.outcome?.kind, "reported");
 		assert.equal(reportOf(done.report!).commit, undefined, "a directory worked in place has no commit to report");
-		// The agent's file tools and commands ran in the chosen directory, never in a clone of picloud's.
+		// The agent's file tools and commands ran in the chosen directory, never in a clone of pigui's.
 		assert.match(await readFile(join(home, "src", "shout.ts"), "utf8"), /export function shout/);
 		assert.equal(existsSync(join(server.workspace(id), ".git")), false, "nothing was cloned");
 		assert.equal(existsSync(join(server.workspace(id), "src")), false);
@@ -110,7 +110,7 @@ describe("local sessions in picloud OnPrem", () => {
 		assert.equal(variables.get("GIT_TERMINAL_PROMPT"), "0", "nobody can answer a prompt");
 		assert.equal(variables.has("GH_CONFIG_DIR"), false, "gh reads the person's own configuration");
 		assert.equal(variables.has("GH_TOKEN"), process.env.GH_TOKEN !== undefined, "no token is injected");
-		assert.deepEqual([...variables.keys()].filter((name) => name.startsWith("PICLOUD_")), [], "picloud's own settings stay picloud's");
+		assert.deepEqual([...variables.keys()].filter((name) => name.startsWith("PIGUI_")), [], "pigui's own settings stay pigui's");
 		// What the earlier local session's report learned is this computer's memory, carried into the next one.
 		const prompt = JSON.stringify((await server.entries(id)).filter((entry) => entry.kind === "pi.system").map((entry) => entry.model));
 		assert.match(prompt, /What earlier sessions learned about working on this computer/);
@@ -127,7 +127,7 @@ describe("local sessions in picloud OnPrem", () => {
 		assert.doesNotMatch(prompt, /runs confined|GitHub token is read-only/);
 	});
 
-	test("@ references reach anywhere, by ~ and absolute paths, and attachments stay in picloud's own directory", async () => {
+	test("@ references reach anywhere, by ~ and absolute paths, and attachments stay in pigui's own directory", async () => {
 		const id = await server.createLocalSession("What is here?", "~/code/app");
 		await server.settled(id);
 		const upload = (await (
@@ -147,10 +147,10 @@ describe("local sessions in picloud OnPrem", () => {
 		);
 		assert.match(modelText(entry), /<file path="~\/notes\.txt">\na note in the home directory/);
 		const attached = data.attachments[0]?.path ?? "";
-		assert.ok(attached.startsWith(join(server.workspace(id), ".picloud", "attachments")), attached);
+		assert.ok(attached.startsWith(join(server.workspace(id), ".pigui", "attachments")), attached);
 		assert.equal(await readFile(attached, "utf8"), "remember this");
 		assert.match(modelText(entry), new RegExp(`Attached file ${attached.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}`), "the agent is given its absolute path");
-		assert.equal(existsSync(join(home, "code", "app", ".picloud")), false, "nothing of picloud's is written into the directory");
+		assert.equal(existsSync(join(home, "code", "app", ".pigui")), false, "nothing of pigui's is written into the directory");
 	});
 
 	test("the @ picker lists the chosen directory, nearest first, without hidden entries or dependencies", async () => {
@@ -197,9 +197,9 @@ describe("local sessions outside OnPrem", () => {
 	test("are refused: a server's sessions stay in their clones", async () => {
 		const server = await TestServer.start();
 		try {
-			await refused(server.createLocalSession("Hello", "/"), 403, /picloud OnPrem/);
-			await refused(server.get(`/api/local/files?dir=/`), 404, /picloud OnPrem/);
-			await refused(server.post("/api/local/starred", { dir: "/", starred: true }), 404, /picloud OnPrem/);
+			await refused(server.createLocalSession("Hello", "/"), 403, /pigui OnPrem/);
+			await refused(server.get(`/api/local/files?dir=/`), 404, /pigui OnPrem/);
+			await refused(server.post("/api/local/starred", { dir: "/", starred: true }), 404, /pigui OnPrem/);
 			assert.equal((await server.get<Bootstrap>("/api/bootstrap")).onPrem, undefined);
 		} finally {
 			await server.close();

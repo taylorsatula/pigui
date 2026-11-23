@@ -1,4 +1,4 @@
-// Where a local session can start (picloud OnPrem), offered under the Directory field: every directory the person
+// Where a local session can start (pigui OnPrem), offered under the Directory field: every directory the person
 // starred, then the five most recently worked in that are not starred. The recent ones are read from the sessions
 // themselves, so there is no second record of them; the stars are kept in the index document, so a star made at the
 // computer is there on the phone. Choosing one fills the field.

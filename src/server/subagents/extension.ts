@@ -1,6 +1,6 @@
-// picloud's subagents, as one Durable extension: the `Agent` and `steer_subagent` tools, the list of agents the parent
-// can start, and the agent task. It takes a small interface from picloud and imports nothing else of picloud's
-// server; picloud's side calls it through the functions exported here.
+// pigui's subagents, as one Durable extension: the `Agent` and `steer_subagent` tools, the list of agents the parent
+// can start, and the agent task. It takes a small interface from pigui and imports nothing else of pigui's
+// server; pigui's side calls it through the functions exported here.
 import type { Context } from "@earendil-works/chord/context";
 import type { Models } from "@earendil-works/pi-ai";
 import {
@@ -22,9 +22,9 @@ export { seedAgents } from "./definitions.ts";
 export { seedSettings } from "./settings.ts";
 export { agentSession, liveAgentTasks, type AgentFaults } from "./task.ts";
 
-const SUBAGENTS = "picloud-subagents";
+const SUBAGENTS = "pigui-subagents";
 
-/** What the extension needs from picloud. */
+/** What the extension needs from pigui. */
 export type SubagentHost = {
 	/** Where the definitions (`agents/`) and the setting (`subagent-settings.json`) live. */
 	dataDir: string;
@@ -32,7 +32,7 @@ export type SubagentHost = {
 	log: { warn(event: string, fields: Record<string, string | undefined>): void };
 	registry: RegistryReader;
 	models(): Models;
-	/** The extensions an agent never gets besides this one: picloud's session extension. */
+	/** The extensions an agent never gets besides this one: pigui's session extension. */
 	exclude: readonly Extension[];
 	/** The coding tools, which an agent without a `tools` field gets all of. */
 	coding: Extension;

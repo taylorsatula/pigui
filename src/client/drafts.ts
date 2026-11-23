@@ -9,7 +9,7 @@ export type Draft = {
 	requestId?: string;
 };
 
-const KEY = "picloud.drafts";
+const KEY = "pigui.drafts";
 const EMPTY: Draft = { text: "", attachments: [] };
 
 function readAll(): Record<string, Draft> {

@@ -1,4 +1,4 @@
-// The shapes of picloud's own Durable documents. The server writes them in commits; the phone receives them through
+// The shapes of pigui's own Durable documents. The server writes them in commits; the phone receives them through
 // watches and applies Chord operations to them, so both sides read exactly these types.
 
 /** How a session's working branch was chosen. */
@@ -300,17 +300,17 @@ export type PersonWord = {
 	text: string;
 };
 
-/** Entry kinds picloud places in the transcript, beside Durable's own `pi.*` kinds. */
-export const MESSAGE_ENTRY = "picloud.message";
-export const NUDGE_ENTRY = "picloud.nudge";
-/** picloud's compaction checkpoint: a head marker that starts the context at the cut its summarizer chose. */
-export const CHECKPOINT_ENTRY = "picloud.compaction";
-/** What picloud says to the agent around a compaction it runs; the model sees it as a user message. */
-export const COMPACTION_NOTE_ENTRY = "picloud.compaction-note";
+/** Entry kinds pigui places in the transcript, beside Durable's own `pi.*` kinds. */
+export const MESSAGE_ENTRY = "pigui.message";
+export const NUDGE_ENTRY = "pigui.nudge";
+/** pigui's compaction checkpoint: a head marker that starts the context at the cut its summarizer chose. */
+export const CHECKPOINT_ENTRY = "pigui.compaction";
+/** What pigui says to the agent around a compaction it runs; the model sees it as a user message. */
+export const COMPACTION_NOTE_ENTRY = "pigui.compaction-note";
 /** A background agent's answer, sent to its parent as a message, which starts the parent's next run. */
-export const AGENT_RESULT_ENTRY = "picloud.agent-result";
+export const AGENT_RESULT_ENTRY = "pigui.agent-result";
 /** A background agent stopped before it answered: a note the parent reads at its next boundary. */
-export const AGENT_STOPPED_ENTRY = "picloud.agent-stopped";
+export const AGENT_STOPPED_ENTRY = "pigui.agent-stopped";
 
 export type AgentResultData = {
 	agent: number;
@@ -339,7 +339,7 @@ export type NudgeEntryData = {
 };
 
 export type CheckpointEntryData = {
-	/** The compaction task that wrote it: picloud's own, or Durable's when picloud's backstop hook answered it. */
+	/** The compaction task that wrote it: pigui's own, or Durable's when pigui's backstop hook answered it. */
 	task: number;
 	/**
 	 * For a Durable compaction, the entry its own summary heads: that summary carries the same checkpoint text, and the
@@ -354,10 +354,10 @@ export type CheckpointEntryData = {
 	condensed: number;
 };
 
-/** Before compacting, picloud asks the agent for a handoff note; after, it tells the agent to resume. */
+/** Before compacting, pigui asks the agent for a handoff note; after, it tells the agent to resume. */
 export type CompactionNoteData = { note: "handoff-request" | "resume" };
 
-/** A clone of a GitHub repository on a branch of its own, which picloud pushes when the person taps. */
+/** A clone of a GitHub repository on a branch of its own, which pigui pushes when the person taps. */
 export type RepoPlace = {
 	place: "repo";
 	repo: string;
@@ -372,8 +372,8 @@ export type RepoPlace = {
 };
 
 /**
- * A directory on the person's own computer (picloud OnPrem), worked in place: nothing is cloned, pushed or diffed, and
- * nothing picloud does ever removes or rewrites anything in it.
+ * A directory on the person's own computer (pigui OnPrem), worked in place: nothing is cloned, pushed or diffed, and
+ * nothing pigui does ever removes or rewrites anything in it.
  */
 export type LocalPlace = {
 	place: "local";
@@ -422,7 +422,7 @@ type SessionCommon = {
 		compactions: number;
 		/** The compaction task that wrote the latest, so a rerun after a restart counts it once. */
 		lastTask: number;
-		/** When picloud asked the agent for a handoff note; cleared by the compaction that follows. */
+		/** When pigui asked the agent for a handoff note; cleared by the compaction that follows. */
 		requestedAt?: number;
 	};
 	/**
@@ -436,7 +436,7 @@ type SessionCommon = {
 	agents?: AgentRow[];
 	archived: boolean;
 	/**
-	 * When maintenance removed picloud's own directories of this archived session: a repository session's clone, after
+	 * When maintenance removed pigui's own directories of this archived session: a repository session's clone, after
 	 * checking nothing in it was unpushed; a local session's attachments, never its directory.
 	 */
 	cleanedAt?: number;
@@ -459,7 +459,7 @@ export type StatusTone = "working" | "attention" | "warn" | "error" | "done" | "
 /** Where a drawer row's session works: the repository and branch, or the directory on this computer. */
 export type RowPlace = Pick<RepoPlace, "place" | "repo" | "branch"> | LocalPlace;
 
-/** One drawer row: a projection of a SessionDoc, recomputed whenever the document changes and when picloud starts. */
+/** One drawer row: a projection of a SessionDoc, recomputed whenever the document changes and when pigui starts. */
 export type SessionRow = RowPlace & {
 	id: number;
 	title: string;
@@ -478,7 +478,7 @@ export type SessionIndex = {
 	/** The repository of the newest session, the default for the next one. */
 	lastRepo?: string;
 	/**
-	 * picloud OnPrem: the directories the person starred, absolute, offered above the recent ones when a session starts.
+	 * pigui OnPrem: the directories the person starred, absolute, offered above the recent ones when a session starts.
 	 * Kept here rather than in the browser, so a star made at the computer is there on the phone.
 	 */
 	starred?: string[];

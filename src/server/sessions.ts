@@ -1,7 +1,7 @@
 // A session's life: creating it, preparing its workspace in a Durable task, and every way the person acts on it. Each
 // action is one commit that checks the current state and changes it, so a retried request or a crash midway never
-// acts twice. A repository session clones into its workspace; a local session (picloud OnPrem) works in a directory of
-// the person's in place, and its workspace holds only picloud's own files for it.
+// acts twice. A repository session clones into its workspace; a local session (pigui OnPrem) works in a directory of
+// the person's in place, and its workspace holds only pigui's own files for it.
 import type { Context } from "@earendil-works/chord/context";
 import type { Draft } from "@earendil-works/chord/delta";
 import {
@@ -52,7 +52,7 @@ export type SessionsDeps = {
 	/** The model a new session runs with: Pi's default model, read when the session is created. */
 	defaultModel: () => ModelRef;
 	spendCap: number | undefined;
-	/** picloud OnPrem: local sessions may be created, and `~` is this home. */
+	/** pigui OnPrem: local sessions may be created, and `~` is this home. */
 	onPrem: OnPrem | undefined;
 };
 
@@ -90,7 +90,7 @@ export class Sessions {
 				}
 			};
 		this.setupTask = defineTask<null, SetupCheckpoint, null, object>({
-			name: "picloud.setup",
+			name: "pigui.setup",
 			version: 1,
 			initial: () => ({ phase: "clone" }),
 			phases: {
@@ -128,7 +128,7 @@ export class Sessions {
 		const doc = await this.#session(runtime, context);
 		const workspace = this.#workspace(doc.id);
 		if (doc.place === "local") {
-			// Nothing to clone or branch: the agent works in the person's directory. Only picloud's own directory is made.
+			// Nothing to clone or branch: the agent works in the person's directory. Only pigui's own directory is made.
 			await mkdir(join(workspace, ATTACHMENTS_DIR), { recursive: true });
 			await this.#advance(runtime, "start", context);
 			return;
@@ -150,13 +150,13 @@ export class Sessions {
 			else await git(workspace, ["switch", "--quiet", "-c", doc.branch]);
 		}
 		await git(workspace, ["config", "user.name", "Pi"]);
-		await git(workspace, ["config", "user.email", "pi@picloud.invalid"]);
+		await git(workspace, ["config", "user.email", "pi@pigui.invalid"]);
 		// Attachments live in the workspace for the agent but must never be committed.
 		const exclude = join(workspace, ".git", "info", "exclude");
 		const excluded = await readFile(exclude, "utf8").catch(() => "");
-		if (!excluded.split("\n").includes("/.picloud/")) {
+		if (!excluded.split("\n").includes("/.pigui/")) {
 			await mkdir(join(workspace, ".git", "info"), { recursive: true });
-			await writeFile(exclude, `${excluded}${excluded === "" || excluded.endsWith("\n") ? "" : "\n"}/.picloud/\n`);
+			await writeFile(exclude, `${excluded}${excluded === "" || excluded.endsWith("\n") ? "" : "\n"}/.pigui/\n`);
 		}
 		await mkdir(join(workspace, ATTACHMENTS_DIR), { recursive: true });
 		const startCommit = await head(workspace);
@@ -176,7 +176,7 @@ export class Sessions {
 			const submission = await handle.submit(tx, {
 				type: "input",
 				content: input.content,
-				requestId: "picloud:task",
+				requestId: "pigui:task",
 				entry: { kind: MESSAGE_ENTRY, data: input.data },
 			});
 			const now = this.#deps.now();
@@ -207,7 +207,7 @@ export class Sessions {
 
 	/**
 	 * The message the agent receives for `text` and `attachments`: references read where the agent works, attachments
-	 * saved in picloud's workspace of the session.
+	 * saved in pigui's workspace of the session.
 	 */
 	async prepare(doc: Readonly<SessionDoc>, text: string, attachments: readonly string[], context: Context): Promise<PreparedInput> {
 		const dir = this.#deps.agent.workingDir(doc);
@@ -226,7 +226,7 @@ export class Sessions {
 
 	/** The home a local session's `~` means; only OnPrem has local sessions. */
 	#home(): string {
-		if (this.#deps.onPrem === undefined) throw new Error("Local sessions exist only in picloud OnPrem.");
+		if (this.#deps.onPrem === undefined) throw new Error("Local sessions exist only in pigui OnPrem.");
 		return this.#deps.onPrem.home;
 	}
 
@@ -236,7 +236,7 @@ export class Sessions {
 			if (this.#deps.onPrem === undefined) {
 				throw new HttpError(
 					403,
-					"Sessions in a directory on this computer are for picloud OnPrem, where the agent has your full access.",
+					"Sessions in a directory on this computer are for pigui OnPrem, where the agent has your full access.",
 					"This server confines every session to a clone of a repository: choose a repository instead.",
 				);
 			}
@@ -330,7 +330,7 @@ export class Sessions {
 		if (doc.setup.status === "preparing") throw new HttpError(409, "The session is still being set up.", "Wait a moment and send again.");
 		if (doc.setup.status === "failed") throw new HttpError(409, "The session's setup failed.", "Tap Retry setup.");
 		if (doc.place === "local" && this.#deps.onPrem === undefined) {
-			throw new HttpError(409, "This session works in a directory on this computer, which only picloud OnPrem runs.", "Turn PICLOUD_ONPREM back on to continue it.");
+			throw new HttpError(409, "This session works in a directory on this computer, which only pigui OnPrem runs.", "Turn PIGUI_ONPREM back on to continue it.");
 		}
 		if (doc.cleanedAt !== undefined) {
 			throw new HttpError(

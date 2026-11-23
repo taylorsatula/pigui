@@ -1,4 +1,4 @@
-// The service worker: keeps the app shell so picloud opens offline, shows push notifications, and opens the right
+// The service worker: keeps the app shell so pigui opens offline, shows push notifications, and opens the right
 // session when one is tapped. API calls are never cached: they are live state.
 /// <reference lib="webworker" />
 declare const self: ServiceWorkerGlobalScope;
@@ -7,7 +7,7 @@ declare const BUILD_ID: string;
 /** The font files app.css loads, replaced at build time from the list scripts/build.ts copies. */
 declare const FONT_FILES: string[];
 
-const CACHE = `picloud-shell-${BUILD_ID}`;
+const CACHE = `pigui-shell-${BUILD_ID}`;
 const SHELL = ["/", "/app.js", "/app.css", "/manifest.webmanifest", "/icons/icon-192.png", "/icons/icon-512.png", "/icons/apple-touch-icon.png", ...FONT_FILES];
 
 type PushPayload = { title: string; body: string; url: string; tag: string };
@@ -41,7 +41,7 @@ self.addEventListener("fetch", (event) => {
 });
 
 self.addEventListener("push", (event) => {
-	const payload = (event.data?.json() ?? { title: "picloud", body: "", url: "/", tag: "picloud" }) as PushPayload;
+	const payload = (event.data?.json() ?? { title: "pigui", body: "", url: "/", tag: "pigui" }) as PushPayload;
 	event.waitUntil(
 		self.registration.showNotification(payload.title, {
 			body: payload.body,

@@ -1,5 +1,5 @@
 // The facts a checkpoint carries that code computes, never the summarizer: the repository as git sees it, the files the
-// agent read and changed with its file tools, and picloud's own records of the person's words, the plan and the session.
+// agent read and changed with its file tools, and pigui's own records of the person's words, the plan and the session.
 import type { Context } from "@earendil-works/chord/context";
 import type { Cursor, EntryId, HookApi } from "@earendil-works/pi-durable";
 import { planOf, reportOf, type RepoSessionDoc, type SessionDoc } from "../../shared/session.ts";

@@ -17,7 +17,7 @@ export type State = {
 	route: Route;
 	bootstrap?: Bootstrap;
 	index?: SessionIndex;
-	/** The open session's picloud document and Durable view (in an agent's viewer, the agent's), for `route.id` only. */
+	/** The open session's pigui document and Durable view (in an agent's viewer, the agent's), for `route.id` only. */
 	session?: SessionDoc;
 	view?: TranscriptView;
 	/** What the open session's stream follows of each of its agents, by agent id. */

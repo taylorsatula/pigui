@@ -1,8 +1,8 @@
-// picloud's compaction cycle. After each tool round, an `afterTools` hook measures the context. Past the trigger it asks
+// pigui's compaction cycle. After each tool round, an `afterTools` hook measures the context. Past the trigger it asks
 // the agent, in a steer, for a handoff note; the round after it compacts: the summarizer writes a checkpoint, a marker
 // starts the context at the cut it chose (keeping the note's call and result), and a resume turn follows. Durable's own
 // compaction stays on as a backstop for what this cycle does not catch, such as one round's output jumping past
-// Durable's thresholds; picloud's `beforeCompact` hook writes that checkpoint the same way, within Durable's cut.
+// Durable's thresholds; pigui's `beforeCompact` hook writes that checkpoint the same way, within Durable's cut.
 import type { Context } from "@earendil-works/chord/context";
 import { calculateContextTokens, estimateMessageTokens } from "@earendil-works/pi-ai/utils/estimate";
 import {
@@ -38,9 +38,9 @@ export function compactionFor(contextWindow: number) {
 }
 
 /**
- * Where picloud asks for a handoff note, as a share of the context window. Durable starts its own compaction at 75%
+ * Where pigui asks for a handoff note, as a share of the context window. Durable starts its own compaction at 75%
  * with the thresholds above; the 15% between leaves room for one round of large tool output (a bash result is capped at
- * 50 KB, about 12k tokens) and the handoff round itself, so on a large window picloud's cycle nearly always runs first.
+ * 50 KB, about 12k tokens) and the handoff round itself, so on a large window pigui's cycle nearly always runs first.
  */
 export const HANDOFF_TRIGGER = 0.6;
 
@@ -49,7 +49,7 @@ const DEFAULT_WINDOW = 128_000;
 type CompactInput = { handoff: number | null };
 type CompactState = { phase: "checkpoint" } | { phase: "resume" };
 
-const markerRequest = (taskId: number) => `picloud-compaction:${taskId}`;
+const markerRequest = (taskId: number) => `pigui-compaction:${taskId}`;
 
 async function limitsOf(services: AgentServices, api: Pick<HookApi, "conversationId" | "snapshot">, context: Context): Promise<Limits & { background: number }> {
 	const agent = await api.snapshot(AgentDoc, api.conversationId, context);
@@ -100,13 +100,13 @@ async function handleOf(runtime: Pick<TaskRuntime<unknown, { phase: string }, un
 	return handle;
 }
 
-/** picloud's steer to the agent, placed as its own kind so the phone shows it as a note and not as the person's words. */
+/** pigui's steer to the agent, placed as its own kind so the phone shows it as a note and not as the person's words. */
 function noteInput(note: CompactionNoteData["note"], taskId: number) {
 	return {
 		type: "input" as const,
 		content: note === "resume" ? RESUME : HANDOFF_REQUEST,
 		whenBusy: "steer" as const,
-		requestId: `picloud-${note}:${taskId}`,
+		requestId: `pigui-${note}:${taskId}`,
 		entry: { kind: COMPACTION_NOTE_ENTRY, data: { note } satisfies CompactionNoteData },
 	};
 }
@@ -114,7 +114,7 @@ function noteInput(note: CompactionNoteData["note"], taskId: number) {
 export function compactionCycle(services: AgentServices) {
 	/** Ask for the handoff note, and mark the cycle as waiting for it in the same commit. */
 	const request = defineTask<null, { phase: "ask" }, AfterToolsDecision, object>({
-		name: "picloud.handoff-request",
+		name: "pigui.handoff-request",
 		version: 1,
 		initial: () => ({ phase: "ask" }),
 		phases: {
@@ -136,12 +136,12 @@ export function compactionCycle(services: AgentServices) {
 	});
 
 	/**
-	 * picloud's compaction, as a child of the generation before the round ends, so the marker and the resume turn are
+	 * pigui's compaction, as a child of the generation before the round ends, so the marker and the resume turn are
 	 * placed at this round's boundary: the marker first, as writes are, then the resume turn. One admission per commit:
 	 * the marker with the checkpoint's other writes, the resume turn in the terminal commit; both have fixed request IDs.
 	 */
 	const compact = defineTask<CompactInput, CompactState, AfterToolsDecision, object>({
-		name: "picloud.compact",
+		name: "pigui.compact",
 		version: 1,
 		initial: () => ({ phase: "checkpoint" }),
 		phases: {

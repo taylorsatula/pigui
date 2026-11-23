@@ -1,5 +1,5 @@
-// Where a session's agent works: Durable's Node environment, with commands run in an environment picloud chooses
-// rather than its own, inside the sandbox when it is on, and the file tools confined to the same grants. In picloud
+// Where a session's agent works: Durable's Node environment, with commands run in an environment pigui chooses
+// rather than its own, inside the sandbox when it is on, and the file tools confined to the same grants. In pigui
 // OnPrem the agent works as the person instead: their environment, home and credentials, with nothing confined.
 import { existsSync } from "node:fs";
 import { mkdir, mkdtemp } from "node:fs/promises";
@@ -35,8 +35,8 @@ import { agentSession } from "./subagents/extension.ts";
 const SHELL = existsSync("/bin/bash") ? "/bin/bash" : "/bin/sh";
 
 /**
- * What agent commands take from picloud's environment, when set: what programs need to run, and the proxy and
- * certificates to reach the network through. Never picloud's own settings, tokens or provider keys.
+ * What agent commands take from pigui's environment, when set: what programs need to run, and the proxy and
+ * certificates to reach the network through. Never pigui's own settings, tokens or provider keys.
  */
 const PASSED = new Set([
 	"PATH", "LANG", "TZ", "TERM", "USER", "LOGNAME", "SHELL",
@@ -55,7 +55,7 @@ function agentEnvironment(scratch: string, gitHubToken: string | undefined): Rec
 	Object.assign(env, NO_PROMPT_ENV, {
 		HOME: join(scratch, "home"),
 		TMPDIR: join(scratch, "tmp"),
-		// gh would otherwise read the service user's hosts.yml, which holds picloud's own token under the installer.
+		// gh would otherwise read the service user's hosts.yml, which holds pigui's own token under the installer.
 		GH_CONFIG_DIR: join(scratch, "gh"),
 	});
 	// gh reads GH_TOKEN, and git through gh's credential helper; other tools look for GITHUB_TOKEN.
@@ -64,14 +64,14 @@ function agentEnvironment(scratch: string, gitHubToken: string | undefined): Rec
 }
 
 /**
- * OnPrem's environment for commands: the person's own, as picloud was started with it, without picloud's `PICLOUD_*`
+ * OnPrem's environment for commands: the person's own, as pigui was started with it, without pigui's `PIGUI_*`
  * settings, and with their home. Their tools, credentials and TMPDIR come with it. Nobody can answer a prompt, so git's
  * are still turned off.
  */
 function personEnvironment(home: string): Record<string, string> {
 	const env: Record<string, string> = {};
 	for (const [name, value] of Object.entries(process.env)) {
-		if (value !== undefined && !name.startsWith("PICLOUD_")) env[name] = value;
+		if (value !== undefined && !name.startsWith("PIGUI_")) env[name] = value;
 	}
 	return Object.assign(env, NO_PROMPT_ENV, { HOME: home });
 }

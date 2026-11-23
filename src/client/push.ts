@@ -13,7 +13,7 @@ function keyBytes(base64url: string): Uint8Array<ArrayBuffer> {
 /** Ask for permission (it must follow a tap) and register this device with the server. */
 export async function enableNotifications(vapidPublicKey: string): Promise<void> {
 	const permission = await Notification.requestPermission();
-	if (permission !== "granted") throw new Error("Notifications are turned off for picloud in the system settings.");
+	if (permission !== "granted") throw new Error("Notifications are turned off for pigui in the system settings.");
 	const registration = await navigator.serviceWorker.ready;
 	const existing = await registration.pushManager.getSubscription();
 	const subscription =

@@ -24,7 +24,7 @@ async function main(): Promise<void> {
 	let agentDir: string;
 	if (config.fake) {
 		// Fake mode never reads the operator's Pi configuration: it gets an empty one of its own.
-		agentDir = process.env.PI_CODING_AGENT_DIR ?? (await mkdtemp(join(tmpdir(), "picloud-pi-")));
+		agentDir = process.env.PI_CODING_AGENT_DIR ?? (await mkdtemp(join(tmpdir(), "pigui-pi-")));
 		await mkdir(agentDir, { recursive: true });
 	} else {
 		agentDir = getAgentDir();
@@ -39,13 +39,13 @@ async function main(): Promise<void> {
 			throw error;
 		}
 		// An endpoint set explicitly is the operator's choice. Otherwise a build with LEAF embeds on this server, and one
-		// without it signs the provider's endpoint with Pi's key. Memory is optional: without either, picloud runs as it
+		// without it signs the provider's endpoint with Pi's key. Memory is optional: without either, pigui runs as it
 		// would without memory, and the sidebar says why and how to turn it on.
 		const memory = config.memory.embedUrl === undefined && (await leafInstalled()) ? { embedder: leafEmbedder(log, config.modelsUnloadAfterMs) } : await piEmbedder(pi.models, agentDir, config.memory);
 		if ("off" in memory) {
 			log.info("memory.off", { reason: memory.off });
 			embedder = {
-				off: `${memory.off}. To embed on this server, build with PICLOUD_MEMORY_LOCAL=on (the installer: --memory-local on); or give Pi a key for ${config.memory.provider}.`,
+				off: `${memory.off}. To embed on this server, build with PIGUI_MEMORY_LOCAL=on (the installer: --memory-local on); or give Pi a key for ${config.memory.provider}.`,
 			};
 		} else embedder = memory.embedder;
 	}
@@ -56,7 +56,7 @@ async function main(): Promise<void> {
 		// A sandbox that does not work on this machine is a configuration problem too: restarting cannot fix it.
 		exitOnConfigError(error);
 	}
-	process.stdout.write(`picloud is listening on ${app.url}${config.fake ? " (fake mode)" : ""}\n`);
+	process.stdout.write(`pigui is listening on ${app.url}${config.fake ? " (fake mode)" : ""}\n`);
 	let stopping = false;
 	const stop = (signal: string) => {
 		if (stopping) return;
@@ -84,6 +84,6 @@ function exitOnConfigError(error: unknown): never {
 }
 
 main().catch((error: unknown) => {
-	process.stderr.write(`picloud failed to start: ${error instanceof Error ? error.message : String(error)}\n`);
+	process.stderr.write(`pigui failed to start: ${error instanceof Error ? error.message : String(error)}\n`);
 	process.exit(1);
 });

@@ -35,7 +35,7 @@ const SUBSCRIPTION = JSON.stringify({
 
 describe("access and configuration", () => {
 	test("only listed Tailscale logins get in", async () => {
-		const server = await TestServer.start({ env: { PICLOUD_ALLOWED_LOGINS: "owner@example.com, Second@Example.com" } });
+		const server = await TestServer.start({ env: { PIGUI_ALLOWED_LOGINS: "owner@example.com, Second@Example.com" } });
 		try {
 			const anonymous = await fetch(`${server.app.url}/api/bootstrap`);
 			assert.equal(anonymous.status, 403);
@@ -61,12 +61,12 @@ describe("access and configuration", () => {
 		}
 	});
 
-	test("a caller running as picloud's own user, as the agent's commands do, is refused even with Tailscale's header", async () => {
-		const server = await TestServer.start({ checkCallers: true, env: { PICLOUD_ALLOWED_LOGINS: "owner@example.com" } });
+	test("a caller running as pigui's own user, as the agent's commands do, is refused even with Tailscale's header", async () => {
+		const server = await TestServer.start({ checkCallers: true, env: { PIGUI_ALLOWED_LOGINS: "owner@example.com" } });
 		try {
 			const forged = await fetch(`${server.app.url}/api/bootstrap`, { headers: { "Tailscale-User-Login": "owner@example.com" } });
 			assert.equal(forged.status, 403);
-			assert.match(((await forged.json()) as ApiError).error, /picloud's own user/);
+			assert.match(((await forged.json()) as ApiError).error, /pigui's own user/);
 			// Another user, as Tailscale is, gets in. Only root can open a connection as someone else.
 			if (process.getuid?.() === 0) {
 				const script = `fetch(${JSON.stringify(`${server.app.url}/api/bootstrap`)}, { headers: { "Tailscale-User-Login": "owner@example.com" } }).then((r) => process.stdout.write(String(r.status)))`;
@@ -103,19 +103,19 @@ describe("access and configuration", () => {
 	});
 
 	test("listens on loopback only and validates the rest of its configuration", () => {
-		assert.throws(() => readConfig({ PICLOUD_DATA_DIR: "/tmp/x", PICLOUD_HOST: "0.0.0.0" }), ConfigError);
-		assert.throws(() => readConfig({ PICLOUD_DATA_DIR: "/tmp/x", PICLOUD_PORT: "http" }), ConfigError);
-		assert.throws(() => readConfig({ PICLOUD_DATA_DIR: "/tmp/x", PICLOUD_SPEND_CAP: "-1" }), ConfigError);
-		assert.throws(() => readConfig({ PICLOUD_DATA_DIR: "/tmp/x", PICLOUD_PUSH_SUBJECT: "picloud" }), ConfigError);
+		assert.throws(() => readConfig({ PIGUI_DATA_DIR: "/tmp/x", PIGUI_HOST: "0.0.0.0" }), ConfigError);
+		assert.throws(() => readConfig({ PIGUI_DATA_DIR: "/tmp/x", PIGUI_PORT: "http" }), ConfigError);
+		assert.throws(() => readConfig({ PIGUI_DATA_DIR: "/tmp/x", PIGUI_SPEND_CAP: "-1" }), ConfigError);
+		assert.throws(() => readConfig({ PIGUI_DATA_DIR: "/tmp/x", PIGUI_PUSH_SUBJECT: "pigui" }), ConfigError);
 		assert.throws(() => readConfig({}), ConfigError);
-		const real = { PICLOUD_DATA_DIR: "/tmp/x", PICLOUD_AGENT_GH_TOKEN: "agent-token" };
-		assert.throws(() => readConfig({ ...real, PICLOUD_COMPACTION_MODEL: "claude-sonnet" }), /PICLOUD_COMPACTION_MODEL/);
-		assert.throws(() => readConfig({ ...real, PICLOUD_COMPACTION_MODEL: "anthropic/" }), /PICLOUD_COMPACTION_MODEL/);
-		assert.deepEqual(readConfig({ ...real, PICLOUD_COMPACTION_MODEL: "openrouter/anthropic/claude-sonnet-4.5" }).compactionModel, {
+		const real = { PIGUI_DATA_DIR: "/tmp/x", PIGUI_AGENT_GH_TOKEN: "agent-token" };
+		assert.throws(() => readConfig({ ...real, PIGUI_COMPACTION_MODEL: "claude-sonnet" }), /PIGUI_COMPACTION_MODEL/);
+		assert.throws(() => readConfig({ ...real, PIGUI_COMPACTION_MODEL: "anthropic/" }), /PIGUI_COMPACTION_MODEL/);
+		assert.deepEqual(readConfig({ ...real, PIGUI_COMPACTION_MODEL: "openrouter/anthropic/claude-sonnet-4.5" }).compactionModel, {
 			provider: "openrouter",
 			modelId: "anthropic/claude-sonnet-4.5",
 		});
-		const config = readConfig({ ...real, PICLOUD_HOST: "::1", PICLOUD_SPEND_CAP: "5", PICLOUD_ALLOWED_LOGINS: "A@b.c" });
+		const config = readConfig({ ...real, PIGUI_HOST: "::1", PIGUI_SPEND_CAP: "5", PIGUI_ALLOWED_LOGINS: "A@b.c" });
 		assert.equal(config.host, "::1");
 		assert.equal(config.spendCap, 5);
 		assert.deepEqual(config.allowedLogins, ["a@b.c"]);
@@ -126,43 +126,43 @@ describe("access and configuration", () => {
 	});
 
 	test("real mode needs the agent's own GitHub token; the sandbox is on unless turned off", () => {
-		assert.throws(() => readConfig({ PICLOUD_DATA_DIR: "/tmp/x" }), /PICLOUD_AGENT_GH_TOKEN is not set/);
-		assert.equal(readConfig({ PICLOUD_DATA_DIR: "/tmp/x", PICLOUD_FAKE: "1" }).agentGitHubToken, undefined);
-		const off = readConfig({ PICLOUD_DATA_DIR: "/tmp/x", PICLOUD_FAKE: "1", PICLOUD_SANDBOX: "off" });
+		assert.throws(() => readConfig({ PIGUI_DATA_DIR: "/tmp/x" }), /PIGUI_AGENT_GH_TOKEN is not set/);
+		assert.equal(readConfig({ PIGUI_DATA_DIR: "/tmp/x", PIGUI_FAKE: "1" }).agentGitHubToken, undefined);
+		const off = readConfig({ PIGUI_DATA_DIR: "/tmp/x", PIGUI_FAKE: "1", PIGUI_SANDBOX: "off" });
 		assert.equal(off.sandbox, false);
-		assert.throws(() => readConfig({ PICLOUD_DATA_DIR: "/tmp/x", PICLOUD_FAKE: "1", PICLOUD_SANDBOX: "0" }), /PICLOUD_SANDBOX must be on or off/);
+		assert.throws(() => readConfig({ PIGUI_DATA_DIR: "/tmp/x", PIGUI_FAKE: "1", PIGUI_SANDBOX: "0" }), /PIGUI_SANDBOX must be on or off/);
 	});
 
 	test("OnPrem is off unless turned on, listens on 2025 by default, and refuses the settings that would not apply", () => {
-		const base = { PICLOUD_DATA_DIR: "/tmp/x" };
-		assert.equal(readConfig({ ...base, PICLOUD_AGENT_GH_TOKEN: "agent-token" }).onPrem, undefined);
-		assert.throws(() => readConfig({ ...base, PICLOUD_ONPREM: "1" }), /PICLOUD_ONPREM must be on or off/);
+		const base = { PIGUI_DATA_DIR: "/tmp/x" };
+		assert.equal(readConfig({ ...base, PIGUI_AGENT_GH_TOKEN: "agent-token" }).onPrem, undefined);
+		assert.throws(() => readConfig({ ...base, PIGUI_ONPREM: "1" }), /PIGUI_ONPREM must be on or off/);
 		// No agent token is needed, the sandbox is off, and Pi's real configuration is the person's own.
-		const onPrem = readConfig({ ...base, PICLOUD_ONPREM: "on", HOME: "/home/someone" });
+		const onPrem = readConfig({ ...base, PIGUI_ONPREM: "on", HOME: "/home/someone" });
 		assert.deepEqual(onPrem.onPrem, { home: "/home/someone", hosts: [] });
 		assert.equal(onPrem.port, 2025);
 		assert.equal(onPrem.host, "127.0.0.1", "still loopback only");
 		assert.equal(onPrem.sandbox, false);
 		assert.equal(onPrem.agentGitHubToken, undefined);
 		assert.equal(onPrem.fake, false);
-		assert.equal(readConfig({ ...base, PICLOUD_ONPREM: "on", PICLOUD_PORT: "4100" }).port, 4100);
-		assert.equal(readConfig({ ...base, PICLOUD_ONPREM: "on", PICLOUD_SANDBOX: "off" }).sandbox, false);
-		assert.equal(readConfig({ ...base, PICLOUD_ONPREM: "on", PICLOUD_FAKE: "1" }).fake, true, "fake mode combines with it");
-		assert.throws(() => readConfig({ ...base, PICLOUD_ONPREM: "on", PICLOUD_SANDBOX: "on" }), /PICLOUD_SANDBOX=on cannot be combined with PICLOUD_ONPREM=on/);
+		assert.equal(readConfig({ ...base, PIGUI_ONPREM: "on", PIGUI_PORT: "4100" }).port, 4100);
+		assert.equal(readConfig({ ...base, PIGUI_ONPREM: "on", PIGUI_SANDBOX: "off" }).sandbox, false);
+		assert.equal(readConfig({ ...base, PIGUI_ONPREM: "on", PIGUI_FAKE: "1" }).fake, true, "fake mode combines with it");
+		assert.throws(() => readConfig({ ...base, PIGUI_ONPREM: "on", PIGUI_SANDBOX: "on" }), /PIGUI_SANDBOX=on cannot be combined with PIGUI_ONPREM=on/);
 		// Reached through Tailscale too, from a phone: the names it is served under, and the logins let in through it.
-		const tailnet = readConfig({ ...base, PICLOUD_ONPREM: "on", PICLOUD_ALLOWED_HOSTS: " Mac.Tail1234.ts.net., other.example ", PICLOUD_ALLOWED_LOGINS: "Me@Example.com" });
+		const tailnet = readConfig({ ...base, PIGUI_ONPREM: "on", PIGUI_ALLOWED_HOSTS: " Mac.Tail1234.ts.net., other.example ", PIGUI_ALLOWED_LOGINS: "Me@Example.com" });
 		assert.deepEqual(tailnet.onPrem?.hosts, ["mac.tail1234.ts.net", "other.example"]);
 		assert.deepEqual(tailnet.allowedLogins, ["me@example.com"]);
-		assert.throws(() => readConfig({ ...base, PICLOUD_ONPREM: "on", PICLOUD_ALLOWED_HOSTS: "https://mac.ts.net" }), /PICLOUD_ALLOWED_HOSTS must be host names/);
-		assert.throws(() => readConfig({ ...base, PICLOUD_ONPREM: "on", PICLOUD_ALLOWED_HOSTS: "mac.ts.net:443" }), /without a scheme or port/);
-		assert.throws(() => readConfig({ ...base, PICLOUD_AGENT_GH_TOKEN: "t", PICLOUD_ALLOWED_HOSTS: "mac.ts.net" }), /PICLOUD_ALLOWED_HOSTS applies only with PICLOUD_ONPREM=on/);
-		assert.throws(() => readConfig({ ...base, PICLOUD_ONPREM: "on", PICLOUD_AGENT_GH_TOKEN: "t" }), /PICLOUD_AGENT_GH_TOKEN cannot be combined/);
-		assert.throws(() => readConfig({ ...base, PICLOUD_ONPREM: "on", PICLOUD_HOST: "0.0.0.0" }), /not a loopback address/);
+		assert.throws(() => readConfig({ ...base, PIGUI_ONPREM: "on", PIGUI_ALLOWED_HOSTS: "https://mac.ts.net" }), /PIGUI_ALLOWED_HOSTS must be host names/);
+		assert.throws(() => readConfig({ ...base, PIGUI_ONPREM: "on", PIGUI_ALLOWED_HOSTS: "mac.ts.net:443" }), /without a scheme or port/);
+		assert.throws(() => readConfig({ ...base, PIGUI_AGENT_GH_TOKEN: "t", PIGUI_ALLOWED_HOSTS: "mac.ts.net" }), /PIGUI_ALLOWED_HOSTS applies only with PIGUI_ONPREM=on/);
+		assert.throws(() => readConfig({ ...base, PIGUI_ONPREM: "on", PIGUI_AGENT_GH_TOKEN: "t" }), /PIGUI_AGENT_GH_TOKEN cannot be combined/);
+		assert.throws(() => readConfig({ ...base, PIGUI_ONPREM: "on", PIGUI_HOST: "0.0.0.0" }), /not a loopback address/);
 	});
 
 	test("a request that changes something is refused from another site's page, on a server and in OnPrem", async () => {
-		const home = await mkdtemp(join(tmpdir(), "picloud-home-"));
-		const servers = [await TestServer.start(), await TestServer.start({ env: { PICLOUD_ONPREM: "on", HOME: home } })];
+		const home = await mkdtemp(join(tmpdir(), "pigui-home-"));
+		const servers = [await TestServer.start(), await TestServer.start({ env: { PIGUI_ONPREM: "on", HOME: home } })];
 		try {
 			for (const server of servers) {
 				const { host } = new URL(server.app.url);
@@ -189,8 +189,8 @@ describe("access and configuration", () => {
 	test("on a server, the Origin's host may be the one Tailscale forwards when the proxy names another", async () => {
 		const server = await TestServer.start();
 		try {
-			const headers = { host: "127.0.0.1:8787", "x-forwarded-host": "picloud.tailnet.ts.net", "content-type": "application/json", "sec-fetch-site": "same-origin" };
-			assert.equal((await raw(server.app.url, "POST", "/api/push/subscribe", { ...headers, origin: "https://picloud.tailnet.ts.net" }, SUBSCRIPTION)).status, 200);
+			const headers = { host: "127.0.0.1:8787", "x-forwarded-host": "pigui.tailnet.ts.net", "content-type": "application/json", "sec-fetch-site": "same-origin" };
+			assert.equal((await raw(server.app.url, "POST", "/api/push/subscribe", { ...headers, origin: "https://pigui.tailnet.ts.net" }, SUBSCRIPTION)).status, 200);
 			assert.equal((await raw(server.app.url, "POST", "/api/push/subscribe", { ...headers, origin: "https://evil.example" }, SUBSCRIPTION)).status, 403);
 		} finally {
 			await server.close();
@@ -198,8 +198,8 @@ describe("access and configuration", () => {
 	});
 
 	test("OnPrem answers only to localhost at its own port, so a rebound name cannot reach it", async () => {
-		const home = await mkdtemp(join(tmpdir(), "picloud-home-"));
-		const server = await TestServer.start({ env: { PICLOUD_ONPREM: "on", HOME: home } });
+		const home = await mkdtemp(join(tmpdir(), "pigui-home-"));
+		const server = await TestServer.start({ env: { PIGUI_ONPREM: "on", HOME: home } });
 		try {
 			const { port } = new URL(server.app.url);
 			const get = (host: string) => raw(server.app.url, "GET", "/api/bootstrap", { host });
@@ -213,7 +213,7 @@ describe("access and configuration", () => {
 			// A server is reached through Tailscale under its own name, so it checks no host.
 			const behind = await TestServer.start();
 			try {
-				assert.equal((await raw(behind.app.url, "GET", "/api/bootstrap", { host: "picloud.tailnet.ts.net" })).status, 200);
+				assert.equal((await raw(behind.app.url, "GET", "/api/bootstrap", { host: "pigui.tailnet.ts.net" })).status, 200);
 			} finally {
 				await behind.close();
 			}
@@ -224,12 +224,12 @@ describe("access and configuration", () => {
 	});
 
 	test("OnPrem answers to its tailnet names too, and lets in through them only the allowed Tailscale logins", async () => {
-		const home = await mkdtemp(join(tmpdir(), "picloud-home-"));
-		const server = await TestServer.start({ env: { PICLOUD_ONPREM: "on", HOME: home, PICLOUD_ALLOWED_HOSTS: "mac.tail1234.ts.net", PICLOUD_ALLOWED_LOGINS: "me@example.com" } });
+		const home = await mkdtemp(join(tmpdir(), "pigui-home-"));
+		const server = await TestServer.start({ env: { PIGUI_ONPREM: "on", HOME: home, PIGUI_ALLOWED_HOSTS: "mac.tail1234.ts.net", PIGUI_ALLOWED_LOGINS: "me@example.com" } });
 		try {
 			const { port } = new URL(server.app.url);
 			const get = (host: string, login?: string) => raw(server.app.url, "GET", "/api/bootstrap", login === undefined ? { host } : { host, "tailscale-user-login": login });
-			// tailscale serve names picloud as the phone asked, without a port on 443, and adds the login.
+			// tailscale serve names pigui as the phone asked, without a port on 443, and adds the login.
 			assert.equal((await get("mac.tail1234.ts.net", "me@example.com")).status, 200);
 			assert.equal((await get("MAC.tail1234.ts.net:443", "Me@Example.com")).status, 200);
 			const stranger = await get("mac.tail1234.ts.net", "someone@else.com");
@@ -241,8 +241,8 @@ describe("access and configuration", () => {
 			assert.equal((await get(`localhost:${port}`, "someone@else.com")).status, 403);
 			const elsewhere = await get("other.tail1234.ts.net");
 			assert.equal(elsewhere.status, 403);
-			assert.match(elsewhere.error ?? "", /PICLOUD_ALLOWED_HOSTS/);
-			// A change through the tailnet comes from picloud's page at that name.
+			assert.match(elsewhere.error ?? "", /PIGUI_ALLOWED_HOSTS/);
+			// A change through the tailnet comes from pigui's page at that name.
 			const post = (origin: string) =>
 				raw(server.app.url, "POST", "/api/push/subscribe", { host: "mac.tail1234.ts.net", "tailscale-user-login": "me@example.com", "content-type": "application/json", "sec-fetch-site": "same-origin", origin }, SUBSCRIPTION);
 			assert.equal((await post("https://mac.tail1234.ts.net")).status, 200);
@@ -253,7 +253,7 @@ describe("access and configuration", () => {
 		}
 	});
 
-	test("the caller check admits, on a server, anyone but picloud's own user; in OnPrem, that user and root", () => {
+	test("the caller check admits, on a server, anyone but pigui's own user; in OnPrem, that user and root", () => {
 		assert.equal(admits("others", 0, 999), true, "tailscaled, as root");
 		assert.equal(admits("others", 999, 999), false, "the agent's commands");
 		assert.equal(admits("own", 999, 999), true, "the person's browser");
@@ -262,10 +262,10 @@ describe("access and configuration", () => {
 	});
 
 	test("OnPrem on Linux lets in only its own user, whose browser it serves, and never trusts a Tailscale header", async () => {
-		const home = await mkdtemp(join(tmpdir(), "picloud-home-"));
-		const server = await TestServer.start({ checkCallers: true, env: { PICLOUD_ONPREM: "on", HOME: home } });
+		const home = await mkdtemp(join(tmpdir(), "pigui-home-"));
+		const server = await TestServer.start({ checkCallers: true, env: { PIGUI_ONPREM: "on", HOME: home } });
 		try {
-			assert.equal((await fetch(`${server.app.url}/api/bootstrap`)).status, 200, "picloud's own user, as the person's browser is");
+			assert.equal((await fetch(`${server.app.url}/api/bootstrap`)).status, 200, "pigui's own user, as the person's browser is");
 			// Another user of the computer is refused. Only root can open a connection as someone else.
 			if (process.getuid?.() === 0) {
 				const script = `fetch(${JSON.stringify(`${server.app.url}/api/bootstrap`)}, { headers: { "Tailscale-User-Login": "owner@example.com" } }).then(async (r) => process.stdout.write(r.status + " " + (await r.json()).error))`;
@@ -285,11 +285,11 @@ describe("access and configuration", () => {
 	});
 
 	test("real mode without a Pi sign-in exits with instructions before touching the data directory", async () => {
-		const parent = await mkdtemp(join(tmpdir(), "picloud-real-"));
+		const parent = await mkdtemp(join(tmpdir(), "pigui-real-"));
 		const dataDir = join(parent, "data");
-		const agentDir = await mkdtemp(join(tmpdir(), "picloud-pi-"));
+		const agentDir = await mkdtemp(join(tmpdir(), "pigui-pi-"));
 		const child = spawn(process.execPath, ["--disable-warning=ExperimentalWarning", join(import.meta.dirname, "..", "src", "server", "main.ts")], {
-			env: { ...process.env, PICLOUD_DATA_DIR: dataDir, PICLOUD_PORT: "0", PI_CODING_AGENT_DIR: agentDir, PICLOUD_FAKE: "", PICLOUD_AGENT_GH_TOKEN: "agent-token" },
+			env: { ...process.env, PIGUI_DATA_DIR: dataDir, PIGUI_PORT: "0", PI_CODING_AGENT_DIR: agentDir, PIGUI_FAKE: "", PIGUI_AGENT_GH_TOKEN: "agent-token" },
 			stdio: ["ignore", "pipe", "pipe"],
 		});
 		let stderr = "";

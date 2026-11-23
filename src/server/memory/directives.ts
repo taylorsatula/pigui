@@ -1,6 +1,6 @@
 // What the agent is told about long-term memory: how to search it, how to write a memory, how to grade one, and what a
 // search returns. Ported from the durable_memory Pi extension (pi-durable-memory, directive v3): the rules and the
-// examples are its text verbatim, and only wording that named its tool or its `checkpoint` op is changed. picloud folds
+// examples are its text verbatim, and only wording that named its tool or its `checkpoint` op is changed. pigui folds
 // that op into the report, so recording and grading happen where the work is already finalized.
 
 export const SURFACE_MEMORIES = "surface_memories";

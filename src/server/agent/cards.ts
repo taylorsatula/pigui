@@ -10,7 +10,7 @@ import type { AgentServices } from "./services.ts";
 
 /** A card's answer, delivered by the server to the parked tool task. One wait per tool call, so one key. */
 export const CardAnswerSignal = defineSignal({
-	name: "picloud.card-answer",
+	name: "pigui.card-answer",
 	version: 1,
 	schema: union([
 		obj({ kind: lit("questions"), answers: arr(obj({ questionId: str(), selected: arr(str()), text: opt(str()) })) }),
@@ -24,7 +24,7 @@ export const ANSWER_KEY = "answer";
 
 export async function sessionOf(api: ToolExecutionApi, context: Context): Promise<Readonly<SessionDoc>> {
 	const doc = await api.snapshot(SessionDocToken, api.conversationId, context);
-	if (doc?.id === undefined) throw new Error("This conversation is not a picloud session.");
+	if (doc?.id === undefined) throw new Error("This conversation is not a pigui session.");
 	return doc;
 }
 

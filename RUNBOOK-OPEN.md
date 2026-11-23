@@ -1,6 +1,6 @@
-# picloud: implementation runbook (open edition, v1)
+# pigui: implementation runbook (open edition, v1)
 
-**Read this first.** This document specifies picloud v1 by its outcomes. It says what the product must do, what it
+**Read this first.** This document specifies pigui v1 by its outcomes. It says what the product must do, what it
 must not do, and how to know it is done. Most of *how* is left to you. You own the design: the architecture, module
 structure, data model, API, protocol, agent tools, prompt wording, UI composition and test design. Every component
 listed here is required. The way each one is built is your choice.
@@ -10,9 +10,9 @@ listed here is required. The way each one is built is your choice.
   alternatives you considered, and why. Write it for a maintainer who will live with the code for years.
 - **Install what you need.** You have full command-line access to this machine. Install whatever the build and tests
   need.
-- **Do not change the machine's running services while building.** This machine may already be running picloud. While
+- **Do not change the machine's running services while building.** This machine may already be running pigui. While
   building, do not:
-  - install, run or change systemd units, Tailscale, system users or `/var/lib/picloud`;
+  - install, run or change systemd units, Tailscale, system users or `/var/lib/pigui`;
   - run your own installer;
   - bind port 8787;
   - read or modify the real Pi configuration in `~/.pi/agent`.
@@ -30,9 +30,9 @@ listed here is required. The way each one is built is your choice.
 
 # Part A: Build
 
-## A1. What picloud is
+## A1. What pigui is
 
-picloud is a self-hosted remote harness for the **Pi** coding agent. It runs on the owner's server (the "droplet").
+pigui is a self-hosted remote harness for the **Pi** coding agent. It runs on the owner's server (the "droplet").
 The owner uses it from a phone, as an installed web app, over a private Tailscale network. It is a real tool the
 owner will use every day, not a demo.
 
@@ -50,7 +50,7 @@ owner will use every day, not a demo.
 plan-first workflow is the default for substantial work. It is not a lock.
 
 **Properties that must hold:**
-1. **Waiting costs nothing and survives anything.** While picloud waits for the person (a question, a plan approval,
+1. **Waiting costs nothing and survives anything.** While pigui waits for the person (a question, a plan approval,
    a phone in a pocket), nothing is running. The wait survives server restarts and reboots, and resumes exactly
    where it was.
 2. **Unattended runs reach a report.** A run that stops early without reporting must reliably be kept going, within
@@ -73,7 +73,7 @@ Do not rebuild what these already provide.
 | Concern | Provided by |
 |---|---|
 | Authentication, TLS, remote reachability | **Tailscale** (`tailscale serve`; never `funnel`). No application login of its own. |
-| Model providers, sign-in, credentials, default model | **Pi's own configuration** (the `pi` CLI writes `~/.pi/agent/`). picloud contains no provider code. |
+| Model providers, sign-in, credentials, default model | **Pi's own configuration** (the `pi` CLI writes `~/.pi/agent/`). pigui contains no provider code. |
 | Agent loop, coding tools, retries, compaction, crash recovery, persistence | **Pi Durable** |
 | Project instructions (`AGENTS.md`/`CLAUDE.md`) and skills | **Pi's own loaders** |
 | Repos, branches, clone, push, pull requests, git credentials | **`gh`** and **`git`** |
@@ -263,7 +263,7 @@ cover:
 - **Display:** the person's text is shown as typed. The added context is visible but compact in the transcript.
 
 ### A4.10 Long sessions: compaction and resumption
-Build picloud's own compaction handoff on top of Durable's compaction lifecycle. It must carry context forward far
+Build pigui's own compaction handoff on top of Durable's compaction lifecycle. It must carry context forward far
 better than the built-in summary (§A3), and the run must always continue on its own. Field-level design is yours.
 These principles are the direction. They are what make a handoff work after a lossy, truncated compaction, so let
 them settle the details, and explain in `DECISIONS.md` how your design follows each one:
@@ -333,7 +333,7 @@ each major UI choice.
 
 ## A6. Deployment automation
 
-Produce an idempotent installer under `deploy/` that turns a fresh Ubuntu 24.04 machine into a running picloud, and
+Produce an idempotent installer under `deploy/` that turns a fresh Ubuntu 24.04 machine into a running pigui, and
 upgrades an existing install in place when re-run.
 - **What it sets up:** system packages, Node, a dedicated unprivileged service user, data and install directories,
   the `pi` CLI, `gh`, Tailscale (install it and set it up, including `tailscale serve`), the app itself,
@@ -345,7 +345,7 @@ upgrades an existing install in place when re-run.
 - **Not run during the build.** Verify it only with its dry-run mode and a syntax check.
 
 ## A7. Security model (must be documented in README)
-- **Reach:** anyone who can reach picloud can make Pi run commands as the service user. Tailnet membership, plus the
+- **Reach:** anyone who can reach pigui can make Pi run commands as the service user. Tailnet membership, plus the
   optional allowlist, is the boundary.
 - **Credentials:** the agent shares the service user with the Pi and GitHub credentials. "Never push" is an
   instruction to the model, not an enforced boundary.
@@ -355,7 +355,7 @@ upgrades an existing install in place when re-run.
 ## A8. Credential-free mode and verification
 
 **Fake mode.** It runs the complete product with no model credentials and no GitHub access, and works on a machine
-where a real picloud is running. It needs:
+where a real pigui is running. It needs:
 - a scripted model (§A3) that exercises the zero-shot flow end to end: questions, plan, file changes, a commit,
   progress and a report;
 - a plain chat reply when the task asks for one;
@@ -434,16 +434,16 @@ Performed only when someone deliberately deploys. An agent may do it when asked.
 ## B1. Deploy
 1. Provision Ubuntu 24.04: 2 vCPU / 4 GB RAM minimum, 50 GB disk, no inbound ports.
 2. Install the language toolchains your repositories need.
-3. Run the installer from a checkout of picloud, with any optional inputs (Tailscale auth key, GitHub token file,
+3. Run the installer from a checkout of pigui, with any optional inputs (Tailscale auth key, GitHub token file,
    Web Push subject).
 4. Re-run it after completing human steps, and to upgrade.
 
 ## B2. Steps that need a human
 - **Tailscale:** log in (or supply an auth key), and enable MagicDNS and HTTPS certificates in the admin console.
 - **Pi:** as the service user, run `pi`, then `/login` and `/model`.
-- **GitHub:** create a fine-grained token for the repositories picloud may use (contents and pull requests
+- **GitHub:** create a fine-grained token for the repositories pigui may use (contents and pull requests
   read/write, metadata read), and enable branch protection on their default branches.
-- **Phone:** install Tailscale and join the tailnet. Open the URL in Safari, **Add to Home Screen**, open picloud from
+- **Phone:** install Tailscale and join the tailnet. Open the URL in Safari, **Add to Home Screen**, open pigui from
   there, and enable notifications.
 
 ## B3. Operate

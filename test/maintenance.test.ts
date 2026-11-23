@@ -48,16 +48,16 @@ describe("maintenance", () => {
 		}
 	});
 
-	test("never touches a local session's directory, only picloud's own directories of it", async () => {
+	test("never touches a local session's directory, only pigui's own directories of it", async () => {
 		let offset = 0;
-		const home = await mkdtemp(join(tmpdir(), "picloud-home-"));
+		const home = await mkdtemp(join(tmpdir(), "pigui-home-"));
 		await mkdir(join(home, "project"));
 		await writeFile(join(home, "project", "keep.txt"), "the person's own file\n");
-		const server = await TestServer.start({ now: () => Date.now() + offset, env: { PICLOUD_ONPREM: "on", HOME: home } });
+		const server = await TestServer.start({ now: () => Date.now() + offset, env: { PIGUI_ONPREM: "on", HOME: home } });
 		try {
 			const local = await server.createLocalSession("What is in this directory?", "~/project");
 			await server.settled(local);
-			assert.equal(existsSync(server.workspace(local)), true, "picloud keeps its own directory for the session's attachments");
+			assert.equal(existsSync(server.workspace(local)), true, "pigui keeps its own directory for the session's attachments");
 
 			// A repository session whose clone would go, but which a local session chose to work in.
 			const delivered = await server.createSession("Add shout");
@@ -73,7 +73,7 @@ describe("maintenance", () => {
 			assert.deepEqual(result.cleaned.sort(), [local, inside].sort());
 			assert.deepEqual(result.kept, [delivered], "a clone a local session works in is never removed");
 			assert.equal(await readFile(join(home, "project", "keep.txt"), "utf8"), "the person's own file\n");
-			assert.equal(existsSync(server.workspace(local)), false, "picloud's own directory of it goes");
+			assert.equal(existsSync(server.workspace(local)), false, "pigui's own directory of it goes");
 			assert.equal(existsSync(join(server.workspace(delivered), "src", "shout.ts")), true);
 			assert.equal(existsSync(home), true);
 		} finally {

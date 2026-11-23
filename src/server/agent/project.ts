@@ -1,7 +1,7 @@
 // What agents working in a session's directory get, the session's own and those it starts alike, as two small
-// extensions. `picloud-project`: the project's instructions, rendered for the session's working directory at each
+// extensions. `pigui-project`: the project's instructions, rendered for the session's working directory at each
 // request, and the spend cap, which counts the whole session and stops all of it; every agent selects it.
-// `picloud-skills`: Pi's skills list, which an agent whose definition says `skills: false` does not select.
+// `pigui-skills`: Pi's skills list, which an agent whose definition says `skills: false` does not select.
 import type { Context } from "@earendil-works/chord/context";
 import { defineExtension, type Extension, type PromptInput, section } from "@earendil-works/pi-durable";
 import type { SessionDoc } from "../../shared/session.ts";
@@ -19,7 +19,7 @@ async function ready(input: PromptInput, context: Context): Promise<Readonly<Ses
 export function projectExtension(services: AgentServices): Extension {
 	const cap = budget(services);
 	return defineExtension({
-		name: "picloud-project",
+		name: "pigui-project",
 		sections: [
 			section("project_context", async (input, context) => {
 				const doc = await ready(input, context);
@@ -33,7 +33,7 @@ export function projectExtension(services: AgentServices): Extension {
 
 export function skillsExtension(services: AgentServices): Extension {
 	return defineExtension({
-		name: "picloud-skills",
+		name: "pigui-skills",
 		sections: [
 			section("skills", async (input, context) => {
 				const doc = await ready(input, context);

@@ -1,4 +1,4 @@
-// Every git operation picloud performs on a workspace, run as plain `git` without a shell.
+// Every git operation pigui performs on a workspace, run as plain `git` without a shell.
 import { rename, rm } from "node:fs/promises";
 import type { DiffFile } from "../shared/api.ts";
 import { CommandError, run, type RunResult } from "./exec.ts";
@@ -11,7 +11,7 @@ export const NO_PROMPT_ENV: Readonly<Record<string, string>> = {
 	SSH_ASKPASS: "",
 };
 
-/** picloud's own git calls run in its environment and also fix the locale, so the output it parses is always the same. */
+/** pigui's own git calls run in its environment and also fix the locale, so the output it parses is always the same. */
 export const GIT_ENV: NodeJS.ProcessEnv = { ...process.env, ...NO_PROMPT_ENV, LC_ALL: "C" };
 
 export function git(cwd: string, args: readonly string[], timeoutMs = 120_000): Promise<RunResult> {
