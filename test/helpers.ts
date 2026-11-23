@@ -7,10 +7,10 @@ import { join } from "node:path";
 import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
 import { type ConversationId, type EntryRecord, LiveDoc, type LiveState } from "@earendil-works/pi-durable";
 import type { ApiError } from "../src/shared/api.ts";
-import { CHECKPOINT_ENTRY, type RepoSessionDoc, type SessionDoc } from "../src/shared/session.ts";
+import { CHECKPOINT_ENTRY, type RepoSessionDoc, type SessionDoc, type SessionIndex } from "../src/shared/session.ts";
 import { type App, type AppOptions, startApp } from "../src/server/app.ts";
 import { readConfig } from "../src/server/config.ts";
-import { SessionDocToken } from "../src/server/docs.ts";
+import { SessionDocToken, SessionIndexToken } from "../src/server/docs.ts";
 import type { LocalGitHub } from "../src/server/fake/github.ts";
 import { silentLogger } from "../src/server/log.ts";
 import type { RecordingPushSender } from "../src/server/webpush.ts";
@@ -119,6 +119,11 @@ export class TestServer {
 
 	session(id: number): Promise<Readonly<SessionDoc> | undefined> {
 		return this.app.harness.snapshot(SessionDocToken, id as ConversationId, context);
+	}
+
+	/** The index document, as the phone watches it. */
+	index(): Promise<Readonly<SessionIndex> | undefined> {
+		return this.app.harness.snapshot(SessionIndexToken, context);
 	}
 
 	/** Resolve with the session document once `predicate` holds, following the document's watch rather than polling. */

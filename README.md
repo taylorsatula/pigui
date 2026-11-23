@@ -368,8 +368,9 @@ three 10 MB files.
 
 picloud can run on your own computer instead of a server: a Mac or a Linux machine, as a web app at
 http://localhost:2025, with the same app. A new session starts in a directory on the computer: your home directory
-(`~`) unless you type another, any existing absolute directory, `/` included. Pi works there in place, as you, as if
-you had opened a terminal there and run `pi`. Repository sessions, on a clone and a branch of their own that picloud
+(`~`) unless you type another, any existing absolute directory, `/` included. Under the field are the directories you
+starred, all of them, and the five you worked in most recently; tap one to choose it, or its star to pin it above the
+recent ones. Pi works there in place, as you, as if you had opened a terminal there and run `pi`. Repository sessions, on a clone and a branch of their own that picloud
 pushes when you tap, remain the other choice wherever `gh` is signed in; if listing repositories fails, the New
 session screen says why and sessions on the computer still start. With `--tailscale on` the same picloud is also on
 your tailnet, for your phone, whether the computer is a laptop or a server somewhere.

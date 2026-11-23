@@ -910,6 +910,18 @@ and time, skipping dot-entries, dependencies, macOS's `Library`, the kernel's an
 which every repository code path would then have to recognise; `workspace(id)` pointing at the chosen directory, which
 would hand maintenance's `rm -rf` the person's own directory.
 
+**Starred and recent directories: stars in the index document, recents read from the sessions.** Under the Directory
+field the New session screen lists every starred directory, sorted by path, then the five most recently worked in
+that are not starred; tapping one fills the field. The recent ones are derived on the phone from the index's rows (a
+local row carries its directory and when it last changed), so there is no second record to keep in step and nothing
+to prune. The stars are a list of absolute directories in `SessionIndex.starred`, set by `POST /api/local/starred`,
+so the phone sees them through the watch it already has, and a star made at the computer is there on the phone.
+Starring resolves the path as a new session would and refuses one that is not a directory; unstarring only resolves
+it, so a directory since removed can still be unstarred. The field has a star too, so a directory can be starred
+before any session has worked in it. A starred directory is left out of the recent ones rather than shown twice.
+*Alternatives:* `localStorage`, which keeps stars to one browser; a recent list stored on the server beside the
+sessions, which would duplicate what their rows already say.
+
 **The request gate refuses other sites' pages, in both modes.** `json()` parsed any body whatever its content type,
 so a page on any site could send a `text/plain` POST, which needs no CORS preflight, and picloud acted on it: on a
 server, any page the phone opened could answer a card or start a run; in OnPrem it would run commands on the person's

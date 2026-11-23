@@ -426,6 +426,11 @@ export type SessionIndex = {
 	rows: Record<string, SessionRow>;
 	/** The repository of the newest session, the default for the next one. */
 	lastRepo?: string;
+	/**
+	 * picloud OnPrem: the directories the person starred, absolute, offered above the recent ones when a session starts.
+	 * Kept here rather than in the browser, so a star made at the computer is there on the phone.
+	 */
+	starred?: string[];
 	/** Session-creation request IDs, so a retried create never makes two sessions. */
 	created: { id: string; at: number; session: number }[];
 };

@@ -1,18 +1,21 @@
 // Starting a session. On a server: a repository (the last one used), a branch choice (a new branch from the default
 // branch unless changed), then the composer. In picloud OnPrem, a directory on this computer comes first, the home
-// directory unless changed, and a repository is the other choice where gh can list them. File and skill pickers read
-// the chosen directory, or the chosen branch, before anything starts.
+// directory unless changed, with the starred and recent directories under it to choose from, and a repository is the
+// other choice where gh can list them. File and skill pickers read the chosen directory, or the chosen branch, before
+// anything starts.
 import type { JSX } from "preact";
 import { useEffect, useState } from "preact/hooks";
 import type { BranchList, RepoSummary } from "../../shared/api.ts";
 import { api, describeFailure } from "../api.ts";
 import { navigate, useStore } from "../store.ts";
 import { Composer, ComposerDock } from "./Composer.tsx";
+import { Directories, DirectoryField } from "./Directories.tsx";
 import { SessionsButton } from "./Sessions.tsx";
 
 export function NewSession(): JSX.Element {
 	const bootstrap = useStore((state) => state.bootstrap);
-	const onPrem = bootstrap?.onPrem !== undefined;
+	const home = bootstrap?.onPrem?.home;
+	const onPrem = home !== undefined;
 	const [place, setPlace] = useState<"local" | "repo">("local");
 	const [dir, setDir] = useState("~");
 	const [repos, setRepos] = useState<RepoSummary[] | undefined>(undefined);
@@ -74,18 +77,11 @@ export function NewSession(): JSX.Element {
 						</button>
 					</div>
 				) : null}
-				{local ? (
-					<label class="field">
-						<span>Directory</span>
-						<input
-							type="text"
-							value={dir}
-							autocapitalize="off"
-							autocorrect="off"
-							spellcheck={false}
-							onInput={(event) => setDir((event.target as HTMLInputElement).value)}
-						/>
-					</label>
+				{local && home !== undefined ? (
+					<>
+						<DirectoryField dir={dir} home={home} onInput={setDir} />
+						<Directories dir={dir} home={home} onChoose={setDir} />
+					</>
 				) : (
 					<>
 						{/* Listing repositories needs gh on the server; when it fails, a local session still can start. */}

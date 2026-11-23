@@ -400,7 +400,9 @@ details > summary:active {
 /* Labels: what a card is, a field, a call's input and output. Monospace capitals. */
 .card-title,
 .io-label,
-.field > span {
+.field > span,
+.field > label,
+.dir-heading {
 	font-family: var(--mono);
 	font-size: var(--label);
 	font-weight: 400;
@@ -2180,6 +2182,115 @@ select,
 /* A directory typed in full is a record, so it is set in monospace. */
 .field input {
 	font-family: var(--mono);
+}
+
+/* A field with a control beside it: the directory and its star. */
+.field-row {
+	display: flex;
+	align-items: center;
+	gap: 4px;
+}
+
+.field-row input {
+	flex: 1;
+	min-width: 0;
+}
+
+/* The directories offered under the field, starred then recent, listed as a file browser's sidebar lists places:
+   striped rows, the chosen one filled in ink. */
+.directories {
+	display: flex;
+	flex-direction: column;
+	gap: 12px;
+}
+
+.dir-heading {
+	margin: 0 0 6px;
+}
+
+.dir-list {
+	list-style: none;
+	margin: 0;
+	padding: 0;
+	border: var(--hairline) solid var(--separator);
+	border-radius: var(--radius-s);
+	background: var(--surface);
+	overflow: hidden;
+}
+
+.dir-row {
+	display: flex;
+	align-items: center;
+	transition: background-color var(--quick) var(--ease-out);
+}
+
+.dir-row.striped {
+	background: color-mix(in srgb, var(--text) 4%, transparent);
+}
+
+.dir-row.chosen {
+	background: var(--accent-fill);
+	color: var(--accent-text);
+}
+
+.dir-choose {
+	flex: 1;
+	min-width: 0;
+	justify-content: flex-start;
+	gap: 8px;
+	padding: 0 4px 0 12px;
+	border-radius: 0;
+	font-family: var(--mono);
+	font-size: var(--record);
+	text-align: left;
+}
+
+.dir-choose:active {
+	background: var(--fill);
+	transition: none;
+}
+
+.dir-path {
+	flex: 1;
+	min-width: 0;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.dir-when {
+	color: var(--text-2);
+	font-variant-numeric: tabular-nums;
+}
+
+.dir-row.chosen :is(.dir-when, .folder-mark) {
+	color: inherit;
+	opacity: 0.8;
+}
+
+/* A star: drawn in outline until starred, then filled, in ink rather than the yellow, which is for what waits. */
+.dir-star {
+	flex: none;
+	color: var(--text-2);
+}
+
+.dir-star[aria-pressed="true"] {
+	color: var(--text);
+}
+
+.dir-star[aria-pressed="true"] path {
+	fill: currentColor;
+}
+
+.dir-row.chosen .dir-star {
+	color: inherit;
+}
+
+/* With a pointer, at the session picker's density; a finger keeps the 44 pt target. */
+@media (hover: hover) and (pointer: fine) {
+	:is(.dir-choose, .dir-row .dir-star) {
+		min-height: 32px;
+	}
 }
 
 /* Two choices drawn as one ruled control, the chosen one in ink. */
