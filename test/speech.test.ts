@@ -95,6 +95,11 @@ describe("reading a reply aloud", () => {
 
 			const after = await server.app.harness.snapshot(UsageDoc, id as ConversationId, context);
 			assert.ok(spentOf(after) > spent, "the rewrite's cost is in the session's spend");
+			// Counted as Durable counts its own requests, every counter, so the cost's parts still add up to its total.
+			for (const usage of Object.values(after?.models ?? {})) {
+				const parts = usage.cost.input + usage.cost.output + usage.cost.cacheRead + usage.cost.cacheWrite;
+				assert.ok(Math.abs(parts - usage.cost.total) < 1e-9, `parts ${parts}, total ${usage.cost.total}`);
+			}
 		} finally {
 			await server.close();
 		}

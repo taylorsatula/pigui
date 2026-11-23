@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { after, before, describe, test } from "node:test";
 import { NUDGE_ENTRY, planOf } from "../src/shared/session.ts";
 import { MAX_CONTINUATIONS } from "../src/server/supervisor.ts";
-import type { ConversationId } from "@earendil-works/pi-durable";
+import { type ConversationId, LiveDoc } from "@earendil-works/pi-durable";
 import { SessionIndexToken } from "../src/server/docs.ts";
 import { ApiFailure, context, modelText, TestServer } from "./helpers.ts";
 
@@ -145,6 +145,35 @@ describe("message routing", () => {
 		const entries = await server.entries(id);
 		const answer = entries.filter((entry) => entry.kind === "pi.assistant").at(-1);
 		assert.match(modelText(answer!), /Stopping, as you said: please stop now/);
+	});
+
+	test("a message sent while Pi writes its answer is followed into the run it starts, which is told when it ends", async () => {
+		const slow = await TestServer.start({ fakeModel: { tokensPerSecond: 40 } });
+		try {
+			const id = await slow.createSession("What does greet() return?");
+			const first = (await slow.until(id, (doc) => doc.activeRun !== undefined, "the run")).activeRun!.submission;
+			// The answer is streaming: no tool round is left to steer into, so Durable queues the message and starts the
+			// next run with it once this one ends.
+			const watch = (await slow.app.harness.watchDoc(LiveDoc, id as ConversationId, context))!;
+			await new Promise<void>((resolve) =>
+				watch.start(async (call) => {
+					if (call.kind === "value" && JSON.stringify(call.value.generation?.message ?? "").includes("Short answer")) resolve();
+				}),
+			);
+			await watch.stop();
+			assert.equal((await slow.send(id, "And farewell?")).route, "steer");
+			const following = await slow.until(id, (doc) => doc.activeRun !== undefined && doc.activeRun.submission !== first, "the next run, followed");
+			assert.equal(following.outcome, undefined, "the session reads as working, not as replied");
+			const done = await slow.settled(id, "the next run's end");
+			assert.equal(done.outcome?.kind, "replied");
+			// Told once, of the run that answered the message, not of the one it followed.
+			assert.deepEqual(
+				done.notified.filter((key) => key.startsWith("run:")),
+				[`run:${following.activeRun!.submission}`],
+			);
+		} finally {
+			await slow.close();
+		}
 	});
 
 	test("a message to a finished session starts a new run", async () => {

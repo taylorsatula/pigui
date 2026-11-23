@@ -339,7 +339,7 @@ describe("compaction", () => {
 		}
 	});
 
-	test("a run that ends on a compaction error is resumed automatically", async () => {
+	test("a run that ends on a compaction error fails, tells the person, and Continue finishes it", async () => {
 		let thrown = false;
 		const server = await start({
 			fakeModel: { contextWindow: ONE_COMPACTION },
@@ -354,9 +354,14 @@ describe("compaction", () => {
 		try {
 			const id = await server.createSession("Add a shout() function [long] [backstop] [compaction-fails]");
 			await server.approveThrough(id);
-			const done = await server.settled(id, "the resumed report", 60_000);
+			const failed = await server.settled(id, "the failed run", 60_000);
+			assert.equal(failed.outcome?.kind, "failed");
+			// Durable retried the summary under its retry settings before the run failed; picloud does not retry again.
+			assert.match(failed.outcome?.kind === "failed" ? (failed.outcome.detail ?? "") : "", /^Compaction failed: /);
+			assert.ok(failed.notified.some((key) => key.startsWith("run:")), "the person is told");
+			await server.post(`/api/sessions/${id}/continue`);
+			const done = await server.settled(id, "the report after Continue", 60_000);
 			assert.equal(done.outcome?.kind, "reported");
-			assert.equal(done.resumes, 1, "resumed once, without the person");
 			assert.deepEqual(done.words.map((word) => word.kind), ["task", "answer", "approval"]);
 		} finally {
 			await server.close();
@@ -454,7 +459,6 @@ describe("cuts and checkpoint text", () => {
 		plan: { title: "Plan", summary: "Do it.", steps: [{ id: "1", text: "First step" }, { id: "2", text: "Second step" }], revision: 1, approved: true, done: ["1"] },
 		delivery: {},
 		continuations: 0,
-		resumes: 0,
 		words: [{ at: 1, kind: "task", text: "THE TASK, exactly as typed" }],
 		notified: [],
 		requests: [],

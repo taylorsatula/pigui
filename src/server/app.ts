@@ -176,11 +176,9 @@ export async function startApp(options: AppOptions): Promise<App> {
 			models: pi.models,
 			registry,
 			identity: { attribution: { name: "picloud", url: "https://github.com/taylorsatula/picloud" } },
-			settings: {
-				// Fake mode fails fast, so a scripted model failure ends its run in milliseconds.
-				retry: config.fake ? { maxRetries: 1, baseDelayMs: 10 } : { maxRetries: 3 },
-				afterFailedRun: "keep",
-			},
+			// Durable's defaults otherwise, so a change to them reaches picloud. Fake mode fails fast, so a scripted model
+			// failure ends its run in milliseconds.
+			...(config.fake ? { settings: { retry: { maxRetries: 1, baseDelayMs: 10 } } } : {}),
 			env,
 			onReport: (report: Report) => {
 				const task = "task" in report ? report.task : undefined;

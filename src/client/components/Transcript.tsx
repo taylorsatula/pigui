@@ -243,6 +243,7 @@ export function Transcript(props: {
 					<PlanCardView
 						card={block.card}
 						pending={block.pending}
+						running={props.running}
 						actions={props.cards}
 						{...(block.answer === undefined ? {} : { answer: block.answer })}
 						{...(props.session === undefined ? {} : { session: props.session })}

@@ -254,11 +254,11 @@ function PlanRest(props: { plan: Plan }): JSX.Element {
 	);
 }
 
-export function PlanCardView(props: { card: PlanCard; answer?: CardAnswer; pending: boolean; session?: SessionDoc; actions: CardActions }): JSX.Element {
+export function PlanCardView(props: { card: PlanCard; answer?: CardAnswer; pending: boolean; session?: SessionDoc; running: boolean; actions: CardActions }): JSX.Element {
 	const { card } = props;
 	const plan = planOf(card.plan);
 	const [busy, setBusy] = useState(false);
-	const working = props.session?.activeRun !== undefined && props.session.card === undefined;
+	const working = props.running && props.session?.card === undefined;
 	const done = props.session?.plan?.revision === card.revision && props.session.plan.approved ? props.session.plan.done : [];
 	const approve = async () => {
 		setBusy(true);

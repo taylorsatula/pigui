@@ -238,6 +238,25 @@ export type Outcome =
 	| { kind: "budget"; at: number }
 	| { kind: "no-report"; at: number };
 
+/** What each reason Durable gives for a failed run means, in the sidebar's banner and in the notification alike. */
+const RUN_FAILURES: Record<string, string> = {
+	model_error: "The model returned an error",
+	no_model: "No model is available: check Pi's sign-in on the server",
+	interrupted: "The server kept stopping while the model answered",
+	restart_limit: "The run kept crashing the server",
+	turn_limit: "The run reached its turn limit",
+	nothing_to_answer: "There was nothing to continue: Pi had already answered",
+	faulted: "The run hit an internal error",
+	orphaned: "The run could not resume after an upgrade",
+	reset: "The conversation was reset",
+	run_failed: "An earlier run failed",
+};
+
+/** One sentence, without its full stop, for why a run failed. */
+export function runFailureText(reason: string): string {
+	return RUN_FAILURES[reason] ?? `The run ended: ${reason}`;
+}
+
 export type PersonWordKind = "task" | "message" | "answer" | "approval" | "feedback";
 
 /** Something the person said, verbatim. Compaction checkpoints carry these unchanged. */
@@ -266,7 +285,6 @@ export type MessageEntryData = {
 
 /** An automatic continuation, shown as such rather than as something the person said. */
 export type NudgeEntryData = {
-	cause: "continuation" | "resume";
 	attempt: number;
 	limit: number;
 };
@@ -290,9 +308,6 @@ export type CheckpointEntryData = {
 /** Before compacting, picloud asks the agent for a handoff note; after, it tells the agent to resume. */
 export type CompactionNoteData = { note: "handoff-request" | "resume" };
 
-/** Why the current run was started; decides how its end is handled. */
-export type RunCause = "person" | "continuation" | "resume" | "continue";
-
 export type SessionDoc = {
 	id: number;
 	title: string;
@@ -312,12 +327,14 @@ export type SessionDoc = {
 	delivery: Delivery;
 	/** Spend cap in US dollars; absent means no cap. */
 	cap?: number;
-	activeRun?: { submission: number; cause: RunCause; startedAt: number };
+	/**
+	 * The run under way, by the submission whose settlement ends it, so the supervisor decides each run's end once, and
+	 * the sidebar, which reads this document alone, can show it. The open session reads Durable's `pi.live` as well.
+	 */
+	activeRun?: { submission: number; startedAt: number };
 	outcome?: Outcome;
 	/** Automatic continuations since the plan was approved or the person last spoke. */
 	continuations: number;
-	/** Automatic resumptions after a failed compaction since the person last spoke. */
-	resumes: number;
 	words: PersonWord[];
 	/** Keys of notifications already enqueued, so each wait notifies once. */
 	notified: string[];

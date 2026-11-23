@@ -31,7 +31,7 @@ through small typed interfaces (`AgentServices`, `SessionsDeps`, `RepoHost`, `Pu
 **Everything picloud remembers is a Durable document, changed in the same commits as the agent's own state.**
 
 - `picloud.session` (conversation scope): the repository, branches, setup state, workflow, plan and progress, the
-  pending card, the report, delivery state, spend cap, the run picloud started (`activeRun`), how the last run ended
+  pending card, the report, delivery state, spend cap, the run under way (`activeRun`), how the last run ended
   (`outcome`), the person's words, notification keys already used, recent request IDs, and what the next compaction
   needs (the summarizer's latest working state, the checkpoint count, a pending handoff request).
 - `picloud.index` (session scope, one per Harness): one drawer row per session, plus the last repository and recent
@@ -226,9 +226,24 @@ catches a run that ended while nothing was watching. It handles:
   in the transcript), at most three times since the plan was approved or the person last spoke; then "stopped without a
   report" and a notification;
 - an answer outside implementation → "replied" and a notification;
-- a run ended by a failed compaction (`model_error`, "Compaction failed…") → a Durable `continue`, at most three times;
-- any other failure → "failed" with the reason, a notification and a Continue button; a stop → "stopped", no
-  notification.
+- a run that ended as Durable started the next with a message queued behind it (one sent while the answer was being
+  written, too late to steer) → nothing for the ended run: the next run becomes `activeRun`, and its end is the one
+  told. Read from `pi.live.run` in the same commit;
+- any failure → "failed" with the reason, a notification and a Continue button; a stop → "stopped", no notification.
+  Failures are not retried here: Durable retries model requests and its own summaries under `settings.retry`, and
+  picloud's checkpoint carries the previous working state forward when its summarizer fails, so what still ends a run
+  would fail again. An earlier version continued a run ended by a failed compaction up to three times on its own,
+  which only delayed the person's Continue.
+
+`activeRun` is picloud's copy of Durable's run, kept because the sidebar reads session documents alone and the
+supervisor needs one submission to watch per run. The open session counts a run as going while either Durable's
+`pi.live.run` or `activeRun` says so: they start in the same commit, and `activeRun` outlasts the run by the one commit
+before the supervisor decides, so a run that ends in an automatic continuation never reads as stopped in between. The
+wording for each failure reason lives once, in `src/shared/session.ts`, for the banner and the notification alike.
+
+**Durable's settings as they come.** picloud sets none in real mode, so a change to Durable's defaults (three
+retries with backoff, failed runs keeping the inputs queued behind them) reaches it; fake mode shortens the retries so
+a scripted failure ends its run at once.
 
 *Alternatives considered:* `onYield` hook tasks keep the run alive across a continuation, but Durable then appends a
 plain `pi.user` message the phone cannot tell from the person's own words, and no hook sees failed runs, so a second
@@ -729,7 +744,9 @@ rewrites it for the ear (`src/server/speech/script.ts`). Rules could not do it: 
 and/or and "per" in km/h, `SQL` is letters or "sequel", and a code block needs describing rather than reading. It runs
 only on a tap, so unheard replies cost nothing, with reasoning off or as low as `clampThinkingLevel` allows. Its cost
 goes into `pi.usage` through `countSpend`, the helper the summarizer's checkpoint now shares, so the session's spend
-and cap see it exactly as they see the summarizer's. Nothing checks the cap before the call: it is small, and a
+and cap see it exactly as they see the summarizer's. `countSpend` follows Durable's own `recordUsage`, which is not
+exported, counter for counter (tokens, cache reads and writes, reasoning, and each part of the cost), so the ledger
+reads the same whichever call made the spend. Nothing checks the cap before the call: it is small, and a
 person asked for it. The phone keeps each complete script in memory, so hearing a reply again costs no second call.
 
 **Streamed a sentence at a time, in segments of at most 200 characters.** The script comes back as newline-delimited

@@ -168,7 +168,7 @@ export class Sessions {
 			const now = this.#deps.now();
 			await editSession(tx, runtime.conversationId, now, (draft) => {
 				draft.setup = { status: "ready" };
-				draft.activeRun = { submission, cause: "person", startedAt: now };
+				draft.activeRun = { submission, startedAt: now };
 				draft.words.push({ at: now, kind: "task", text: pending.text });
 				delete draft.pendingTask;
 			});
@@ -238,7 +238,6 @@ export class Sessions {
 					workflow: "open",
 					delivery: pr === undefined ? {} : { pr },
 					continuations: 0,
-					resumes: 0,
 					words: [],
 					notified: [],
 					requests: [],
@@ -328,12 +327,11 @@ export class Sessions {
 			await editSession(tx, id, now, (doc) => {
 				doc.words.push({ at: now, kind: "message", text: body.text });
 				if (route === "run") {
-					doc.activeRun = { submission, cause: "person", startedAt: now };
+					doc.activeRun = { submission, startedAt: now };
 					delete doc.outcome;
 					if (doc.workflow === "reported") doc.workflow = "open";
 				}
 				doc.continuations = 0;
-				doc.resumes = 0;
 				rememberRequest(doc, body.requestId, route, now);
 			});
 			return route;
@@ -375,7 +373,6 @@ export class Sessions {
 				if (draft.card?.id === card.id) delete draft.card;
 				if (result !== "delivered") return;
 				draft.continuations = 0;
-				draft.resumes = 0;
 				if (card.kind === "questions") {
 					draft.words.push({ at: now, kind: "answer", text: describeAnswer(card.questions, answer) });
 				} else if (answer.kind === "approve") {
@@ -418,7 +415,7 @@ export class Sessions {
 			}
 			const now = this.#deps.now();
 			await editSession(tx, id, now, (draft) => {
-				draft.activeRun = { submission, cause: "continue", startedAt: now };
+				draft.activeRun = { submission, startedAt: now };
 				delete draft.outcome;
 			});
 		}, context);

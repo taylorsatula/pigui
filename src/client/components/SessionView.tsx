@@ -3,7 +3,7 @@
 import type { LiveState, UsageState } from "@earendil-works/pi-durable";
 import type { JSX } from "preact";
 import { useCallback, useEffect, useMemo, useState } from "preact/hooks";
-import { type SessionDoc, sessionRow } from "../../shared/session.ts";
+import { runFailureText, type SessionDoc, sessionRow } from "../../shared/session.ts";
 import { formatDollars, spentOf } from "../../shared/spend.ts";
 import { api, describeFailure } from "../api.ts";
 import { stopReading } from "../speech.ts";
@@ -33,15 +33,6 @@ function spendTone(spent: number, cap: number | undefined): string {
 	return spent >= cap ? "over" : spent >= cap * 0.8 ? "near" : "";
 }
 
-const FAILURES: Record<string, string> = {
-	model_error: "The model returned an error",
-	no_model: "No model is available on the server",
-	turn_limit: "The run reached its turn limit",
-	interrupted: "The server kept stopping while the model answered",
-	restart_limit: "The run kept crashing the server",
-	nothing_to_answer: "There was nothing to continue",
-};
-
 function Banner(props: { doc: SessionDoc; spent: number; running: boolean; onAction: (work: () => Promise<unknown>) => void }): JSX.Element | null {
 	const { doc } = props;
 	if (doc.setup.status === "failed") {
@@ -62,7 +53,7 @@ function Banner(props: { doc: SessionDoc; spent: number; running: boolean; onAct
 			return (
 				<div class="banner error" role="alert">
 					<p>
-						<strong>{FAILURES[doc.outcome.reason] ?? "The run stopped"}.</strong> {doc.outcome.detail ?? ""}
+						<strong>{runFailureText(doc.outcome.reason)}.</strong> {doc.outcome.detail ?? ""}
 					</p>
 					<button type="button" class="primary" onClick={() => props.onAction(() => api.continue(doc.id))}>
 						Continue
@@ -116,6 +107,8 @@ export function SessionView(props: { id: number }): JSX.Element {
 	const [diff, setDiff] = useState(false);
 	const doc = session?.id === props.id ? session : undefined;
 	const live = view?.docs["pi.live"] as LiveState | undefined;
+	// Durable's run, and picloud's until the supervisor has handled its end: in the commit between, a run that ends in
+	// an automatic continuation would otherwise read as stopped for a moment.
 	const running = live?.run !== undefined || doc?.activeRun !== undefined;
 	const blocks = useMemo(() => buildBlocks(view, doc, running), [view, doc, running]);
 	// A reading belongs to the session on screen: leaving it stops the reading, while locking the phone does not.
