@@ -25,3 +25,10 @@ the boundary. Each talks to the others through small typed interfaces.
 **Names follow the domain** and stay consistent across server, client and tests.
 
 ## (further entries are added as the implementation proceeds)
+
+## The phone app: port the look verbatim
+
+**The CSS port is a parity port, not a redesign.** Even where the code is simplified (for example leaning on `:root`
+or media-query nesting), the rendered UI must be identical to the reference: same faces, same tokens and values, same
+layouts, same spacing, same states. Any change that alters what the person sees is a defect, not an improvement. The
+visual audit compares against the reference screen by screen at the end.
