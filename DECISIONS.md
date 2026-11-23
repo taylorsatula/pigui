@@ -941,6 +941,20 @@ else, and never `funnel`). What comes through Tailscale, addressed to such a nam
 *Alternatives:* trusting the login header wherever it appears, which a rebound page on the computer could send
 itself; asking Tailscale for the name at every start, which ties startup to a CLI that macOS does not put on PATH.
 
+**OnPrem as root on a server.** The case OnPrem serves on a server is a machine of the person's own, driven from the
+phone with Pi as root: `systemctl`, `apt`, `/etc`, with nothing between. So run as root on Linux, the installer installs
+picloud for root, in root's home whatever `HOME` says (so `sudo` from an account never leaves root's files in that
+account's home), as a system unit, `picloud-onprem.service`, named apart from the server installer's `picloud.service`,
+started at boot after the network and Tailscale. On Debian or Ubuntu it first installs what is missing with the server
+installer's own steps, now shared through `deploy/lib.sh` (`apt_install`, `install_node`, `install_tailscale`), and
+with `--tailscale on` it runs `tailscale up` (a login link, or `--tailscale-auth-key`, never kept). As another user,
+picloud has that user's rights; sudo works for the agent only without a password, since nothing can answer a prompt,
+and the installer says which it is rather than writing a sudoers rule. On macOS, root is refused: a Mac's picloud is
+its person's LaunchAgent. *Before:* the installer refused root, which ruled out the usual way into a fresh server.
+*Alternatives:* a container, which sees only itself and, opened up enough to manage the host, is root on the host with
+extra steps and the image's tools; a sudoers rule written by the installer, which would hand passwordless root to the
+account for everything, not only picloud.
+
 **The installer remembers its choices.** Each install writes its flags to `~/.picloud/onprem.conf`, read as plain
 values (never sourced) before the flags given, so the bare one-liner updates picloud as it is. Without it, an update
 would quietly turn Tailscale off, drop the local memory model, or move the port.

@@ -390,12 +390,13 @@ curl -fsSL https://raw.githubusercontent.com/taylorsatula/picloud/main/deploy/on
 | `--ref REF` | `main` | The branch, tag or commit of picloud to install. |
 | `--tailscale on\|off` | `off` | Serve picloud to your tailnet too, at `https://<this computer's MagicDNS name>/`, so your phone can use it as the PWA (see below). Off takes down picloud's own `tailscale serve`, if it had one. |
 | `--allowed-logins LIST` | everyone on the tailnet | Comma-separated Tailscale logins let in through the tailnet; `''` for everyone again. |
+| `--tailscale-auth-key KEY` | | As root, join the tailnet with this key instead of a login link. Used once, never kept. |
 | `--dry-run` | | Show every step and the service it would write; change nothing. |
 | `--uninstall` | | Stop and remove the service and the app; the data stays. |
 | `-h`, `--help` | | Show the help. |
 
-- **Run it as yourself**, never with sudo. Nothing outside your home directory changes, apart from Tailscale's serve
-  configuration with `--tailscale on`.
+- **Run it as yourself** on your own computer, and nothing outside your home directory changes, apart from Tailscale's
+  serve configuration with `--tailscale on`. **Run it as root on a server** (below) for picloud as root.
 - **It remembers your choices.** Each install writes its flags to `~/.picloud/onprem.conf`, and the next run starts
   from them, so the bare one-liner updates picloud as it is; a flag given changes that choice.
 - **It needs** Node.js 22.19 or newer, which it does not install (Homebrew: `brew install node@22`; or nvm:
@@ -429,6 +430,32 @@ curl -fsSL https://raw.githubusercontent.com/taylorsatula/picloud/main/deploy/on
 - **On Linux,** a user service runs while you are logged in. To keep it running after you log out:
   `loginctl enable-linger $USER`. `tailscale serve` as yourself needs Tailscale's operator to be you, once:
   `sudo tailscale set --operator=$USER`; the installer says so if it is refused.
+
+### A server of your own, on your phone
+
+The case OnPrem is for on a server: a machine somewhere, yours, which you drive from your phone with Pi as root, with
+nothing between it and the machine. On a fresh Debian or Ubuntu server, logged in as root:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/taylorsatula/picloud/main/deploy/onprem.sh | bash -s -- --tailscale on
+```
+
+- **As root,** the installer first installs what is missing with apt (git, curl, Node.js 22 from NodeSource, and
+  Tailscale from its own repository, the same steps as the server installer), then installs picloud for root, in
+  `/root/.picloud` whatever `HOME` says, as the system unit `picloud-onprem.service` (started at boot, after the
+  network and Tailscale; logs: `journalctl -u picloud-onprem`).
+- **Tailscale** logs in if it is not already: open the link it prints, or pass `--tailscale-auth-key`. Turn on
+  MagicDNS and HTTPS certificates in the tailnet's admin console, if they are not on.
+- **Pi** must be signed in as root: the installer stops and says how (`/root/.picloud/app/node_modules/.bin/pi`, then
+  `/login` and `/model`); run the one-liner again after.
+- Then open the printed `https://<server>.<tailnet>.ts.net/` on your phone. Sessions start in `/root`; any directory
+  works, `/` included. The agent's commands run as root: `systemctl`, `apt`, `/etc`, `/sys`, everything.
+- **As another user,** picloud runs with that user's rights and a user service (with `loginctl enable-linger`). sudo
+  works for the agent only without a password (a `NOPASSWD` sudoers rule, as many cloud images give their default
+  user), since nothing can answer a password prompt; the installer says which it is.
+- **Not in a container.** A container would see only its own files, processes, `/sys` and network, and have no
+  systemd to talk to; opened up enough to manage the host, it is root on the host with extra steps, and the tools are
+  still the image's. picloud OnPrem installs on the machine itself.
 
 ### On your phone, through Tailscale
 

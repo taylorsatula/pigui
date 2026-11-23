@@ -160,15 +160,17 @@ test("the trim script's dry run masks only installed units, adds swap, caps the 
 });
 
 // picloud OnPrem's installer, as a dry run only: never for real here. Each run gets a temporary home, and stand-ins
-// early on PATH for uname (the system it believes it is on), the login shell (the PATH it captures), systemctl and,
-// when asked, the tailscale CLI: logged in as `name`, with https://name/ served to `servedTo`.
+// early on PATH for uname (the system it believes it is on), id (a person, uid 1000, unless `root`), sudo (which asks
+// for a password), the login shell (the PATH it captures), systemctl and, when asked, apt with nothing installed and
+// the tailscale CLI: logged in as `name` (or not logged in), with https://name/ served to `servedTo`.
 const onprem = join(import.meta.dirname, "..", "deploy", "onprem.sh");
 
 type OnPremRun = { status: number | null; stdout: string; stderr: string; home: string };
 
-type TailscaleStub = { name: string; servedTo?: string };
+type TailscaleStub = { name?: string; servedTo?: string };
+type DryRunOptions = { prepare?: (home: string) => void; tailscale?: TailscaleStub; root?: boolean; apt?: boolean };
 
-function onPremDryRun(system: "Darwin" | "Linux", args: string[], prepare?: (home: string) => void, tailscale?: TailscaleStub): OnPremRun {
+function onPremDryRun(system: "Darwin" | "Linux", args: string[], { prepare, tailscale, root = false, apt = false }: DryRunOptions = {}): OnPremRun {
 	const home = mkdtempSync(join(tmpdir(), "picloud-onprem-home-"));
 	const bin = mkdtempSync(join(tmpdir(), "picloud-onprem-bin-"));
 	const stub = (name: string, body: string) => {
@@ -178,14 +180,18 @@ function onPremDryRun(system: "Darwin" | "Linux", args: string[], prepare?: (hom
 	stub("uname", `[ "$1" = -s ] && echo ${system} || echo 1.0`);
 	stub("sw_vers", "echo 15.1");
 	stub("systemctl", "exit 0");
+	stub("id", root ? 'case "$1" in -u) echo 0 ;; -un) echo root ;; -gn) echo root ;; *) exec /usr/bin/id "$@" ;; esac' : 'case "$1" in -u) echo 1000 ;; -un) echo someone ;; -gn) echo staff ;; *) exec /usr/bin/id "$@" ;; esac');
+	stub("sudo", "exit 1");
+	if (apt) {
+		stub("apt-get", "exit 0");
+		stub("dpkg-query", "exit 1");
+	}
 	// A login shell whose profile puts Homebrew and nvm on PATH, as a person's does and launchd's environment does not.
 	stub("login-shell", 'PATH=/opt/homebrew/bin:/home/someone/.nvm/versions/node/v22/bin:/usr/bin:/bin; eval "${@: -1}"');
 	if (tailscale !== undefined) {
 		const serve = tailscale.servedTo === undefined ? {} : { Web: { [`${tailscale.name}:443`]: { Handlers: { "/": { Proxy: tailscale.servedTo } } } } };
-		stub(
-			"tailscale",
-			`case "$1 $2" in\n"status --json") echo '${JSON.stringify({ Self: { DNSName: `${tailscale.name}.` } })}' ;;\n"serve status") echo '${JSON.stringify(serve)}' ;;\n*) echo "tailscale $*" ;;\nesac`,
-		);
+		const status = tailscale.name === undefined ? { BackendState: "NeedsLogin", Self: { DNSName: "" } } : { BackendState: "Running", Self: { DNSName: `${tailscale.name}.` } };
+		stub("tailscale", `case "$1 $2" in\n"status --json") echo '${JSON.stringify(status)}' ;;\n"serve status") echo '${JSON.stringify(serve)}' ;;\n*) echo "tailscale $*" ;;\nesac`);
 	}
 	try {
 		prepare?.(home);
@@ -241,7 +247,7 @@ test("its dry run on macOS writes a LaunchAgent with the login shell's PATH, OnP
 		assert.ok(written.includes("<key>PICLOUD_PORT</key>\n\t\t<string>4100</string>"));
 		assert.ok(written.includes("<key>RunAtLoad</key>\n\t<true/>") && written.includes("<key>KeepAlive</key>\n\t<true/>"));
 		assert.ok(written.includes(`<key>StandardErrorPath</key>\n\t<string>${run.home}/.picloud/logs/picloud.log</string>`));
-		assert.match(run.stdout, new RegExp(`\\[dry run\\] launchctl bootstrap gui/${process.getuid?.()} ${plist}$`, "m"));
+		assert.match(run.stdout, new RegExp(`\\[dry run\\] launchctl bootstrap gui/1000 ${plist}$`, "m"));
 		assert.match(run.stdout, /would run at http:\/\/localhost:4100/);
 		assert.match(run.stdout, /Full Disk Access/);
 		assert.match(run.stdout, /\[dry run\] open http:\/\/localhost:4100$/m);
@@ -297,13 +303,13 @@ test("its dry run refuses flags it cannot use, and an uninstall removes the serv
 		assert.match(refused.stderr, message);
 	}
 	for (const system of ["Darwin", "Linux"] as const) {
-		const run = onPremDryRun(system, ["--uninstall"], (home) => {
+		const run = onPremDryRun(system, ["--uninstall"], { prepare: (home) => {
 			mkdirSync(join(home, ".picloud", "app"), { recursive: true });
 			mkdirSync(join(home, ".picloud", "data"), { recursive: true });
 			const service = system === "Darwin" ? join(home, "Library", "LaunchAgents", "com.github.taylorsatula.picloud.plist") : join(home, ".config", "systemd", "user", "picloud.service");
 			mkdirSync(join(service, ".."), { recursive: true });
 			writeFileSync(service, "installed\n");
-		});
+		} });
 		try {
 			assert.equal(run.status, 0, run.stderr);
 			assert.deepEqual(stepsOf(run.stdout), ["Stop and remove the service", `Remove the app (${run.home}/.picloud/app)`]);
@@ -321,7 +327,7 @@ test("its dry run refuses flags it cannot use, and an uninstall removes the serv
 
 test("with --tailscale on it serves picloud to the tailnet and tells the service its name and the logins let in", () => {
 	for (const system of ["Darwin", "Linux"] as const) {
-		const run = onPremDryRun(system, ["--tailscale", "on", "--allowed-logins", "me@example.com"], undefined, { name: "mac.tail1234.ts.net" });
+		const run = onPremDryRun(system, ["--tailscale", "on", "--allowed-logins", "me@example.com"], { tailscale: { name: "mac.tail1234.ts.net" } });
 		try {
 			assert.equal(run.status, 0, run.stderr);
 			assert.ok(stepsOf(run.stdout).includes("Tailscale (on)"));
@@ -343,7 +349,7 @@ test("with --tailscale on it serves picloud to the tailnet and tells the service
 		}
 	}
 	// Something else already served at https://NAME/ is not taken over.
-	const taken = onPremDryRun("Linux", ["--tailscale", "on"], undefined, { name: "mac.tail1234.ts.net", servedTo: "http://127.0.0.1:3000" });
+	const taken = onPremDryRun("Linux", ["--tailscale", "on"], { tailscale: { name: "mac.tail1234.ts.net", servedTo: "http://127.0.0.1:3000" } });
 	rmSync(taken.home, { recursive: true, force: true });
 	assert.match(taken.stderr, /tailscale serve already sends https:\/\/mac\.tail1234\.ts\.net\/ to http:\/\/127\.0\.0\.1:3000/);
 	assert.doesNotMatch(taken.stdout, /serve --bg/);
@@ -359,7 +365,7 @@ test("a run with no options keeps the last install's choices, and turning Tailsc
 		mkdirSync(join(home, ".picloud"), { recursive: true });
 		writeFileSync(join(home, ".picloud", "onprem.conf"), "SPEECH=off\nMEMORY_LOCAL=on\nPORT=4100\nREF=v2.0\nTAILSCALE=on\nALLOWED_LOGINS=me@example.com\nPATH=/evil\n");
 	};
-	const again = onPremDryRun("Linux", [], remembered, { name: "box.tail1234.ts.net", servedTo: "http://127.0.0.1:4100" });
+	const again = onPremDryRun("Linux", [], { prepare: remembered, tailscale: { name: "box.tail1234.ts.net", servedTo: "http://127.0.0.1:4100" } });
 	try {
 		assert.equal(again.status, 0, again.stderr);
 		assert.match(again.stdout, /fetch --quiet origin v2\.0$/m);
@@ -371,7 +377,7 @@ test("a run with no options keeps the last install's choices, and turning Tailsc
 	} finally {
 		rmSync(again.home, { recursive: true, force: true });
 	}
-	const off = onPremDryRun("Linux", ["--tailscale", "off"], remembered, { name: "box.tail1234.ts.net", servedTo: "http://127.0.0.1:4100" });
+	const off = onPremDryRun("Linux", ["--tailscale", "off"], { prepare: remembered, tailscale: { name: "box.tail1234.ts.net", servedTo: "http://127.0.0.1:4100" } });
 	try {
 		assert.equal(off.status, 0, off.stderr);
 		assert.match(off.stdout, /\[dry run\] \S+\/tailscale serve --https=443 off$/m);
@@ -381,7 +387,7 @@ test("a run with no options keeps the last install's choices, and turning Tailsc
 		rmSync(off.home, { recursive: true, force: true });
 	}
 	// An uninstall takes it down too, and forgets the choices.
-	const gone = onPremDryRun("Darwin", ["--uninstall"], remembered, { name: "box.tail1234.ts.net", servedTo: "http://127.0.0.1:4100" });
+	const gone = onPremDryRun("Darwin", ["--uninstall"], { prepare: remembered, tailscale: { name: "box.tail1234.ts.net", servedTo: "http://127.0.0.1:4100" } });
 	try {
 		assert.equal(gone.status, 0, gone.stderr);
 		assert.ok(stepsOf(gone.stdout).includes("Stop serving picloud to the tailnet"));
@@ -390,6 +396,47 @@ test("a run with no options keeps the last install's choices, and turning Tailsc
 	} finally {
 		rmSync(gone.home, { recursive: true, force: true });
 	}
+});
+
+test("as root on a Linux server it installs what it needs, joins the tailnet, and runs as a system service in root's home", () => {
+	// A fresh Debian server: nothing installed yet, Tailscale not logged in. As root it logs in, with the key given.
+	const fresh = onPremDryRun("Linux", ["--tailscale", "on", "--tailscale-auth-key", "tskey-auth-123"], { root: true, apt: true, tailscale: {} });
+	try {
+		const steps = stepsOf(fresh.stdout);
+		assert.deepEqual(steps.slice(0, 2), ["Install what picloud needs (apt)", "Check this computer"], fresh.stderr);
+		assert.match(fresh.stdout, /\[dry run\] env DEBIAN_FRONTEND=noninteractive apt-get install -y ca-certificates curl gnupg git$/m);
+		assert.match(fresh.stdout, /as root: picloud runs as root, as a system service, from \/root\/\.picloud/);
+		assert.ok(steps.includes("Fetch picloud (main) into /root/.picloud/app"), "root's home, not the HOME it was given");
+		assert.match(fresh.stdout, /\[dry run\] \S+\/tailscale up --auth-key=tskey-auth-123$/m);
+		assert.doesNotMatch(fresh.stdout, /systemd's user instance/);
+		assert.ok(steps.includes("Install the service (systemd system unit picloud-onprem.service)"));
+		assert.ok(fresh.stdout.includes("[dry run] write /etc/systemd/system/picloud-onprem.service (mode 0644, owner root:root):"));
+		assert.ok(fresh.stdout.includes("| Wants=network-online.target\n      | After=network-online.target tailscaled.service\n"));
+		assert.ok(fresh.stdout.includes("| WantedBy=multi-user.target\n"));
+		assert.ok(fresh.stdout.includes(`| Environment="PICLOUD_DATA_DIR=/root/.picloud/data"\n`));
+		assert.match(fresh.stdout, /\[dry run\] systemctl restart picloud-onprem\.service$/m);
+		assert.doesNotMatch(fresh.stdout, /systemctl --user/);
+		assert.match(fresh.stdout, /Logs: journalctl -u picloud-onprem\./);
+		assert.ok(!/^ {6}\| .*tskey-auth-123/m.test(fresh.stdout), "the key is written nowhere");
+		assert.deepEqual(readdirSync(fresh.home), []);
+	} finally {
+		rmSync(fresh.home, { recursive: true, force: true });
+	}
+	// Without Tailscale, as root on apt, it installs Tailscale too.
+	const bare = onPremDryRun("Linux", ["--tailscale", "on"], { root: true, apt: true });
+	rmSync(bare.home, { recursive: true, force: true });
+	assert.match(bare.stdout, /\[dry run\] env DEBIAN_FRONTEND=noninteractive apt-get install -y tailscale$/m);
+	assert.match(bare.stdout, /\[dry run\] systemctl enable --now tailscaled$/m);
+	// A Mac's picloud is its person's LaunchAgent, never root's.
+	const mac = onPremDryRun("Darwin", [], { root: true });
+	rmSync(mac.home, { recursive: true, force: true });
+	assert.equal(mac.status, 1);
+	assert.match(mac.stderr, /On macOS, run this as yourself/);
+	// As a person, it says whether the agent's commands can use sudo.
+	const person = onPremDryRun("Linux", []);
+	rmSync(person.home, { recursive: true, force: true });
+	assert.match(person.stdout, /the agent's commands run with your rights: sudo would ask for a password/);
+	assert.doesNotMatch(person.stdout, /Install what picloud needs/);
 });
 
 test("the models script checks sums with shasum where there is no sha256sum, as on macOS", (t) => {
