@@ -1,6 +1,7 @@
 import type { JSX } from "preact";
 import { useEffect, useRef, useState } from "preact/hooks";
 import { api } from "./api.ts";
+import { AgentView } from "./components/Agents.tsx";
 import { SessionPicker } from "./components/Sessions.tsx";
 import { NewSession } from "./components/NewSession.tsx";
 import { SessionView } from "./components/SessionView.tsx";
@@ -66,7 +67,8 @@ export function App(): JSX.Element {
 			if (document.visibilityState === "hidden") live.pause();
 			else {
 				const current = store.get().route;
-				live.follow(current.kind === "session" ? current.id : undefined);
+				if (current.kind === "session") live.follow(current.id, current.agent);
+				else live.follow(undefined);
 			}
 		};
 		window.addEventListener("hashchange", onHash);
@@ -79,13 +81,17 @@ export function App(): JSX.Element {
 		};
 	}, []);
 
+	const session = route.kind === "session" ? route.id : undefined;
+	const agent = route.kind === "session" ? route.agent : undefined;
 	useEffect(() => {
-		live.follow(route.kind === "session" ? route.id : undefined);
-	}, [route.kind === "session" ? route.id : -1]);
+		live.follow(session, agent);
+	}, [session ?? -1, agent ?? -1]);
 
+	const page =
+		session === undefined ? <NewSession /> : agent === undefined ? <SessionView key={session} id={session} /> : <AgentView key={`${session}:${agent}`} session={session} agent={agent} />;
 	return (
 		<div class="app">
-			<main class="main">{route.kind === "session" ? <SessionView key={route.id} id={route.id} /> : <NewSession />}</main>
+			<main class="main">{page}</main>
 			<SessionPicker />
 			<Toasts />
 		</div>

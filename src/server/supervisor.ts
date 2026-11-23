@@ -20,6 +20,7 @@ import { FILE_REPORT } from "./agent/report.ts";
 import { editSession, readSession, SessionIndexToken } from "./docs.ts";
 import { errorKind, type Logger } from "./log.ts";
 import type { Notifications } from "./notify.ts";
+import { liveAgentTasks } from "./subagents/extension.ts";
 
 /** Automatic continuations of an approved plan that stopped without a report, before the person is asked. */
 export const MAX_CONTINUATIONS = 3;
@@ -120,7 +121,10 @@ export class Supervisor {
 		} else if (doc.outcome?.kind === "reported" && since(doc.outcome.at)) {
 			// The report ended the run and notified.
 		} else if (record.status === "done") {
-			if (doc.workflow === "implementing" && doc.continuations < MAX_CONTINUATIONS) {
+			if ((await liveAgentTasks(tx, conversation.id)).length > 0) {
+				// The answers of the agents still at work start the next run; until then there is nothing to tell.
+				outcome = { kind: "waiting-agents", at: now };
+			} else if (doc.workflow === "implementing" && doc.continuations < MAX_CONTINUATIONS) {
 				const attempt = doc.continuations + 1;
 				const data: NudgeEntryData = { attempt, limit: MAX_CONTINUATIONS };
 				continuation = { type: "input", content: nudgeText(attempt, MAX_CONTINUATIONS), entry: { kind: NUDGE_ENTRY, data }, requestId: `continuation:${record.id}` };
@@ -155,7 +159,7 @@ export class Supervisor {
 			if (submission !== undefined) draft.continuations += 1;
 			if (outcome !== undefined) {
 				draft.outcome = outcome;
-				if (outcome.kind !== "stopped") draft.attentionAt = now;
+				if (outcome.kind !== "stopped" && outcome.kind !== "waiting-agents") draft.attentionAt = now;
 			}
 			if (notice !== undefined) await notifications.enqueue(tx, draft, notice);
 		});

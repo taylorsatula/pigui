@@ -23,7 +23,8 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { AnswerCardBody, CreateSessionBody, MessageRoute, SendMessageBody } from "../shared/api.ts";
 import { type CardAnswer, MESSAGE_ENTRY, type PendingCard, type SessionDoc, type SessionPlace, type SessionStart, type SetupStep } from "../shared/session.ts";
-import { formatDollars, spentOf } from "../shared/spend.ts";
+import { formatDollars } from "../shared/spend.ts";
+import { sessionSpend } from "./agent/budget.ts";
 import { ANSWER_KEY, CardAnswerSignal } from "./agent/cards.ts";
 import { compactionFor } from "./agent/compaction.ts";
 import { ATTACHMENTS_DIR } from "./agent/prompt.ts";
@@ -38,6 +39,7 @@ import type { RepoHost } from "./host.ts";
 import { attach, composeContent, expandReferences, type PreparedInput, type ReferenceRoot, type Uploads } from "./input.ts";
 import { localDirectory } from "./local.ts";
 import { errorKind, type Logger } from "./log.ts";
+import { stopAgent, stopAgents } from "./subagents/extension.ts";
 
 export type SessionsDeps = {
 	harness: () => Harness;
@@ -398,7 +400,7 @@ export class Sessions {
 
 	async #checkBudget(tx: Tx, doc: Draft<SessionDoc>): Promise<void> {
 		if (doc.cap === undefined) return;
-		const spent = spentOf(await tx.doc(UsageDoc, doc.id as ConversationId));
+		const spent = await sessionSpend(doc, (conversation) => tx.doc(UsageDoc, conversation));
 		if (spent >= doc.cap) {
 			throw new HttpError(409, `The session has spent ${formatDollars(spent)} of its ${formatDollars(doc.cap)} cap.`, "Raise the budget to continue.");
 		}
@@ -442,10 +444,17 @@ export class Sessions {
 		}
 	}
 
+	/** Stop the session's run and every agent it started, queued or running. */
 	async stop(id: number, context: Context): Promise<void> {
 		await this.#ready(id, context);
 		const conversation = await this.#deps.harness().conversation(id as ConversationId, context);
 		await conversation?.abort(context);
+		await stopAgents(this.#deps.harness(), id as ConversationId, context);
+	}
+
+	/** Stop one agent of the session, queued or running; its run records the stop and tells the session's agent. */
+	async stopAgent(id: number, agent: number, context: Context): Promise<void> {
+		if (!(await stopAgent(this.#deps.harness(), id as ConversationId, agent, context))) throw notFound("The agent");
 	}
 
 	/** Start a run on the context as it is: after a failure, a stop, or a raised budget. */
@@ -473,7 +482,7 @@ export class Sessions {
 
 	async raiseBudget(id: number, cap: number, context: Context): Promise<void> {
 		const doc = await this.#ready(id, context);
-		const spent = spentOf(await this.#deps.harness().snapshot(UsageDoc, id as ConversationId, context));
+		const spent = await sessionSpend(doc, (conversation) => this.#deps.harness().snapshot(UsageDoc, conversation, context));
 		if (cap <= spent) throw new HttpError(400, `The new cap must be more than the ${formatDollars(spent)} already spent.`);
 		await this.#deps.harness().commit(async (tx) => {
 			await editSession(tx, id, this.#deps.now(), (draft) => {
@@ -484,6 +493,8 @@ export class Sessions {
 	}
 
 	async archive(id: number, archived: boolean, context: Context): Promise<void> {
+		// An archived session is put away: its agents stop first, so none goes on working, or spending, out of sight.
+		if (archived) await stopAgents(this.#deps.harness(), id as ConversationId, context);
 		await this.#deps.harness().commit(async (tx) => {
 			if ((await readSession(tx, id)) === undefined) throw notFound("The session");
 			await editSession(tx, id, this.#deps.now(), (doc) => {

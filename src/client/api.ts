@@ -122,6 +122,7 @@ export const api = {
 	answer: (id: number, cardId: string, answer: CardAnswer) =>
 		call<object>("POST", `/api/sessions/${id}/answer`, { requestId: newRequestId(), cardId, answer } satisfies AnswerCardBody),
 	stop: (id: number) => call<object>("POST", `/api/sessions/${id}/stop`),
+	stopAgent: (id: number, agent: number) => call<object>("POST", `/api/sessions/${id}/agents/${agent}/stop`),
 	continue: (id: number) => call<object>("POST", `/api/sessions/${id}/continue`),
 	budget: (id: number, cap: number) => call<object>("POST", `/api/sessions/${id}/budget`, { cap }),
 	deliver: (id: number, action: "push" | "pr") => call<DeliveryResult>("POST", `/api/sessions/${id}/deliver`, { action }),

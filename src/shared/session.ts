@@ -236,7 +236,41 @@ export type Outcome =
 	| { kind: "stopped"; at: number }
 	| { kind: "failed"; reason: string; detail?: string; at: number }
 	| { kind: "budget"; at: number }
-	| { kind: "no-report"; at: number };
+	| { kind: "no-report"; at: number }
+	/** The run ended while agents it started in the background still work; their answers start the next one. */
+	| { kind: "waiting-agents"; at: number };
+
+/** Where an agent's current run is: waiting its turn, running, or ended one of three ways. */
+export type AgentStatus = "queued" | "running" | "done" | "failed" | "stopped";
+
+/**
+ * One agent of a session, written by its run's task in the same commit as each change of the run's own state, since the
+ * phone cannot read Durable's task records. A view: nothing decides from it, beyond finding an agent's conversation and
+ * its current run.
+ */
+export type AgentRow = {
+	/** The agent's conversation, which is its id across every run. */
+	id: number;
+	/** Its current run's task. */
+	task: number;
+	/** The definition's name. */
+	type: string;
+	description: string;
+	background: boolean;
+	status: AgentStatus;
+	/** Why it failed, in Durable's words. */
+	reason?: string;
+	/** 1, then one more per resume. */
+	runs: number;
+	createdAt: number;
+	startedAt?: number;
+	endedAt?: number;
+};
+
+/** Whether an agent is still under way: waiting its turn or running. */
+export function agentLive(row: Pick<AgentRow, "status">): boolean {
+	return row.status === "queued" || row.status === "running";
+}
 
 /** What each reason Durable gives for a failed run means, in the sidebar's banner and in the notification alike. */
 const RUN_FAILURES: Record<string, string> = {
@@ -273,6 +307,21 @@ export const NUDGE_ENTRY = "picloud.nudge";
 export const CHECKPOINT_ENTRY = "picloud.compaction";
 /** What picloud says to the agent around a compaction it runs; the model sees it as a user message. */
 export const COMPACTION_NOTE_ENTRY = "picloud.compaction-note";
+/** A background agent's answer, sent to its parent as a message, which starts the parent's next run. */
+export const AGENT_RESULT_ENTRY = "picloud.agent-result";
+/** A background agent stopped before it answered: a note the parent reads at its next boundary. */
+export const AGENT_STOPPED_ENTRY = "picloud.agent-stopped";
+
+export type AgentResultData = {
+	agent: number;
+	type: string;
+	description: string;
+	status: "done" | "failed";
+	/** The agent's full answer, or why it failed. */
+	text: string;
+};
+
+export type AgentStoppedData = { agent: number; type: string; description: string };
 
 export type ReferenceStatus = "included" | "pointer" | "skill";
 
@@ -383,6 +432,8 @@ type SessionCommon = {
 	memoryShown?: string[];
 	/** The first message, kept until setup submits it, so a failed setup can be retried. */
 	pendingTask?: { text: string; attachments: string[] };
+	/** The agents its agent started, oldest first; absent until the first. */
+	agents?: AgentRow[];
 	archived: boolean;
 	/**
 	 * When maintenance removed picloud's own directories of this archived session: a repository session's clone, after
@@ -478,6 +529,8 @@ function describe(doc: SessionDoc): { group: SessionGroup; label: string; tone: 
 			return { group: "attention", label: "Stopped", tone: "idle" };
 		case "replied":
 			return { group: "attention", label: "Replied", tone: "attention" };
+		case "waiting-agents":
+			return { group: "working", label: "Waiting on agents", tone: "working" };
 		case "reported":
 		case undefined:
 			break;

@@ -2,7 +2,7 @@
 
 type Args = Record<string, unknown>;
 
-function firstLine(text: unknown, max = 60): string {
+export function firstLine(text: unknown, max = 60): string {
 	const line = String(text ?? "").split("\n")[0]?.trim() ?? "";
 	return line.length > max ? `${line.slice(0, max - 1)}…` : line;
 }
@@ -28,6 +28,10 @@ export function describeCall(name: string, args: Args): string {
 			return args.entry !== undefined ? `Looked up history entry ${String(args.entry)}` : `Searched history for “${firstLine(args.query, 40)}”`;
 		case "surface_memories":
 			return `Searched memory: “${firstLine(args.query, 40)}”`;
+		case "Agent":
+			return args.resume === undefined ? `Agent ${String(args.subagent_type ?? "")}: ${firstLine(args.description, 50)}` : `Resumed agent ${String(args.resume)}: ${firstLine(args.description, 50)}`;
+		case "steer_subagent":
+			return `Steered agent ${String(args.agent_id ?? "")}`;
 		default:
 			return name.replace(/_/g, " ");
 	}
@@ -42,6 +46,8 @@ const NOUNS: Record<string, [string, string, string]> = {
 	recall_history: ["Searched", "history", "history"],
 	surface_memories: ["Searched", "memory", "memory"],
 	write_handoff: ["Wrote", "handoff note", "handoff notes"],
+	Agent: ["Started", "agent", "agents"],
+	steer_subagent: ["Steered", "agent", "agents"],
 };
 
 /** A group of calls in one line: "Ran 2 commands, edited 1 file". */

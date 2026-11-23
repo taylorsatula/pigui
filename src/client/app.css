@@ -606,7 +606,8 @@ details > summary:active {
 	transition: opacity var(--present) var(--ease-sheet);
 }
 
-.session-picker {
+.session-picker,
+.agents-panel {
 	position: fixed;
 	z-index: 20;
 	top: calc(var(--safe-top) + 8px);
@@ -631,19 +632,21 @@ details > summary:active {
 		opacity: 0;
 	}
 
-	.session-picker {
+	.session-picker,
+	.agents-panel {
 		opacity: 0;
 		transform: translateY(-8px) scale(0.98);
 	}
 }
 
 /* While it is open, the page under it stays put. */
-html:has(.session-picker) {
+html:has(.session-picker, .agents-panel) {
 	overflow: hidden;
 }
 
 @media (min-width: 900px) {
-	.session-picker {
+	.session-picker,
+	.agents-panel {
 		top: calc(var(--safe-top) + 10vh);
 		max-height: 70dvh;
 	}
@@ -979,6 +982,198 @@ html:has(.session-picker) {
 
 .banner.picker-notice p {
 	font-size: var(--footnote);
+}
+
+/* ---- The agents a session's agent started: the same panel over the page as the session picker, one row each. */
+
+.agents-panel {
+	width: min(calc(100vw - 16px - var(--safe-left) - var(--safe-right)), 640px);
+}
+
+.agents-count {
+	margin: 0 4px 0 0;
+	font-family: var(--mono);
+	font-size: var(--label);
+	color: var(--text-2);
+	white-space: nowrap;
+}
+
+.agent-list {
+	flex: 1;
+	overflow-y: auto;
+	overscroll-behavior: contain;
+	list-style: none;
+	margin: 0;
+	padding: 4px 6px;
+}
+
+.agent-row {
+	display: flex;
+	align-items: center;
+	gap: 4px;
+	border-radius: var(--radius-s);
+}
+
+.agent-row + .agent-row {
+	border-top: var(--hairline) solid var(--separator);
+}
+
+.agent-open {
+	flex: 1;
+	min-width: 0;
+	display: flex;
+	align-items: center;
+	gap: 10px;
+	min-height: var(--target);
+	padding: 6px;
+	color: var(--text);
+	text-decoration: none;
+	border-radius: var(--radius-s);
+	transition: background-color var(--quick) var(--ease-out);
+}
+
+.agent-open:active {
+	background-color: var(--fill);
+	transition: none;
+}
+
+.agent-main {
+	flex: 1;
+	min-width: 0;
+	display: flex;
+	flex-direction: column;
+	gap: 2px;
+}
+
+.agent-line {
+	display: flex;
+	align-items: baseline;
+	gap: 8px;
+	min-width: 0;
+}
+
+/* The definition's name is a record; what the agent was asked to do is read. */
+.agent-type {
+	flex: none;
+	font-family: var(--mono);
+	font-size: var(--record);
+	color: var(--text-2);
+}
+
+.agent-description {
+	min-width: 0;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+	font-size: var(--subhead);
+}
+
+.agent-detail,
+.agent-time {
+	font-family: var(--mono);
+	font-size: var(--label);
+	color: var(--text-2);
+	font-variant-numeric: tabular-nums;
+}
+
+.agent-detail {
+	min-width: 0;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.agent-row.failed .agent-detail {
+	color: var(--error);
+}
+
+.agent-time {
+	flex: none;
+}
+
+.agent-stop {
+	flex: none;
+}
+
+/* How many agents are at work, on the Agents button, in the colour of work under way: never the person's yellow. */
+.count-badge {
+	position: absolute;
+	top: 5px;
+	right: 3px;
+	min-width: 16px;
+	height: 16px;
+	padding: 0 4px;
+	border-radius: var(--radius-full);
+	background: var(--working);
+	color: var(--bg);
+	box-shadow: 0 0 0 1.5px var(--bg);
+	font-family: var(--mono);
+	font-size: 0.625rem;
+	line-height: 16px;
+	text-align: center;
+	font-variant-numeric: tabular-nums;
+}
+
+/* A background agent's answer, as the session's agent got it: headed by the agent, its first lines until opened. */
+.agent-result > summary {
+	flex-direction: column;
+	align-items: stretch;
+	justify-content: center;
+	gap: 4px;
+}
+
+.agent-result-head {
+	display: flex;
+	align-items: center;
+	gap: 6px;
+	min-width: 0;
+	font-family: var(--mono);
+	font-size: var(--record);
+	color: var(--text-2);
+}
+
+.agent-result-head .agent-description {
+	font-family: var(--sans);
+	font-size: var(--footnote);
+	color: var(--text);
+}
+
+.agent-result-head .icon {
+	transition: rotate var(--quick) var(--ease-out);
+}
+
+.agent-result[open] .agent-result-head .icon {
+	rotate: 90deg;
+}
+
+.agent-ended {
+	flex: none;
+	margin-left: auto;
+}
+
+.agent-result.failed .agent-ended {
+	color: var(--error);
+}
+
+.agent-preview {
+	padding-left: 20px;
+	font-size: var(--subhead);
+	line-height: var(--leading);
+	color: var(--text-2);
+	white-space: pre-line;
+	overflow-wrap: anywhere;
+	display: -webkit-box;
+	-webkit-box-orient: vertical;
+	-webkit-line-clamp: 3;
+	overflow: hidden;
+}
+
+.agent-result[open] .agent-preview {
+	display: none;
+}
+
+.agent-result > .markdown {
+	padding-left: 20px;
 }
 
 /* The yellow, ringed in ink so it reads on the page. */
@@ -2602,13 +2797,15 @@ select,
 
 	.sheet,
 	.session-picker,
+	.agents-panel,
 	.toast {
 		transition-property: opacity;
 	}
 
 	@starting-style {
 		.sheet,
-		.session-picker {
+		.session-picker,
+		.agents-panel {
 			transform: none;
 			opacity: 0;
 		}

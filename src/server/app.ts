@@ -12,14 +12,16 @@ import { createNodePhotonImages } from "@earendil-works/pi-durable/images/node";
 import { openNodeSqliteStorage } from "@earendil-works/pi-durable/storage/sqlite/node";
 import { createCodingTools } from "@earendil-works/pi-durable/tools";
 import { picloudAgent } from "./agent/extension.ts";
+import { projectExtension, skillsExtension } from "./agent/project.ts";
 import type { AgentServices, Faults } from "./agent/services.ts";
 import type { Config } from "./config.ts";
 import { Delivery } from "./delivery.ts";
-import { SessionDocToken, SessionIndexToken } from "./docs.ts";
-import { type RepoSessionDoc, type SessionDoc, sessionRow } from "../shared/session.ts";
+import { editSession, SessionDocToken, SessionIndexToken } from "./docs.ts";
+import { type AgentRow, type RepoSessionDoc, type SessionDoc, sessionRow } from "../shared/session.ts";
 import { LocalGitHub } from "./fake/github.ts";
 import { type ScriptedModelOptions, scriptedModels } from "./fake/model.ts";
 import { fakeSynthesizer } from "./fake/synthesizer.ts";
+import { currentBranch } from "./git.ts";
 import { GhHost, type RepoHost } from "./host.ts";
 import { callerCheck } from "./callers.ts";
 import { createHttpServer } from "./http.ts";
@@ -36,6 +38,7 @@ import { sessionEnvs } from "./session-env.ts";
 import { Sessions } from "./sessions.ts";
 import { kokoroInstalled, kokoroSynthesizer } from "./speech/kokoro.ts";
 import { Speech } from "./speech/speech.ts";
+import { seedAgents, seedSettings, subagentsExtension } from "./subagents/extension.ts";
 import { Supervisor } from "./supervisor.ts";
 import { loadVapidKeys, type PushSender, RecordingPushSender, WebPushSender } from "./webpush.ts";
 
@@ -99,6 +102,9 @@ export async function startApp(options: AppOptions): Promise<App> {
 		sandbox: join(config.dataDir, "sandbox"),
 	};
 	for (const dir of [config.dataDir, paths.workspaces, paths.uploads, paths.backups]) await mkdir(dir, { recursive: true });
+	// Seeded here, for every way picloud is installed; once there, both are the person's to edit.
+	await seedAgents(config.dataDir, join(import.meta.dirname, "..", "..", "agents"));
+	await seedSettings(config.dataDir);
 	/** picloud's own directory for a session: a repository session's clone, and every session's attachments. */
 	const workspace = (id: number) => join(paths.workspaces, String(id));
 	/** A session's own home, tmp and gh configuration, which its commands get instead of picloud's (not in OnPrem). */
@@ -169,10 +175,51 @@ export async function startApp(options: AppOptions): Promise<App> {
 	const speech = synthesizer === undefined ? undefined : new Speech({ harness, agent: services, synthesizer, log, now });
 
 	const registry = createRegistry();
-	registry.install(createCodingTools({ images }));
+	const coding = createCodingTools({ images });
+	const session = picloudAgent(services);
+	const skills = skillsExtension(services);
+	registry.install(coding);
 	registry.install(createFitImagesExtension(images));
-	registry.install(picloudAgent(services));
+	registry.install(session);
 	registry.install(defineExtension({ name: "picloud-sessions", tasks: [sessions.setupTask, notifications.task, maintenance.task] }));
+	registry.install(projectExtension(services));
+	registry.install(skills);
+	registry.install(
+		subagentsExtension({
+			dataDir: config.dataDir,
+			now,
+			log,
+			registry,
+			models: () => pi.models,
+			exclude: [session],
+			coding,
+			skills,
+			place: async (id, read, context) => {
+				const doc = await read.snapshot(SessionDocToken, id, context);
+				if (doc?.id === undefined) throw new Error("Agents are started by a picloud session.");
+				const dir = workingDir(doc);
+				// A local session's directory may be a repository, on whatever branch the person left it.
+				const branch = doc.place === "repo" ? doc.branch : await currentBranch(dir).catch(() => undefined);
+				return branch === undefined ? { dir } : { dir, branch };
+			},
+			row: (tx, id, agent, change, effect) =>
+				editSession(tx, id, now(), (doc) => {
+					const rows = doc.agents ?? [];
+					const at = rows.findIndex((row) => row.id === agent);
+					const next = change(at === -1 ? undefined : (rows[at] as AgentRow));
+					if (at === -1) doc.agents = [...rows, next];
+					else rows[at] = next;
+					if (effect?.kind === "run") {
+						// A background answer started the next run: the supervisor follows it as any other.
+						doc.activeRun = { submission: effect.submission, startedAt: now() };
+						delete doc.outcome;
+					} else if (effect?.kind === "quiet" && doc.outcome?.kind === "waiting-agents") {
+						doc.outcome = { kind: "stopped", at: now() };
+					}
+				}),
+			faults: options.faults ?? {},
+		}),
+	);
 
 	const env = sessionEnvs({
 		dirs: (id) => ({ workspace: workspace(id), scratch: scratch(id) }),

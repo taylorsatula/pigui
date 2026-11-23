@@ -1,11 +1,14 @@
-// The spend cap. After every tool round the run's spend is checked; over the cap, a task ends the run before the next
-// model request, records why, and tells the person. Raising the cap and continuing starts from those tool results.
+// The spend cap. After every tool round, the session's agent's or one of its agents', the whole session's spend is
+// checked; over the cap, a task records why, tells the person, stops every agent of the session and ends the round's
+// run before its next model request. Raising the cap and continuing starts from those tool results.
 import type { Context } from "@earendil-works/chord/context";
 import { copyJson, type JsonRepresentation } from "@earendil-works/chord/json";
 import type { Api, AssistantMessage, Model, Usage } from "@earendil-works/pi-ai";
-import { type AfterToolsDecision, type ConversationId, defineTask, GenerationTask, hook, type HookApi, hookTask, type Tx, UsageDoc } from "@earendil-works/pi-durable";
-import { formatDollars, spentOf } from "../../shared/spend.ts";
-import { editSession, SessionDocToken } from "../docs.ts";
+import { type AfterToolsDecision, type ConversationId, defineTask, GenerationTask, hook, type HookApi, hookTask, type Tx, UsageDoc, type UsageState } from "@earendil-works/pi-durable";
+import type { SessionDoc } from "../../shared/session.ts";
+import { formatDollars, sessionSpent } from "../../shared/spend.ts";
+import { editSession, sessionFor } from "../docs.ts";
+import { agentSession, stopAgents } from "../subagents/extension.ts";
 import type { AgentServices } from "./services.ts";
 
 /**
@@ -45,11 +48,20 @@ export async function countSpend(tx: Tx, conversationId: ConversationId, spend: 
 	total.cost.total += usage.cost.total;
 }
 
-/** The session's spend and its cap once the spend has reached it; undefined below the cap or without one. */
+/** What a session has spent, its own conversation and every agent's, as `usage` reads each one. */
+export async function sessionSpend(doc: Readonly<SessionDoc>, usage: (conversation: ConversationId) => Promise<Readonly<UsageState> | undefined>): Promise<number> {
+	const agents = await Promise.all((doc.agents ?? []).map((agent) => usage(agent.id as ConversationId)));
+	return sessionSpent(await usage(doc.id as ConversationId), agents);
+}
+
+/**
+ * The spend and cap of the session a conversation works for, once the spend has reached the cap; undefined below it or
+ * without one. An agent's conversation counts its whole session.
+ */
 export async function overCap(api: Pick<HookApi, "conversationId" | "snapshot">, context: Context): Promise<{ spent: number; cap: number } | undefined> {
-	const session = await api.snapshot(SessionDocToken, api.conversationId, context);
+	const session = await sessionFor(api, api.conversationId, context);
 	if (session?.cap === undefined) return undefined;
-	const spent = spentOf(await api.snapshot(UsageDoc, api.conversationId, context));
+	const spent = await sessionSpend(session, (id) => api.snapshot(UsageDoc, id, context));
 	return spent < session.cap ? undefined : { spent, cap: session.cap };
 }
 
@@ -59,19 +71,26 @@ export function budget(services: AgentServices) {
 		version: 1,
 		initial: () => ({ phase: "stop" }),
 		phases: {
+			// The person is told first: stopping the session's agents may stop this task too, when it runs in an agent's
+			// round, and it can commit nothing after that. Its last commit then fails, and its abort handler ends it.
 			stop: async (task, runtime, context) => {
+				const { spent, cap } = task.input;
+				const session = (await agentSession(runtime, runtime.conversationId, context)) ?? runtime.conversationId;
 				await runtime.commit(async (tx) => {
-					await editSession(tx, runtime.conversationId, services.now(), async (doc) => {
+					await editSession(tx, session, services.now(), async (doc) => {
 						doc.outcome = { kind: "budget", at: services.now() };
 						doc.attentionAt = services.now();
+						// Keyed by the cap, so the session and its agents reaching it together notify once.
 						await services.notifications.enqueue(tx, doc, {
-							key: `budget:${task.id}`,
+							key: `budget:${cap}`,
 							title: "Budget reached",
-							body: `${formatDollars(task.input.spent)} spent of a ${formatDollars(task.input.cap)} cap. Raise it to continue.`,
+							body: `${formatDollars(spent)} spent of a ${formatDollars(cap)} cap. Raise it to continue.`,
 						});
 					});
-					return { status: "terminal", outcome: { status: "completed", result: { terminate: true } } };
+					return undefined;
 				}, context);
+				await stopAgents(services.harness(), session as ConversationId, context);
+				await runtime.commit(() => ({ status: "terminal", outcome: { status: "completed", result: { terminate: true } } }), context);
 			},
 		},
 		abort: async (_task, runtime, context) => {
