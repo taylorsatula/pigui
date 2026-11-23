@@ -64,9 +64,9 @@ test.describe("dark mode", () => {
 		await startSession(page, "Add a shout() function");
 		await expect(page.getByRole("region", { name: "Questions waiting for your answer" })).toBeVisible();
 		const background = await page.evaluate(() => getComputedStyle(document.documentElement).backgroundColor);
-		expect(background).toBe("rgb(24, 23, 20)");
+		expect(background).toBe("rgb(1, 4, 5)");
 		const text = await page.evaluate(() => getComputedStyle(document.body).color);
-		expect(text).toBe("rgb(235, 229, 213)");
+		expect(text).toBe("rgb(226, 236, 234)");
 		await page.getByRole("button", { name: "Send answers" }).tap();
 		await page.getByRole("button", { name: "Approve" }).tap();
 		await expect(page.getByRole("region", { name: "Report" })).toBeVisible({ timeout: 30_000 });

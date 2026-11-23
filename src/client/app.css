@@ -117,6 +117,8 @@
 	--mark-text: #1b1915;
 	/* What can be tapped is drawn in ink: filled for the main action, outlined or underlined otherwise. */
 	--accent: #1b1915;
+	/* Ink laid down as a fill: the main action, the send and stop keys, a selected segment, a toast. The ink by day. */
+	--accent-fill: #1b1915;
 	--accent-text: #fcfbf8;
 	/* What things mean, one hue each, near full colour wherever the meaning shows: green for done, approved, passed and
 	   added; orange for a warning; red for an error, a failure, a removed line; the yellow (--mark) for the person's
@@ -149,38 +151,43 @@
 	--bar-blur: saturate(140%) blur(16px);
 }
 
-/* Dark is the same pages read by lamplight: warm graphite paper, cream ink, the alerts as vivid as by day (each at
-   least 5.8:1 on the page), and every weight a step lighter, since light text on a dark ground looks heavier than it
-   is; no halo, which would only spread it further. */
+/* Dark is for working with the screen turned low at night: a page all but black, so an OLED screen leaves nearly every
+   pixel off, with the faintest trace of abyssal blue-green, and panels lifted from it by only a breath, so no large
+   area gives off light; ink that stays crisp and bright (17:1); and the meanings that are only information
+   (done, working, delivered, a warning) toned down to about 37 % luminance, still 6.7:1 or more on the page. The two
+   that call for the person keep their full colour: the yellow of their turn and the red of a failure. Every weight is a
+   step lighter, since light text on a dark ground looks heavier than it is; no halo, which would only spread it. */
 @media (prefers-color-scheme: dark) {
 	:root {
-		--bg: #181714;
-		--surface: #1f1e1a;
-		--surface-2: #2a2823;
-		--raised: #2c2a25;
-		--fill: rgba(235, 225, 200, 0.08);
-		--text: #ebe5d5;
-		--text-2: #a49e8f;
-		--separator: rgba(235, 225, 200, 0.15);
-		--rule: rgba(235, 225, 200, 0.5);
+		--bg: #010405;
+		--surface: #040a0b;
+		--surface-2: #081213;
+		--raised: #0a1618;
+		--fill: rgba(150, 225, 220, 0.07);
+		--text: #e2ecea;
+		--text-2: #8ba3a0;
+		--separator: rgba(150, 215, 210, 0.13);
+		--rule: rgba(180, 225, 220, 0.42);
 		--mark: #ffd60a;
-		--mark-text: #181714;
-		--accent: #ebe5d5;
-		--accent-text: #181714;
-		--done: #3ddc84;
-		--warn: #ffa31a;
+		--mark-text: #010405;
+		--accent: #cddbd8;
+		/* Well under the ink: a full-width main action is the largest light area on the page. 9.4:1 with its label. */
+		--accent-fill: #a3b8b5;
+		--accent-text: #010405;
+		--done: #4cb88a;
+		--warn: #e39a45;
 		--error: #ff5a47;
-		--waiting: #ebe5d5;
-		--working: #4fd3e0;
-		--deliver: #6ea8ff;
-		--neutral: #a49e8f;
-		--person: #ebe5d5;
+		--waiting: #e2ecea;
+		--working: #4cb0b6;
+		--deliver: #6f98dc;
+		--neutral: #8ba3a0;
+		--person: #e2ecea;
 		--badge: #ffd60a;
-		--code: rgba(235, 225, 200, 0.06);
-		--add: rgba(61, 220, 132, 0.16);
-		--del: rgba(255, 90, 71, 0.18);
-		--scrim: rgba(0, 0, 0, 0.5);
-		--shadow: 0 1px 3px rgba(0, 0, 0, 0.3), 0 10px 30px rgba(0, 0, 0, 0.5);
+		--code: rgba(140, 215, 210, 0.06);
+		--add: rgba(76, 184, 138, 0.15);
+		--del: rgba(255, 90, 71, 0.16);
+		--scrim: rgba(0, 2, 3, 0.7);
+		--shadow: 0 1px 3px rgba(0, 0, 0, 0.5), 0 10px 30px rgba(0, 0, 0, 0.65);
 		--w-text: 340;
 		--w-ui: 420;
 		--w-display: 440;
@@ -297,7 +304,7 @@ button:disabled {
 }
 
 .primary {
-	background: var(--accent);
+	background: var(--accent-fill);
 	color: var(--accent-text);
 }
 
@@ -1791,8 +1798,8 @@ select:focus-visible {
 	display: flex;
 	align-items: center;
 	gap: 8px;
-	background: var(--text);
-	color: var(--bg);
+	background: var(--accent-fill);
+	color: var(--accent-text);
 	border-radius: var(--radius-s);
 	box-shadow: var(--shadow);
 	font-size: var(--subhead);
@@ -1921,7 +1928,7 @@ select:focus-visible {
 	inset: 6px;
 	z-index: -1;
 	border-radius: var(--radius-full);
-	background: var(--accent);
+	background: var(--accent-fill);
 	transition: transform var(--press) var(--ease-out);
 }
 
@@ -1944,11 +1951,11 @@ select:focus-visible {
 }
 
 .send.stop {
-	color: var(--bg);
+	color: var(--accent-text);
 }
 
 .send.stop::before {
-	background: var(--text);
+	background: var(--accent-fill);
 }
 
 /* Sized to the visible viewport, so it fits above the keyboard. */
@@ -2054,8 +2061,8 @@ select {
 }
 
 .segmented button.selected {
-	background: var(--text);
-	color: var(--bg);
+	background: var(--accent-fill);
+	color: var(--accent-text);
 }
 
 /* ---- Sheet: rises from the bottom over a dimmed page. It closes with Done, Escape, a tap on the dimmed page, or a

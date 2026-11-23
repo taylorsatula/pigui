@@ -439,10 +439,14 @@ lighter on dark paper, where light text spreads; heavier weights read as smudged
 colour (`text-shadow: 0 0 1px` at 22 %) fills out the thin strokes on paper; on dark it would only spread them, so it
 is off there. Status is a word, not a pill. Only two rules cross the transcript: ink over a report and yellow over
 whatever waits for the person; options, plan steps and answered cards are separated by space, not lines. Colour is
-warm ink on a page just warmer than white (a paper tone was tried and read as dim), and cream on warm graphite in Dark
-rather than blue-black. The alert colours sit near their full saturation (yellow `#ffd400`, red `#d70015`, orange
-`#c45000`, green `#008038`; brighter in Dark), each still at least 4.5:1 as text on the page, so they read as signals
-against a quiet page. The main action is filled with ink, others are outlined in it, links are underlined. The fonts
+warm ink on a page just warmer than white (a paper tone was tried and read as dim). The alert colours sit near their
+full saturation (yellow `#ffd400`, red `#d70015`, orange `#c45000`, green `#008038`), each still at least 4.5:1 as text
+on the page, so they read as signals against a quiet page. Dark is for working with the screen turned low at night
+without losing one's eyes to the room: a page all but black (`#010405`), so an OLED screen leaves nearly every pixel off, with the faintest trace of an abyssal blue-green and panels lifted from it by only a breath; bright
+cool ink (`#e2ecea`, 17:1), and the colours that only inform (done, working, delivered, a warning) toned down to about
+37 % luminance, at least 6.7:1; the person's yellow and the failure red keep their full colour, since they are the
+ones that must be seen. Whatever is filled with ink (the main action, the send and stop keys, a selected segment, a toast) takes a good step under it (`--accent-fill`, 9.4:1 with its label), since a full-width button or a toast is the largest light area on the page; text and links keep the bright ink.
+*Before:* cream on warm graphite (`#181714`), with every colour as vivid as by day; it lit the room. The main action is filled with ink, others are outlined in it, links are underlined. The fonts
 are pinned dev dependencies (`@fontsource-variable/source-serif-4`, `@fontsource-variable/ibm-plex-sans`,
 `@fontsource/ibm-plex-mono`) whose Latin files `scripts/build.ts` copies into the app with their licences (about 250
 KB, precached by the service worker), so they work offline and the CSP needs no font host. *Alternatives:* serif prose
