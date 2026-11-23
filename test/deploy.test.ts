@@ -41,6 +41,8 @@ test("its dry run lists every step and changes nothing", () => {
 	// Every command that would change the system is shown, not run.
 	assert.doesNotMatch(result.stdout, /^ {3}\$ /m);
 	assert.match(result.stdout, /PICLOUD_SPEND_CAP=5/);
+	// The local models are loaded at start and kept unless told otherwise.
+	assert.match(result.stdout, /^ +\| PICLOUD_MODELS_UNLOAD=never$/m);
 	assert.match(result.stdout, /tailscale serve --bg --https=443 http:\/\/127\.0\.0\.1:8787/);
 	assert.match(result.stdout, /== Steps that need a person/);
 	assert.match(result.stdout, /Add to Home Screen/);
@@ -66,9 +68,13 @@ test("its dry run switches the local models: memory on, speech off, or both off 
 	// The script with no model named removes those an earlier install fetched.
 	assert.match(none.stdout, /\[dry run\] \/opt\/picloud\/app\/deploy\/models\.sh \/opt\/picloud\/app\/models$/m);
 	assert.match(none.stdout, /npm prune --omit=optional/);
+	const unloading = install("--models-unload", "10");
+	assert.equal(unloading.status, 0, unloading.stderr);
+	assert.match(unloading.stdout, /^ +\| PICLOUD_MODELS_UNLOAD=10$/m);
 	for (const [flag, message] of [
 		["--speech", /--speech must be on or off/],
 		["--memory-local", /--memory-local must be on or off/],
+		["--models-unload", /--models-unload must be never, or a whole number of idle minutes from 1 to 1440/],
 	] as const) {
 		const refused = install(flag, "maybe");
 		assert.equal(refused.status, 2);
@@ -277,12 +283,18 @@ test("its dry run on Linux writes a systemd user unit, and maps the model flags 
 		assert.ok(run.stdout.includes(`| Environment="PATH=${join(run.node, "..")}:/opt/homebrew/bin:/home/someone/.nvm/versions/node/v22/bin:/usr/bin:/bin"\n`));
 		assert.ok(run.stdout.includes("| Environment=PICLOUD_ONPREM=on\n"));
 		assert.ok(run.stdout.includes("| Environment=PICLOUD_PORT=2025\n"));
+		assert.ok(run.stdout.includes("| Environment=PICLOUD_MODELS_UNLOAD=never\n"));
 		assert.ok(run.stdout.includes(`| Environment="PICLOUD_DATA_DIR=${run.home}/.picloud/data"\n`));
 		assert.ok(run.stdout.includes(`| ExecStart="${run.node}" --disable-warning=ExperimentalWarning "${run.home}/.picloud/app/src/server/main.ts"\n`));
 		assert.ok(run.stdout.includes("| RestartPreventExitStatus=78 2\n"));
 		assert.match(run.stdout, /\[dry run\] systemctl --user restart picloud\.service$/m);
 		assert.doesNotMatch(run.stdout, /^ {3}\$ /m);
 		assert.deepEqual(readdirSync(run.home), []);
+		// Unloading when idle reaches the service, and is kept for the next run.
+		const unloading = onPremDryRun("Darwin", ["--models-unload", "15"]);
+		rmSync(unloading.home, { recursive: true, force: true });
+		assert.ok(unloading.stdout.includes("| \t\t<key>PICLOUD_MODELS_UNLOAD</key>\n      | \t\t<string>15</string>\n"), unloading.stdout);
+		assert.match(unloading.stdout, /^ +\| MODELS_UNLOAD=15$/m);
 		// Both models off leaves out the packages that run them, too.
 		const none = onPremDryRun("Linux", ["--speech", "off"]);
 		rmSync(none.home, { recursive: true, force: true });
@@ -297,6 +309,7 @@ test("its dry run refuses flags it cannot use, and an uninstall removes the serv
 	for (const [args, message] of [
 		[["--speech", "maybe"], /--speech must be on or off/],
 		[["--memory-local", "yes"], /--memory-local must be on or off/],
+		[["--models-unload", "0"], /--models-unload must be never, or a whole number of idle minutes/],
 		[["--port", "http"], /--port must be a number/],
 		[["--port", "70000"], /--port must be a number/],
 		[["--tailscale", "yes"], /--tailscale must be on or off/],

@@ -41,7 +41,7 @@ async function main(): Promise<void> {
 		// An endpoint set explicitly is the operator's choice. Otherwise a build with LEAF embeds on this server, and one
 		// without it signs the provider's endpoint with Pi's key. Memory is optional: without either, picloud runs as it
 		// would without memory, and the sidebar says why and how to turn it on.
-		const memory = config.memory.embedUrl === undefined && (await leafInstalled()) ? { embedder: leafEmbedder(log) } : await piEmbedder(pi.models, agentDir, config.memory);
+		const memory = config.memory.embedUrl === undefined && (await leafInstalled()) ? { embedder: leafEmbedder(log, config.modelsUnloadAfterMs) } : await piEmbedder(pi.models, agentDir, config.memory);
 		if ("off" in memory) {
 			log.info("memory.off", { reason: memory.off });
 			embedder = {

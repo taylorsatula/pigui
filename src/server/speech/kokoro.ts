@@ -6,7 +6,8 @@
 import { access } from "node:fs/promises";
 import { join } from "node:path";
 import { encodeWav } from "../../shared/wav.ts";
-import { errorKind, type Logger } from "../log.ts";
+import { heldModel } from "../held-model.ts";
+import type { Logger } from "../log.ts";
 import { MODELS_DIR, transformers } from "../transformers.ts";
 
 export type Synthesizer = {
@@ -59,31 +60,22 @@ function trimSilence(samples: Float32Array, rate: number): Float32Array {
 }
 
 /**
- * Kokoro, loaded as the server starts (in about 0.7 s on two vCPU) and kept, about 600 MB resident, so the first reading
- * a person asks for waits on no load, reading one text at a time: on two CPUs a second synthesis would only slow the
- * first. A load that fails is logged and tried again by the next reading.
+ * Kokoro, about 600 MB resident while loaded (in about 0.7 s on two vCPU), held as PICLOUD_MODELS_UNLOAD says, reading
+ * one text at a time: on two CPUs a second synthesis would only slow the first.
  */
-export function kokoroSynthesizer(log: Logger): Synthesizer {
-	let model: ReturnType<typeof load> | undefined;
-	const loaded = () =>
-		(model ??= load().catch((error: unknown) => {
-			model = undefined;
-			throw error;
-		}));
-	const started = Date.now();
-	loaded().then(
-		() => log.info("speech.ready", { ms: Date.now() - started }),
-		(error: unknown) => log.error("speech.load", { error: errorKind(error) }),
-	);
+export function kokoroSynthesizer(log: Logger, unloadAfterMs: number | undefined): Synthesizer {
+	const kokoro = heldModel({ name: "speech", load, release: (tts) => tts.model.dispose(), unloadAfterMs, log });
 	let queue: Promise<unknown> = Promise.resolve();
 	return {
 		synthesize(text, signal) {
-			const turn = queue.then(async () => {
-				// Stopped while it waited its turn: nothing is read for it.
-				signal.throwIfAborted();
-				const audio = await (await loaded()).generate(text, { voice: VOICE });
-				return encodeWav(trimSilence(audio.audio, audio.sampling_rate), audio.sampling_rate);
-			});
+			const turn = queue.then(() =>
+				kokoro.use(async (tts) => {
+					// Stopped while it waited its turn: nothing is read for it.
+					signal.throwIfAborted();
+					const audio = await tts.generate(text, { voice: VOICE });
+					return encodeWav(trimSilence(audio.audio, audio.sampling_rate), audio.sampling_rate);
+				}),
+			);
 			queue = turn.catch(() => undefined);
 			return turn;
 		},

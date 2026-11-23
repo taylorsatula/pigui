@@ -209,7 +209,7 @@ describe("reading a reply aloud", () => {
 	});
 
 	test("real Kokoro reads a short phrase, with only a sentence's pause of silence around it", { skip: installed ? false : "the speech model is not installed: deploy/models.sh models speech" }, async () => {
-		const wav = readWav(await kokoroSynthesizer(silentLogger).synthesize("picloud reads replies aloud.", new AbortController().signal));
+		const wav = readWav(await kokoroSynthesizer(silentLogger, undefined).synthesize("picloud reads replies aloud.", new AbortController().signal));
 		assert.equal(wav.rate, 24_000);
 		assert.ok(wav.seconds > 1 && wav.seconds < 6, `${wav.seconds} s`);
 		assert.ok(wav.peak > 0.1, "it is not silence");

@@ -114,7 +114,7 @@ describe("LEAF on this server", { skip: leaf ? false : "the memory models are no
 		"Explain the plot of a nineteenth century novel in which an inheritance is contested by distant relatives. I need the chapter structure summarised.",
 		"I am researching the history of municipal tram networks in central Europe. I want to know why so many were closed in the nineteen sixties.",
 	];
-	const embedder = leafEmbedder(silentLogger);
+	const embedder = leafEmbedder(silentLogger, undefined);
 	const dot = (a: Float32Array, b: Float32Array) => a.reduce((sum, value, i) => sum + value * b[i]!, 0);
 
 	test("finds each memory from a search in other words, above its floor, and no memory from an unrelated one", async () => {

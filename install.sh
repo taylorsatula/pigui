@@ -35,6 +35,10 @@
 #   --ref REF                   the branch, tag or commit of picloud to install (default main)        [PICLOUD_REF]
 #   --speech on|off             read replies aloud with Kokoro (default on)                           [PICLOUD_SPEECH]
 #   --memory-local on|off       embed long-term memory on the machine (default off)                   [PICLOUD_MEMORY_LOCAL]
+#   --models-unload never|MINUTES
+#                               keep the speech and memory models loaded from start (never), or load them on use
+#                               and unload them after MINUTES idle, for a machine short of memory (default never)
+#                                                                                       [PICLOUD_MODELS_UNLOAD]
 #   --port PORT                 local full: the localhost port (default 2025)                         [PICLOUD_PORT]
 #   --hostname NAME             the Tailscale machine name (default picloud)                           [PICLOUD_TS_HOSTNAME]
 #   --tailscale on|off          serve picloud to your tailnet (default off)                           [PICLOUD_TAILSCALE]
@@ -97,6 +101,7 @@ PI_AGENT_DIR=${PICLOUD_PI_AGENT_DIR:-}
 RUSER=${PICLOUD_USER:-}
 SPEECH=${PICLOUD_SPEECH:-}
 MEMORY_LOCAL=${PICLOUD_MEMORY_LOCAL:-}
+MODELS_UNLOAD=${PICLOUD_MODELS_UNLOAD:-}
 PORT=${PICLOUD_PORT:-}
 REF=${PICLOUD_REF:-}
 TAILSCALE=${PICLOUD_TAILSCALE:-}
@@ -113,19 +118,19 @@ HOSTNAME_OPTION=${PICLOUD_TS_HOSTNAME:-}
 if [[ -f $TREE_CONF ]]; then
 	while IFS='=' read -r key value; do
 		case $key in
-			WHERE | REMOTE | SSH_USER | HOW | PI_CONFIG | PI_AGENT_DIR | RUSER | REF | SPEECH | MEMORY_LOCAL | PORT | TAILSCALE | ALLOWED_LOGINS | HOSTNAME_OPTION) [[ -z ${!key:-} ]] && printf -v "$key" '%s' "$value" ;;
+			WHERE | REMOTE | SSH_USER | HOW | PI_CONFIG | PI_AGENT_DIR | RUSER | REF | SPEECH | MEMORY_LOCAL | MODELS_UNLOAD | PORT | TAILSCALE | ALLOWED_LOGINS | HOSTNAME_OPTION) [[ -z ${!key:-} ]] && printf -v "$key" '%s' "$value" ;;
 		esac
 	done <"$TREE_CONF"
 fi
 if [[ -f $CONF ]]; then
 	while IFS='=' read -r key value; do
 		case $key in
-			SPEECH | MEMORY_LOCAL | PORT | REF | TAILSCALE | ALLOWED_LOGINS | PI_AGENT_DIR) [[ -z ${!key:-} ]] && printf -v "$key" '%s' "$value" ;;
+			SPEECH | MEMORY_LOCAL | MODELS_UNLOAD | PORT | REF | TAILSCALE | ALLOWED_LOGINS | PI_AGENT_DIR) [[ -z ${!key:-} ]] && printf -v "$key" '%s' "$value" ;;
 		esac
 	done <"$CONF"
 fi
 # What neither the environment nor the saved choices set, the defaults do.
-: "${SSH_USER:=root}" "${RUSER:=taylor}" "${SPEECH:=on}" "${MEMORY_LOCAL:=off}" "${PORT:=2025}" "${REF:=main}" "${TAILSCALE:=off}" "${HOSTNAME_OPTION:=picloud}"
+: "${SSH_USER:=root}" "${RUSER:=taylor}" "${SPEECH:=on}" "${MEMORY_LOCAL:=off}" "${MODELS_UNLOAD:=never}" "${PORT:=2025}" "${REF:=main}" "${TAILSCALE:=off}" "${HOSTNAME_OPTION:=picloud}"
 
 usage() { sed -n '2,/^#   -h/p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; }
 
@@ -141,6 +146,7 @@ while [[ $# -gt 0 ]]; do
 		--ref) REF=${2:?--ref needs a branch, tag or commit}; shift ;;
 		--speech) SPEECH=${2:?--speech needs on or off}; shift ;;
 		--memory-local) MEMORY_LOCAL=${2:?--memory-local needs on or off}; shift ;;
+		--models-unload) MODELS_UNLOAD=${2:?--models-unload needs never or a number of minutes}; shift ;;
 		--port) PORT=${2:?--port needs a number}; shift ;;
 		--hostname) HOSTNAME_OPTION=${2:?--hostname needs a name}; shift ;;
 		--tailscale) TAILSCALE=${2:?--tailscale needs on or off}; shift ;;
@@ -166,6 +172,9 @@ done
 [[ $PI_CONFIG == "" || $PI_CONFIG == overlap || $PI_CONFIG == standalone ]] || { echo "--pi-config must be overlap or standalone." >&2; exit 2; }
 [[ $SPEECH == on || $SPEECH == off ]] || { echo "--speech must be on or off." >&2; exit 2; }
 [[ $MEMORY_LOCAL == on || $MEMORY_LOCAL == off ]] || { echo "--memory-local must be on or off." >&2; exit 2; }
+# The same rule picloud applies to PICLOUD_MODELS_UNLOAD as it starts, so a bad value stops here rather than there.
+unload_valid() { [[ $1 == never ]] || { [[ $1 =~ ^[1-9][0-9]*$ ]] && (($1 <= 1440)); }; }
+unload_valid "$MODELS_UNLOAD" || { echo "--models-unload must be never, or a whole number of idle minutes from 1 to 1440." >&2; exit 2; }
 [[ $TAILSCALE == on || $TAILSCALE == off ]] || { echo "--tailscale must be on or off." >&2; exit 2; }
 [[ $PORT =~ ^[0-9]+$ ]] && ((PORT >= 1 && PORT <= 65535)) || { echo "--port must be a number from 1 to 65535." >&2; exit 2; }
 [[ $ALLOWED_LOGINS =~ ^[^[:space:]=]*$ ]] || { echo "--allowed-logins takes logins separated by commas, without spaces." >&2; exit 2; }
@@ -321,6 +330,13 @@ ask_tree() {
 	fi
 	SPEECH=$(ask "Read replies aloud with Kokoro (on/off)" "$SPEECH")
 	MEMORY_LOCAL=$(ask "Embed long-term memory on the machine (on/off)" "$MEMORY_LOCAL")
+	if [[ $SPEECH == on || $MEMORY_LOCAL == on ]]; then
+		while :; do
+			MODELS_UNLOAD=$(ask "Keep the local models loaded (never), or unload them after how many idle minutes" "$MODELS_UNLOAD")
+			unload_valid "$MODELS_UNLOAD" && break
+			echo "never, or a whole number of minutes from 1 to 1440." >&2
+		done
+	fi
 	TAILSCALE=$(ask "Serve picloud to your tailnet (on/off)" "$TAILSCALE")
 	if [[ $TAILSCALE == on ]]; then
 		ALLOWED_LOGINS=$(ask "Tailscale logins allowed in, comma-separated (empty for everyone)" "$ALLOWED_LOGINS")
@@ -330,8 +346,8 @@ ask_tree() {
 	if [[ $DRY_RUN != 1 ]]; then
 		mkdir -p "$ROOT"
 		{
-			printf 'WHERE=%s\nREMOTE=%s\nSSH_USER=%s\nHOW=%s\nPI_CONFIG=%s\nPI_AGENT_DIR=%s\nRUSER=%s\nREF=%s\nSPEECH=%s\nMEMORY_LOCAL=%s\nPORT=%s\nTAILSCALE=%s\nALLOWED_LOGINS=%s\nHOSTNAME_OPTION=%s\n' \
-				"$WHERE" "$REMOTE" "$SSH_USER" "$HOW" "$PI_CONFIG" "$PI_AGENT_DIR" "$RUSER" "$REF" "$SPEECH" "$MEMORY_LOCAL" "$PORT" "$TAILSCALE" "$ALLOWED_LOGINS" "$HOSTNAME_OPTION" >"$TREE_CONF"
+			printf 'WHERE=%s\nREMOTE=%s\nSSH_USER=%s\nHOW=%s\nPI_CONFIG=%s\nPI_AGENT_DIR=%s\nRUSER=%s\nREF=%s\nSPEECH=%s\nMEMORY_LOCAL=%s\nMODELS_UNLOAD=%s\nPORT=%s\nTAILSCALE=%s\nALLOWED_LOGINS=%s\nHOSTNAME_OPTION=%s\n' \
+				"$WHERE" "$REMOTE" "$SSH_USER" "$HOW" "$PI_CONFIG" "$PI_AGENT_DIR" "$RUSER" "$REF" "$SPEECH" "$MEMORY_LOCAL" "$MODELS_UNLOAD" "$PORT" "$TAILSCALE" "$ALLOWED_LOGINS" "$HOSTNAME_OPTION" >"$TREE_CONF"
 		}
 	fi
 }
@@ -647,10 +663,10 @@ run_onprem() {
 		TS_NAME=""
 	fi
 
-	# What the service is told beyond the basics: the tailnet name it answers to, the logins it lets in through it, and,
-	# for a standalone Pi configuration, where it is.
-	plist_env=""
-	unit_env=""
+	# What the service is told beyond the basics: how it holds its local models, the tailnet name it answers to, the
+	# logins it lets in through it, and, for a standalone Pi configuration, where it is.
+	plist_env=$'\n\t\t<key>PICLOUD_MODELS_UNLOAD</key>\n\t\t<string>'"$MODELS_UNLOAD</string>"
+	unit_env=$'\n'"Environment=PICLOUD_MODELS_UNLOAD=$MODELS_UNLOAD"
 	if [[ -n $TS_NAME ]]; then
 		plist_env+=$'\n\t\t<key>PICLOUD_ALLOWED_HOSTS</key>\n\t\t<string>'"$(xml "$TS_NAME")</string>"
 		unit_env+=$'\n'"Environment=\"PICLOUD_ALLOWED_HOSTS=$(unit_value "$TS_NAME")\""
@@ -772,6 +788,7 @@ EOF
 	write_file "$CONF" 0644 "$OWNER" <<EOF
 SPEECH=$SPEECH
 MEMORY_LOCAL=$MEMORY_LOCAL
+MODELS_UNLOAD=$MODELS_UNLOAD
 PORT=$PORT
 REF=$REF
 TAILSCALE=$TAILSCALE
@@ -842,6 +859,22 @@ install_local_sandboxed() {
 	fi
 	[[ -z $gh_token ]] && gh_token=$(grep '^GH_TOKEN=' "$env_file" | cut -d= -f2-)
 	[[ -z $agent_token ]] && agent_token=$(grep '^AGENT_GH_TOKEN=' "$env_file" | cut -d= -f2-)
+	# The answers about the local models go where compose reads them: speech and memory at the build, unloading at start.
+	local key value
+	for key in PICLOUD_SPEECH PICLOUD_MEMORY_LOCAL PICLOUD_MODELS_UNLOAD; do
+		case $key in
+			PICLOUD_SPEECH) value=$SPEECH ;;
+			PICLOUD_MEMORY_LOCAL) value=$MEMORY_LOCAL ;;
+			PICLOUD_MODELS_UNLOAD) value=$MODELS_UNLOAD ;;
+		esac
+		if [[ $DRY_RUN == 1 ]]; then
+			note "[dry run] $key=$value in .env"
+		elif grep -q "^$key=" "$env_file"; then
+			sed -i.bak "s|^$key=.*|$key=$value|" "$env_file" && rm -f "$env_file.bak"
+		else
+			printf '%s=%s\n' "$key" "$value" >>"$env_file"
+		fi
+	done
 	if [[ -z $gh_token || -z $agent_token ]]; then
 		echo "GH_TOKEN and AGENT_GH_TOKEN must be set in $env_file. See .env.example; the agent's token is read-only (Contents and Metadata: read)." >&2
 		exit 1
@@ -908,7 +941,7 @@ install_remote_sandboxed() {
 	[[ -n $PUSH_SUBJECT ]] && extra+=(--push-subject "$PUSH_SUBJECT")
 	[[ -n $SPEND_CAP ]] && extra+=(--spend-cap "$SPEND_CAP")
 	[[ -n $ALLOWED_LOGINS ]] && extra+=(--allowed-logins "$ALLOWED_LOGINS")
-	extra+=(--hostname "$HOSTNAME_OPTION" --speech "$SPEECH" --memory-local "$MEMORY_LOCAL")
+	extra+=(--hostname "$HOSTNAME_OPTION" --speech "$SPEECH" --memory-local "$MEMORY_LOCAL" --models-unload "$MODELS_UNLOAD")
 	extra+=(--github-token-file /root/github-token --agent-github-token-file /root/agent-github-token)
 	printf -v extra_quoted '%q ' "${extra[@]}"
 	run "$SSH" "$target" "bash /root/picloud-src/deploy/install.sh $extra_quoted"
@@ -983,7 +1016,7 @@ install_remote_full() {
 	fi
 
 	step "Install picloud on $REMOTE"
-	local remote_args=(--local-full --ref "$REF" --speech "$SPEECH" --memory-local "$MEMORY_LOCAL" --tailscale "$TAILSCALE" --allowed-logins "$ALLOWED_LOGINS" --hostname "$HOSTNAME_OPTION")
+	local remote_args=(--local-full --ref "$REF" --speech "$SPEECH" --memory-local "$MEMORY_LOCAL" --models-unload "$MODELS_UNLOAD" --tailscale "$TAILSCALE" --allowed-logins "$ALLOWED_LOGINS" --hostname "$HOSTNAME_OPTION")
 	[[ $PI_CONFIG == standalone ]] && remote_args+=(--pi-config standalone --pi-agent-dir /home/"$RUSER"/.picloud/pi-agent)
 	printf -v remote_quoted '%q ' "${remote_args[@]}"
 	# The script pipes itself to the server, which clones the repository and runs the OnPrem path there as the user.

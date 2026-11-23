@@ -130,6 +130,7 @@ installer writes its three into the service it installs.
 | `PICLOUD_MEMORY_PROVIDER` | `lunaroute` | The Pi provider whose key signs long-term memory's embedding requests ([Long-term memory](#long-term-memory)). |
 | `PICLOUD_MEMORY_EMBED_MODEL` | `emb-qwen3` | The embedding model. Memory's search thresholds are tuned for `emb-qwen3`; changing it re-embeds every memory once. |
 | `PICLOUD_MEMORY_EMBED_URL` | the provider's | An OpenAI-compatible embeddings URL. By default, the provider's base URL in Pi's catalog plus `/embeddings`; for `lunaroute` without one there, `https://gw.lunaroute.com/v1/embeddings`. Set without a key, requests go unsigned, as to a local server. |
+| `PICLOUD_MODELS_UNLOAD` | `never` | How the local speech and memory models are held. `never` loads them as picloud starts and keeps them (about 600 MB for Kokoro, 300 MB for LEAF), so a reading or a search waits on no load. A whole number of minutes, 1 to 1440, loads each on first use and unloads it after that many idle minutes, for a machine short of memory; the next use waits about a second for the load. Unloading gives back about 150 MB of Kokoro's and 125 MB of LEAF's (measured on Linux); the rest, mostly the ONNX runtime they share, stays once either has been used. The installers take `--models-unload never\|MINUTES`. |
 | `PI_CODING_AGENT_DIR` | `~/.pi/agent` | Pi's own variable: where Pi's configuration (models, sign-in, global skills, global `AGENTS.md`) is read from. In OnPrem, yours. |
 
 Models, sign-in and the default model come from Pi's configuration; picloud's only settings of its own for them are
@@ -160,7 +161,9 @@ stops. Reading goes on with the phone locked.
   counted in the session's spend; reading the same reply again reuses its script.
 - **The voice** is [Kokoro-82M](https://huggingface.co/onnx-community/Kokoro-82M-v1.0-ONNX) through `kokoro-js`, the
   8-bit model on the CPU, in the `af_heart` voice. It loads as the server starts (`speech.ready` in the log) and stays
-  loaded, about 600 MB of memory. On two vCPU, synthesis takes about 0.6 of the speech's own length: a sentence takes
+  loaded, about 600 MB of memory; with `PICLOUD_MODELS_UNLOAD` set to a number of minutes it loads on the first
+  reading instead, about a second before the first word, and unloads after that long idle (`speech.released`), giving
+  back about 150 MB. On two vCPU, synthesis takes about 0.6 of the speech's own length: a sentence takes
   about 3 seconds, so reading starts that long after the first sentence is written, and then stays ahead. After a
   short first sentence the phone waits for the next before it starts, so the reading does not stop after its first
   words. Kokoro's padding around each sentence is trimmed to a sentence's pause. One segment is read at a time. The log
@@ -301,6 +304,8 @@ sudo deploy/install.sh \
   --allowed-logins you@example.com
 # --speech off leaves out reading replies aloud: about 550 MB of packages and model, and 650 MB of memory while reading.
 # --memory-local on embeds long-term memory on this machine: about 135 MB of models, and 300 MB of memory while embedding.
+# --models-unload 10 loads those models on use and unloads them after 10 idle minutes, for a server short of memory;
+#   the default, never, keeps them loaded from the start.
 ```
 
 - **Why Debian 13.** Its 6.12 kernel has Landlock ABI 6, so agent commands cannot signal picloud's or other
@@ -325,7 +330,7 @@ runs in one and serves picloud over HTTPS to your tailnet only. picloud runs in 
 network and listening on its loopback. Nothing is exposed on the machine's own ports. From a checkout of picloud:
 
 ```bash
-cp .env.example .env              # fill in TS_AUTHKEY, GH_TOKEN and AGENT_GH_TOKEN; the rest is optional (PICLOUD_SPEECH and PICLOUD_MEMORY_LOCAL too)
+cp .env.example .env              # fill in TS_AUTHKEY, GH_TOKEN and AGENT_GH_TOKEN; the rest is optional (PICLOUD_SPEECH, PICLOUD_MEMORY_LOCAL and PICLOUD_MODELS_UNLOAD too)
 docker compose build
 docker compose run --rm picloud pi   # once: /login, then /model, then /quit
 docker compose up -d
@@ -423,6 +428,7 @@ curl -fsSL https://raw.githubusercontent.com/taylorsatula/picloud/main/install.s
 |---|---|---|
 | `--speech on\|off` | `on` | Read replies aloud with Kokoro, on this computer: about 550 MB of packages and model, 650 MB of memory while reading. |
 | `--memory-local on\|off` | `off` | Embed long-term memory on this computer with LEAF: about 135 MB of models. |
+| `--models-unload never\|MINUTES` | `never` | Keep the local speech and memory models loaded from the start, or load them on use and unload them after MINUTES idle, for a computer short of memory (`PICLOUD_MODELS_UNLOAD`). |
 | `--port N` | `2025` | The localhost port. |
 | `--ref REF` | `main` | The branch, tag or commit of picloud to install. |
 | `--tailscale on\|off` | `off` | Serve picloud to your tailnet too, at `https://<this computer's MagicDNS name>/`, so your phone can use it as the PWA (see below). Off takes down picloud's own `tailscale serve`, if it had one. |

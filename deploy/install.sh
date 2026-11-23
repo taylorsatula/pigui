@@ -17,6 +17,8 @@
 #   --hostname NAME                 Tailscale machine name (default picloud)         [PICLOUD_TS_HOSTNAME]
 #   --speech on|off                 read replies aloud with Kokoro (default on)      [PICLOUD_SPEECH]
 #   --memory-local on|off           embed memory on this machine (default off)       [PICLOUD_MEMORY_LOCAL]
+#   --models-unload never|MINUTES   keep the local models loaded (never, the default), or unload them after
+#                                   MINUTES idle                                     [PICLOUD_MODELS_UNLOAD]
 #   -h, --help                      show this help
 set -euo pipefail
 
@@ -43,6 +45,7 @@ PORT_OPTION=${PICLOUD_PORT:-}
 TS_HOSTNAME=${PICLOUD_TS_HOSTNAME:-picloud}
 SPEECH=${PICLOUD_SPEECH:-on}
 MEMORY_LOCAL=${PICLOUD_MEMORY_LOCAL:-off}
+MODELS_UNLOAD=${PICLOUD_MODELS_UNLOAD:-}
 HUMAN_STEPS=()
 # Tests point this at a stand-in, to see what the installer chooses on each system.
 OS_RELEASE=${PICLOUD_OS_RELEASE:-/etc/os-release}
@@ -62,6 +65,7 @@ while [[ $# -gt 0 ]]; do
 		--hostname) TS_HOSTNAME=${2:?}; shift ;;
 		--speech) SPEECH=${2:?}; shift ;;
 		--memory-local) MEMORY_LOCAL=${2:?}; shift ;;
+		--models-unload) MODELS_UNLOAD=${2:?}; shift ;;
 		-h | --help) usage; exit 0 ;;
 		*) echo "Unknown option: $1 (see --help)" >&2; exit 2 ;;
 	esac
@@ -98,6 +102,11 @@ fi
 [[ -z $PORT_OPTION || $PORT_OPTION =~ ^[0-9]+$ ]] || { echo "--port must be a number." >&2; exit 2; }
 [[ $SPEECH == on || $SPEECH == off ]] || { echo "--speech must be on or off." >&2; exit 2; }
 [[ $MEMORY_LOCAL == on || $MEMORY_LOCAL == off ]] || { echo "--memory-local must be on or off." >&2; exit 2; }
+# Empty keeps the value an earlier install wrote; otherwise the rule picloud applies to PICLOUD_MODELS_UNLOAD.
+[[ -z $MODELS_UNLOAD || $MODELS_UNLOAD == never ]] || { [[ $MODELS_UNLOAD =~ ^[1-9][0-9]*$ ]] && ((MODELS_UNLOAD <= 1440)); } || {
+	echo "--models-unload must be never, or a whole number of idle minutes from 1 to 1440." >&2
+	exit 2
+}
 if [[ -n $PUSH_SUBJECT && ! $PUSH_SUBJECT =~ ^(mailto:|https://) ]]; then
 	echo "--push-subject must start with mailto: or https://" >&2
 	exit 2
@@ -230,6 +239,7 @@ PICLOUD_SANDBOX=$(choose "" PICLOUD_SANDBOX on)
 PICLOUD_MEMORY_PROVIDER=$(choose "" PICLOUD_MEMORY_PROVIDER lunaroute)
 PICLOUD_MEMORY_EMBED_MODEL=$(choose "" PICLOUD_MEMORY_EMBED_MODEL emb-qwen3)
 PICLOUD_MEMORY_EMBED_URL=$(choose "" PICLOUD_MEMORY_EMBED_URL "")
+PICLOUD_MODELS_UNLOAD=$(choose "$MODELS_UNLOAD" PICLOUD_MODELS_UNLOAD never)
 PICLOUD_AGENT_GH_TOKEN=$shown_token
 EOF
 [[ -n $agent_token ]] || human "GitHub: create a second fine-grained token for the agent, read-only (Contents and Metadata: read) for the same repositories, then re-run with --agent-github-token-file FILE. picloud does not start without it."

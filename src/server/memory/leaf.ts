@@ -6,7 +6,8 @@
 // switch is PICLOUD_MEMORY_LOCAL.
 import { access } from "node:fs/promises";
 import { join } from "node:path";
-import { errorKind, type Logger } from "../log.ts";
+import { heldModel } from "../held-model.ts";
+import type { Logger } from "../log.ts";
 import { MODELS_DIR, transformers } from "../transformers.ts";
 import type { Embedder } from "./embedder.ts";
 
@@ -56,40 +57,37 @@ async function load() {
 }
 
 /**
- * LEAF, loaded as the server starts (in about half a second) and kept, about 300 MB resident. Both exports end in the
- * model's own pooling and normalisation (mean and a dense projection to 768 dimensions for the query model, the CLS
- * token for arctic), as the `sentence_embedding` output, so a text's vector is that output as it stands. A load that
- * fails is logged and tried again by the next embedding.
+ * LEAF, about 300 MB resident while loaded (in about half a second), held as PICLOUD_MODELS_UNLOAD says. Both exports
+ * end in the model's own pooling and normalisation (mean and a dense projection to 768 dimensions for the query model,
+ * the CLS token for arctic), as the `sentence_embedding` output, so a text's vector is that output as it stands.
  */
-export function leafEmbedder(log: Logger): Embedder {
-	let models: ReturnType<typeof load> | undefined;
-	const loaded = () =>
-		(models ??= load().catch((error: unknown) => {
-			models = undefined;
-			throw error;
-		}));
-	const started = Date.now();
-	loaded().then(
-		() => log.info("memory.ready", { ms: Date.now() - started }),
-		(error: unknown) => log.error("memory.load", { error: errorKind(error) }),
-	);
+export function leafEmbedder(log: Logger, unloadAfterMs: number | undefined): Embedder {
+	const leaf = heldModel({
+		name: "memory",
+		load,
+		release: (both) => Promise.all([both.query.model.dispose(), both.document.model.dispose()]),
+		unloadAfterMs,
+		log,
+	});
 	return {
 		model: "mdbr-leaf-ir-asym",
 		floor: LEAF_FLOOR,
 		async embed(texts, kind, signal) {
 			if (texts.length === 0) return [];
-			const { tokenizer, model } = (await loaded())[kind];
-			// One text per pass. The 8-bit models quantize their activations with one scale per tensor, taken over the
-			// whole batch, padding included, so in a batch a text's vector depends on the texts beside it (cosine 0.990
-			// to the same text alone, measured). Alone, a vector is a function of its text, as stored vectors must be.
-			const vectors: Float32Array[] = [];
-			for (const text of texts) {
-				signal?.throwIfAborted();
-				const inputs = await tokenizer(kind === "query" ? QUERY_PROMPT + text : text, { truncation: true });
-				const { sentence_embedding: embedding } = await model(inputs);
-				vectors.push((embedding.data as Float32Array).slice());
-			}
-			return vectors;
+			return leaf.use(async (both) => {
+				const { tokenizer, model } = both[kind];
+				// One text per pass. The 8-bit models quantize their activations with one scale per tensor, taken over the
+				// whole batch, padding included, so in a batch a text's vector depends on the texts beside it (cosine 0.990
+				// to the same text alone, measured). Alone, a vector is a function of its text, as stored vectors must be.
+				const vectors: Float32Array[] = [];
+				for (const text of texts) {
+					signal?.throwIfAborted();
+					const inputs = await tokenizer(kind === "query" ? QUERY_PROMPT + text : text, { truncation: true });
+					const { sentence_embedding: embedding } = await model(inputs);
+					vectors.push((embedding.data as Float32Array).slice());
+				}
+				return vectors;
+			});
 		},
 	};
 }

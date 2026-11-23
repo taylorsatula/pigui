@@ -71,6 +71,7 @@ services:
       PICLOUD_MEMORY_PROVIDER: ${PICLOUD_MEMORY_PROVIDER:-lunaroute}
       PICLOUD_MEMORY_EMBED_MODEL: ${PICLOUD_MEMORY_EMBED_MODEL:-emb-qwen3}
       PICLOUD_MEMORY_EMBED_URL: ${PICLOUD_MEMORY_EMBED_URL:-}
+      PICLOUD_MODELS_UNLOAD: ${PICLOUD_MODELS_UNLOAD:-never}
     volumes:
       - data:/data
       - home:/home/picloud

@@ -44,6 +44,11 @@ export type Config = {
 	/** Landlock around every agent command and file tool (`PICLOUD_SANDBOX`, on unless `off`; always off in OnPrem). */
 	sandbox: boolean;
 	memory: MemoryConfig;
+	/**
+	 * How the local speech and memory models are held (`PICLOUD_MODELS_UNLOAD`): undefined, loaded as picloud starts and
+	 * kept; otherwise loaded on first use and released after this many milliseconds idle.
+	 */
+	modelsUnloadAfterMs: number | undefined;
 };
 
 export class ConfigError extends Error {}
@@ -88,6 +93,7 @@ export function readConfig(env: NodeJS.ProcessEnv): Config {
 			embedModel: env.PICLOUD_MEMORY_EMBED_MODEL?.trim() || "emb-qwen3",
 			embedUrl: httpUrl(env.PICLOUD_MEMORY_EMBED_URL, "PICLOUD_MEMORY_EMBED_URL"),
 		},
+		modelsUnloadAfterMs: unloadAfter(env.PICLOUD_MODELS_UNLOAD),
 	};
 }
 
@@ -140,6 +146,17 @@ function agentToken(value: string | undefined, fake: boolean): string | undefine
 	throw new ConfigError(
 		"PICLOUD_AGENT_GH_TOKEN is not set. Set it to a read-only fine-grained GitHub token (Contents and Metadata: read) for the agent's commands; picloud keeps GH_TOKEN for its own GitHub work.",
 	);
+}
+
+/** `never`, the default, or whole minutes from 1 to a day. */
+function unloadAfter(value: string | undefined): number | undefined {
+	const given = value?.trim() ?? "";
+	if (given === "" || given === "never") return undefined;
+	const minutes = Number(given);
+	if (!Number.isInteger(minutes) || minutes < 1 || minutes > 1440) {
+		throw new ConfigError(`PICLOUD_MODELS_UNLOAD must be never, or a whole number of idle minutes from 1 to 1440, not ${JSON.stringify(value)}.`);
+	}
+	return minutes * 60_000;
 }
 
 function onOff(value: string | undefined, name: string, fallback: boolean): boolean {

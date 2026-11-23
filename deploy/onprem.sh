@@ -5,7 +5,7 @@
 #
 #   deploy/onprem.sh [options]   ==   install.sh --local-full [options]
 #
-# Options are the same as install.sh's OnPrem path: --speech, --memory-local, --port, --ref, --tailscale,
+# Options are the same as install.sh's OnPrem path: --speech, --memory-local, --models-unload, --port, --ref, --tailscale,
 # --tailscale-auth-key, --allowed-logins, --pi-agent-dir, --dry-run, --uninstall, -h. See install.sh --help, or
 # README.md, "Install".
 set -euo pipefail

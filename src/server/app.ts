@@ -165,7 +165,7 @@ export async function startApp(options: AppOptions): Promise<App> {
 	});
 	const delivery = new Delivery({ harness, host, workspace, now });
 	const supervisor = new Supervisor({ harness, notifications, log, now });
-	const synthesizer = options.speech === false ? undefined : config.fake ? fakeSynthesizer() : (await kokoroInstalled()) ? kokoroSynthesizer(log) : undefined;
+	const synthesizer = options.speech === false ? undefined : config.fake ? fakeSynthesizer() : (await kokoroInstalled()) ? kokoroSynthesizer(log, config.modelsUnloadAfterMs) : undefined;
 	const speech = synthesizer === undefined ? undefined : new Speech({ harness, agent: services, synthesizer, log, now });
 
 	const registry = createRegistry();

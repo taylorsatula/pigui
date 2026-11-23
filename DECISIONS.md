@@ -190,7 +190,8 @@ ONNX exports: `MongoDB/mdbr-leaf-ir` (23M parameters, with the query prompt) for
 searched many times. Each export ends in the model's own pooling, projection and normalisation, so a vector is its
 `sentence_embedding` output as it stands. The embedder is told which side a text is on (`query` or `document`); the
 endpoint ignores it. Measured here: half a second to load, 23 ms a search, 29 ms a memory, about 300 MB resident,
-loaded as the server starts and kept, as Kokoro is. Three choices in it:
+held as Kokoro is (by default loaded as the server starts and kept; see "How the local models are held"). Three
+choices in it:
 - **One text per forward pass.** The 8-bit exports quantize activations with one scale per tensor, taken over the whole
   batch with its padding, so a memory embedded beside others came out at cosine 0.990 to itself embedded alone. Stored
   vectors must reproduce (the golden check depends on it), so every text runs alone; re-embedding a thousand memories
@@ -783,13 +784,30 @@ paragraph had to be written in full first, so sentences start the reading severa
 three segments ahead keeps the synthesizer busy, so it pulls ahead of playback and a long sentence after a short one
 leaves no gap.
 
+**How the local models are held: one setting, kept by default.** Kokoro (about 600 MB) and LEAF (about 300 MB) are
+held the same way, by one helper (`held-model.ts`) and one setting, `PICLOUD_MODELS_UNLOAD`: `never`, the default,
+loads both as picloud starts and keeps them; a number of minutes loads each on first use and releases it once no use
+has run for that long, giving the memory back. Machines differ: a server with memory to spare should never make a
+person wait on a load, and a 1 GB droplet running builds beside picloud needs the memory back between readings. The
+installers ask it only when a local model is on, write it to the service's environment (or Docker's `.env`), and
+remember it with the other choices. A model is never released while a use runs, and the idle time starts when the
+last use ends. Releasing gives back less than the model takes: measured on Linux after a garbage collection, Kokoro
+adds about 334 MB and its release returns about 150; LEAF adds about 307 MB and returns about 125. The rest is the ONNX
+runtime, which a Node process cannot unload once loaded, and memory glibc keeps for reuse; glibc's
+`MALLOC_TRIM_THRESHOLD_=0` and `MALLOC_ARENA_MAX=2` returned about 75 MB more of Kokoro's, a process-wide trade not made
+here. *Alternatives:* a setting per model, which doubles the knob for the same trade-off; choosing by the
+machine's memory at install, which guesses at what else the machine runs.
+
 **Kokoro in picloud's own process, loaded at startup and kept, one synthesis at a time.** `kokoroSynthesizer` starts
 loading the model when the server starts (0.7 s on two vCPU, logged as `speech.ready`), and keeps it: about 600 MB
 resident. *Alternative:* load on first use and release after five idle minutes, as first built, to give the memory
 back to the agent's builds. Readings are minutes apart, so nearly every one began with a load, and on a busy server,
 whose page cache had dropped the model's file, that load ran well past its 0.7 s, all of it before the first word.
 The first synthesis after a load runs at the same speed as the next (measured), so no warm-up reading is spent. A
-failed load is logged (`speech.load`) and tried again by the next reading. ONNX Runtime runs on its own threads, so
+failed load is logged (`speech.load`) and tried again by the next reading. Keeping it is the default, not the only
+way: `PICLOUD_MODELS_UNLOAD` set to a number of minutes brings back loading on first use and releasing after that
+long idle, for a machine whose memory matters more than the second a load costs (see "How the local models are held").
+ONNX Runtime runs on its own threads, so
 the event loop stalled at most 180 ms during a synthesis; a worker process would add a protocol for no gain. Requests
 queue, since two vCPU have no room for two at once. The WAV is picloud's own 16-bit PCM encoder (`src/shared/wav.ts`,
 also used by the phone): transformers.js's `toWav` writes 32-bit float, twice the bytes.

@@ -111,6 +111,7 @@ test("remote full: creates the user, copies the credentials, installs OnPrem ove
 		]);
 		assert.match(run.stdout, /useradd -m -s \/bin\/bash 'taylor'/);
 		assert.match(run.stdout, /--pi-agent-dir \/home\/taylor\/\.picloud\/pi-agent/);
+		assert.match(run.stdout, /--models-unload never/);
 		assert.doesNotMatch(run.stdout, /test-gh-token/, "the token is piped, never printed");
 	} finally {
 		rmSync(run.home, { recursive: true, force: true });
@@ -134,6 +135,7 @@ test("remote sandboxed: clones the repository and runs the server installer over
 		]);
 		assert.match(run.stdout, /deploy\/install\.sh/);
 		assert.match(run.stdout, /--github-token-file \/root\/github-token/);
+		assert.match(run.stdout, /--models-unload never/);
 		assert.doesNotMatch(run.stdout, /test-gh-token/, "the token is piped, never printed");
 	} finally {
 		rmSync(run.home, { recursive: true, force: true });
@@ -157,6 +159,7 @@ test("flags it cannot use, and a missing answer, are refused", () => {
 		[["--how", "sometimes"], /--how must be sandboxed or full/],
 		[["--pi-config", "sometimes"], /--pi-config must be overlap or standalone/],
 		[["--speech", "maybe"], /--speech must be on or off/],
+		[["--models-unload", "always"], /--models-unload must be never, or a whole number of idle minutes/],
 		[["--port", "http"], /--port must be a number/],
 		[["--sandbox", "on"], /Unknown option: --sandbox/],
 	] as const) {
