@@ -1,7 +1,7 @@
 // Subagents: agents the person defines in files, each run as its own Durable conversation, driven here through the
 // scripted model's [agents] lines (the session's side) and its agents' own script ($ commands, [wait]).
 import assert from "node:assert/strict";
-import { readdir, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, readdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { after, before, describe, type TestContext, test } from "node:test";
 import type { Context } from "@earendil-works/chord/context";
@@ -15,9 +15,10 @@ import { context, modelText, TestServer } from "./helpers.ts";
 
 const PROBE = "---\ndescription: Runs what it is told\ntools: bash, read\n---\nYou run the commands in your task and report what they print.\n";
 
-/** A definition file in the server's agents folder, read at its next use. */
+/** A definition file in the server's agent directory (the person's, shared with the Pi CLI), read at its next use. */
 async function define(server: TestServer, name: string, text: string): Promise<void> {
-	await writeFile(join(server.dataDir, "agents", `${name}.md`), text);
+	await mkdir(join(server.agentDir, "agents"), { recursive: true });
+	await writeFile(join(server.agentDir, "agents", `${name}.md`), text);
 }
 
 async function setLimit(server: TestServer, text: string): Promise<void> {
@@ -441,7 +442,7 @@ describe("definitions and the setting", () => {
 		assert.equal(rows(done).length, 0, "no refused agent starts");
 		const refused = await results(server, id, "Agent");
 		const said = (pattern: RegExp) => assert.ok(refused.some((result) => result.isError && pattern.test(result.text)), `${pattern}: ${refused.map((result) => result.text).join(" | ")}`);
-		said(/The agent nodesc cannot run: description is required\. Its file is agents\/nodesc\.md/);
+		said(/The agent nodesc cannot run: description is required\. Its file is .*nodesc\.md/);
 		said(/The agent badmodel cannot run: model nowhere\/nothing is not one of Pi's configured models/);
 		said(/The agent remembers cannot run: "memory" is a field pigui does not support/);
 		said(/The agent appender cannot run: prompt_mode "append" is not supported/);
@@ -481,8 +482,9 @@ describe("definitions and the setting", () => {
 	test("every bundled definition is accepted, but for a model that is not configured here", async () => {
 		const tools = new Set([...createCodingTools().tools!.map((tool) => tool.name), "Agent", "steer_subagent"]);
 		const coding = createCodingTools().tools!.map((tool) => tool.name);
-		const bundled = join(import.meta.dirname, "..");
-		const configured = await readDefinitions(bundled, { tools, coding, runs: async () => true });
+		const repo = join(import.meta.dirname, "..");
+		const roots = { bundled: join(repo, "agents"), user: join(repo, "test", "no-such-agents-dir") };
+		const configured = await readDefinitions(roots, { tools, coding, runs: async () => true });
 		assert.deepEqual(configured.refused, [], "with their models configured, every bundled agent runs");
 		assert.deepEqual(configured.agents.map((agent) => agent.name).sort(), ["implementer", "scout", "thought-partner", "verifier"]);
 		const scout = configured.agents.find((agent) => agent.name === "scout")!;
@@ -490,7 +492,7 @@ describe("definitions and the setting", () => {
 		assert.deepEqual(scout.missing, ["grep", "find", "ls"]);
 		assert.equal(scout.skills, false);
 		assert.deepEqual(configured.agents.find((agent) => agent.name === "implementer")!.tools, coding);
-		const here = await readDefinitions(bundled, { tools, coding, runs: async () => false });
+		const here = await readDefinitions(roots, { tools, coding, runs: async () => false });
 		for (const refusal of here.refused) assert.match(refusal.reason, /^model lunaroute\/[\w.-]+ is not one of Pi's configured models$/, refusal.file);
 		assert.deepEqual(here.agents.map((agent) => agent.name), ["thought-partner"]);
 	});
@@ -551,22 +553,75 @@ describe("definitions and the setting", () => {
 	});
 });
 
-describe("the agents folder and the settings file", () => {
-	test("are created at startup only when missing, and an existing folder is never touched", async () => {
+describe("the agents roots and the settings file", () => {
+	const repo = join(import.meta.dirname, "..");
+	const catalog = () => ({ tools: new Set([...createCodingTools().tools!.map((tool) => tool.name), "Agent", "steer_subagent"]), coding: createCodingTools().tools!.map((tool) => tool.name), runs: async () => true });
+	const rootsOf = (server: TestServer, extra: { workspace?: string; project?: string } = {}) => ({ bundled: join(repo, "agents"), user: join(server.agentDir, "agents"), ...extra });
+
+	test("a fresh start seeds the setting only; the person's agent directory is never created", async () => {
 		const server = await TestServer.start();
 		try {
-			const folder = join(server.dataDir, "agents");
-			const bundled = join(import.meta.dirname, "..", "agents");
-			const files = (await readdir(bundled)).sort();
-			assert.deepEqual((await readdir(folder)).sort(), files);
-			for (const file of files) assert.deepEqual(await readFile(join(folder, file)), await readFile(join(bundled, file)), file);
+			await assert.rejects(readdir(join(server.dataDir, "agents")));
+			await assert.rejects(readdir(join(server.agentDir, "agents")));
 			assert.deepEqual(JSON.parse(await readFile(join(server.dataDir, "subagent-settings.json"), "utf8")), { maxInFlight: 4 });
-			// The person's folder: all but one definition removed, one of their own added, the setting changed.
-			for (const file of files.filter((name) => name !== "scout.md")) await rm(join(folder, file));
+			// The bundled definitions are offered without being copied anywhere.
+			const { agents } = await readDefinitions(rootsOf(server), catalog());
+			assert.deepEqual(agents.map((agent) => agent.name).sort(), ["implementer", "scout", "thought-partner", "verifier"]);
+		} finally {
+			await server.close();
+		}
+	});
+
+	test("an earlier seeded folder migrates: unchanged copies are deleted, edits move to the person's directory", async () => {
+		const server = await TestServer.start();
+		try {
+			const seeded = join(server.dataDir, "agents");
+			const bundled = join(repo, "agents");
+			await mkdir(seeded, { recursive: true });
+			// An unchanged copy of a bundled definition, an edited one, and the person's own file.
+			await writeFile(join(seeded, "scout.md"), await readFile(join(bundled, "scout.md")));
+			const edited = (await readFile(join(bundled, "verifier.md"), "utf8")).replace(/^description: .*$/m, "description: Edited.");
+			assert.notEqual(edited, await readFile(join(bundled, "verifier.md"), "utf8"));
+			await writeFile(join(seeded, "verifier.md"), edited);
+			await writeFile(join(seeded, "mine.md"), PROBE);
+			await server.restart();
+			await assert.rejects(readdir(seeded));
+			assert.deepEqual((await readdir(join(server.agentDir, "agents"))).sort(), ["mine.md", "verifier.md"]);
+			assert.equal(await readFile(join(server.agentDir, "agents", "verifier.md"), "utf8"), edited);
+			// The moved edit shadows the bundled definition.
+			const { agents } = await readDefinitions(rootsOf(server), catalog());
+			assert.equal(agents.find((agent) => agent.name === "verifier")!.description, "Edited.");
+		} finally {
+			await server.close();
+		}
+	});
+
+	test("the person's definition shadows bundled, a project one shadows the person's, and .disabled hides a name", async () => {
+		const server = await TestServer.start();
+		try {
+			await define(server, "scout", "---\ndescription: Mine, not bundled\ntools: read\n---\nYou answer.\n");
+			const project = join(server.dataDir, "project-agents");
+			await mkdir(project, { recursive: true });
+			await writeFile(join(project, "scout.md"), "---\ndescription: Project, not mine\ntools: read\n---\nYou answer.\n");
+			const mine = await readDefinitions(rootsOf(server), catalog());
+			assert.equal(mine.agents.find((agent) => agent.name === "scout")?.description, "Mine, not bundled");
+			const fromProject = await readDefinitions(rootsOf(server, { project }), catalog());
+			assert.equal(fromProject.agents.find((agent) => agent.name === "scout")?.description, "Project, not mine");
+			await writeFile(join(server.agentDir, "agents", ".disabled"), "# hide the scout\nscout\n");
+			const disabled = await readDefinitions(rootsOf(server, { project }), catalog());
+			assert.equal(disabled.agents.find((agent) => agent.name === "scout"), undefined);
+		} finally {
+			await server.close();
+		}
+	});
+
+	test("the person's agent directory and the settings file are never touched once they exist", async () => {
+		const server = await TestServer.start();
+		try {
 			await define(server, "mine", PROBE);
 			await setLimit(server, '{ "maxInFlight": 2 }');
 			await server.restart();
-			assert.deepEqual((await readdir(folder)).sort(), ["mine.md", "scout.md"]);
+			assert.deepEqual(await readdir(join(server.agentDir, "agents")), ["mine.md"]);
 			assert.deepEqual(JSON.parse(await readFile(join(server.dataDir, "subagent-settings.json"), "utf8")), { maxInFlight: 2 });
 		} finally {
 			await server.close();

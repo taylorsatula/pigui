@@ -25,6 +25,8 @@ export class FakeServer {
 	readonly url: string;
 	/** The server's data directory, where a test can put the files the person edits over SSH. */
 	readonly dataDir: string;
+	/** The server's agent directory, where a test can put the agent definitions and skills the person adds. */
+	readonly agentDir: string;
 	/** OnPrem's stand-in for the person's home directory. */
 	readonly home: string | undefined;
 	readonly #env: NodeJS.ProcessEnv;
@@ -35,6 +37,7 @@ export class FakeServer {
 		// OnPrem is opened as the installer opens it, at localhost.
 		this.url = `http://${options.onPrem ? "localhost" : "127.0.0.1"}:${port}`;
 		this.dataDir = dataDir;
+		this.agentDir = agentDir;
 		this.home = home;
 		this.#dirs = [dataDir, agentDir, ...(home === undefined ? [] : [home])];
 		this.#env = {

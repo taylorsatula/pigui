@@ -2,6 +2,7 @@
 // build the server through `startApp` exactly as `main.ts` does, with fake mode and a temporary data directory.
 import type { AddressInfo } from "node:net";
 import { mkdir } from "node:fs/promises";
+import { homedir } from "node:os";
 import { join } from "node:path";
 import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
 import type { Api, Model, Models } from "@earendil-works/pi-ai";
@@ -13,7 +14,7 @@ import { openNodeSqliteStorage } from "@earendil-works/pi-durable/storage/sqlite
 import { createCodingTools } from "@earendil-works/pi-durable/tools";
 import { piguiAgent } from "./agent/extension.ts";
 import { projectExtension, skillsExtension } from "./agent/project.ts";
-import { BUNDLED_SKILLS } from "./agent/resources.ts";
+import { BUNDLED_AGENTS, BUNDLED_SKILLS } from "./agent/resources.ts";
 import type { AgentServices, Faults } from "./agent/services.ts";
 import type { Config } from "./config.ts";
 import { Delivery } from "./delivery.ts";
@@ -39,7 +40,7 @@ import { sessionEnvs } from "./session-env.ts";
 import { Sessions } from "./sessions.ts";
 import { kokoroInstalled, kokoroSynthesizer } from "./speech/kokoro.ts";
 import { Speech } from "./speech/speech.ts";
-import { seedAgents, seedSettings, subagentsExtension } from "./subagents/extension.ts";
+import { migrateSeededAgents, seedSettings, subagentsExtension } from "./subagents/extension.ts";
 import { Supervisor } from "./supervisor.ts";
 import { loadVapidKeys, type PushSender, RecordingPushSender, WebPushSender } from "./webpush.ts";
 
@@ -103,8 +104,9 @@ export async function startApp(options: AppOptions): Promise<App> {
 		sandbox: join(config.dataDir, "sandbox"),
 	};
 	for (const dir of [config.dataDir, paths.workspaces, paths.uploads, paths.backups]) await mkdir(dir, { recursive: true });
-	// Seeded here, for every way pigui is installed; once there, both are the person's to edit.
-	await seedAgents(config.dataDir, join(import.meta.dirname, "..", "..", "agents"));
+	// An earlier pigui seeded the bundled definitions into the data directory; move the person's edits to their agent
+	// directory and drop the unchanged copies, so updates to the bundled definitions reach them again.
+	await migrateSeededAgents(config.dataDir, options.agentDir, BUNDLED_AGENTS, log);
 	await seedSettings(config.dataDir);
 	/** pigui's own directory for a session: a repository session's clone, and every session's attachments. */
 	const workspace = (id: number) => join(paths.workspaces, String(id));
@@ -188,6 +190,11 @@ export async function startApp(options: AppOptions): Promise<App> {
 	registry.install(
 		subagentsExtension({
 			dataDir: config.dataDir,
+			agents: { bundled: BUNDLED_AGENTS, user: join(options.agentDir, "agents") },
+			dir: async (id, read, context) => {
+				const doc = await read.snapshot(SessionDocToken, id, context);
+				return doc?.setup.status === "ready" ? workingDir(doc) : undefined;
+			},
 			now,
 			log,
 			registry,
@@ -233,7 +240,7 @@ export async function startApp(options: AppOptions): Promise<App> {
 		onPrem: config.onPrem,
 		// Skills are read and run, while the rest of Pi's directory (sign-in, settings, models) stays out of reach. In fake
 		// mode the agent's git fetch reads the stand-in remote.
-		readable: readableGrants([join(options.agentDir, "skills"), BUNDLED_SKILLS, ...(fakeGitHub === undefined ? [] : [fakeGitHub.root])]),
+		readable: readableGrants([join(options.agentDir, "skills"), join(homedir(), ".agents", "skills"), BUNDLED_SKILLS, ...(fakeGitHub === undefined ? [] : [fakeGitHub.root])]),
 	});
 	opened = await Harness.open(
 		await openNodeSqliteStorage(paths.database),

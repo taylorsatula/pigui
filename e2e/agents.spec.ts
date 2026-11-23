@@ -1,4 +1,4 @@
-import { writeFile } from "node:fs/promises";
+import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { Page } from "@playwright/test";
 import { expect, startSession, test } from "./fixtures.ts";
@@ -13,7 +13,8 @@ test.describe("agents", () => {
 
 	test("the Agents button counts the agents at work, its panel lists them and opens one, and Stop ends them", async ({ page, server, errors }) => {
 		// The files the person edits over SSH: an agent that works until it is stopped, and one at a time.
-		await writeFile(join(server.dataDir, "agents", "waiter.md"), "---\ndescription: Works until it is stopped\ntools: bash\n---\nYou wait.\n");
+		await mkdir(join(server.agentDir, "agents"), { recursive: true });
+		await writeFile(join(server.agentDir, "agents", "waiter.md"), "---\ndescription: Works until it is stopped\ntools: bash\n---\nYou wait.\n");
 		await writeFile(join(server.dataDir, "subagent-settings.json"), '{ "maxInFlight": 1 }\n');
 		await startSession(page, "Delegate [agents]\nagent waiter bg [wait] first\nagent waiter bg [wait] second");
 
@@ -71,7 +72,8 @@ test.describe("agents", () => {
 	});
 
 	test("a background agent's answer is its own block, folded to its first lines, and opens to the whole of it", async ({ page, server, errors }) => {
-		await writeFile(join(server.dataDir, "agents", "lister.md"), "---\ndescription: Lists what it is asked to\ntools: bash\n---\nYou list.\n");
+		await mkdir(join(server.agentDir, "agents"), { recursive: true });
+		await writeFile(join(server.agentDir, "agents", "lister.md"), "---\ndescription: Lists what it is asked to\ntools: bash\n---\nYou list.\n");
 		await startSession(page, "Delegate [agents]\nagent lister bg $ printf 'one\\ntwo\\nthree\\nfour\\nfive\\n'");
 		const answer = page.locator("details.agent-result");
 		await expect(answer).toBeVisible({ timeout: 30_000 });

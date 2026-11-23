@@ -1,6 +1,7 @@
 // pigui's subagents, as one Durable extension: the `Agent` and `steer_subagent` tools, the list of agents the parent
 // can start, and the agent task. It takes a small interface from pigui and imports nothing else of pigui's
 // server; pigui's side calls it through the functions exported here.
+import { join } from "node:path";
 import type { Context } from "@earendil-works/chord/context";
 import type { Models } from "@earendil-works/pi-ai";
 import {
@@ -14,11 +15,11 @@ import {
 	type Tx,
 } from "@earendil-works/pi-durable";
 import type { AgentRow } from "../../shared/session.ts";
-import type { Catalog } from "./definitions.ts";
+import type { Catalog, Roots } from "./definitions.ts";
 import { type AgentFaults, AgentDocToken, agentTask, liveAgentTasks, type SessionEffect } from "./task.ts";
 import { agentsSection, subagentTools } from "./tools.ts";
 
-export { seedAgents } from "./definitions.ts";
+export { migrateSeededAgents } from "./definitions.ts";
 export { seedSettings } from "./settings.ts";
 export { agentSession, liveAgentTasks, type AgentFaults } from "./task.ts";
 
@@ -26,8 +27,12 @@ const SUBAGENTS = "pigui-subagents";
 
 /** What the extension needs from pigui. */
 export type SubagentHost = {
-	/** Where the definitions (`agents/`) and the setting (`subagent-settings.json`) live. */
+	/** Where the setting (`subagent-settings.json`) lives. */
 	dataDir: string;
+	/** The definition roots that do not depend on the session: the app's bundled and the person's. */
+	agents: { bundled: string; user: string };
+	/** The session's working directory, when it is ready to be read; the project and workspace roots hang off it. */
+	dir(session: ConversationId, read: DocumentReader, context: Context): Promise<string | undefined>;
 	now(): number;
 	log: { warn(event: string, fields: Record<string, string | undefined>): void };
 	registry: RegistryReader;
@@ -77,11 +82,16 @@ export function subagentsExtension(host: SubagentHost): Extension {
 			return models.getModel(ref.provider, ref.modelId) !== undefined && (await models.checkAuth(ref.provider).catch(() => undefined)) !== undefined;
 		},
 	});
+	const roots = async (session: ConversationId, read: DocumentReader, context: Context): Promise<Roots> => {
+		const dir = await host.dir(session, read, context);
+		return { ...host.agents, ...(dir === undefined ? {} : { workspace: join(dir, ".agents", "agents"), project: join(dir, ".pi", "agents") }) };
+	};
 	const taskHost = { dataDir: host.dataDir, now: host.now, row: host.row, warn, faults: host.faults };
 	const task = agentTask(taskHost);
 	const { tools } = subagentTools(
 		{
 			...taskHost,
+			roots,
 			catalog,
 			tools: (api, names) => {
 				const found = new Map<string, ToolRegistration>();
@@ -98,7 +108,7 @@ export function subagentsExtension(host: SubagentHost): Extension {
 	const extension: Extension = defineExtension({
 		name: SUBAGENTS,
 		tools,
-		sections: [agentsSection({ dataDir: host.dataDir, catalog, warn })],
+		sections: [agentsSection({ roots, catalog, warn })],
 		tasks: [task],
 	});
 	return extension;

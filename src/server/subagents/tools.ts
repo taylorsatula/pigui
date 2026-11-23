@@ -20,7 +20,7 @@ import {
 } from "@earendil-works/pi-durable";
 import { bool, int, obj, opt, str } from "@earendil-works/pi-schema";
 import type { AgentRow } from "../../shared/session.ts";
-import { type Catalog, type Definition, readDefinition, readDefinitions } from "./definitions.ts";
+import { type Catalog, type Definition, type Roots, readDefinition, readDefinitions } from "./definitions.ts";
 import { readSettings } from "./settings.ts";
 import { AGENT_TASK, AgentDocToken, type AgentEnd, type AgentInput, type AgentTask, endMessage, queued, stopMessage, type TaskHost } from "./task.ts";
 
@@ -31,6 +31,8 @@ export const ENVIRONMENT = "# Environment";
 
 /** What the tools need beyond the agent task's host. */
 export type ToolsHost = TaskHost & {
+	/** The definition roots for a session: the app's bundled, the person's, and the session's project and workspace. */
+	roots(session: ConversationId, read: DocumentReader, context: Context): Promise<Roots>;
 	/** The tools an agent may name, and the models it may run: what definitions are checked against. */
 	catalog(): Promise<Catalog>;
 	/** The tools behind a definition's names, from the registry as this call sees it. */
@@ -164,11 +166,12 @@ export function subagentTools(host: ToolsHost, task: AgentTask) {
 			return { run: (tx) => resume(tx, api, id, resumed) };
 		}
 		if (args.subagent_type === undefined) return { refused: "Name the agent to start in subagent_type, or an agent to continue in resume." };
-		const { found, available } = await readDefinition(host.dataDir, args.subagent_type, await host.catalog());
+		const roots = await host.roots(api.conversationId, api, context);
+		const { found, available } = await readDefinition(roots, args.subagent_type, await host.catalog());
 		if (found === undefined) return { refused: `There is no agent type ${args.subagent_type}. Available: ${available.join(", ") || "none"}.` };
 		if ("reason" in found) {
 			host.warn("subagents.definition_refused", found.file, found.reason);
-			return { refused: `The agent ${found.name} cannot run: ${found.reason}. Its file is agents/${found.file}, which only the person can change.` };
+			return { refused: `The agent ${found.name} cannot run: ${found.reason}. Its file is ${found.path}.` };
 		}
 		const place = await host.place(api.conversationId, api, context);
 		const input: AgentInput = { call: String(api.taskId), type: found.name, description: args.description, prompt: args.prompt, background };
@@ -251,9 +254,10 @@ export function subagentTools(host: ToolsHost, task: AgentTask) {
  * The agents the parent can start, read from their files at each request: a refused one is logged and left out, and
  * one naming tools pigui does not have says so, since its prompt may count on them.
  */
-export function agentsSection(host: Pick<ToolsHost, "dataDir" | "catalog" | "warn">): PromptSection {
-	return section("subagents", async () => {
-		const { agents, refused } = await readDefinitions(host.dataDir, await host.catalog());
+export function agentsSection(host: Pick<ToolsHost, "roots" | "catalog" | "warn">): PromptSection {
+	return section("subagents", async (input, context) => {
+		const roots = await host.roots(input.conversationId, input.read, context);
+		const { agents, refused } = await readDefinitions(roots, await host.catalog());
 		for (const refusal of refused) host.warn("subagents.definition_refused", refusal.file, refusal.reason);
 		for (const agent of agents) {
 			host.warn("subagents.definition_refused", agent.file, undefined);

@@ -125,7 +125,8 @@ implementer and verifier dispatch contracts) plus `git-workflow` and `pr-writing
 requests. `skillsAt` passes the folder to `loadSkills` as a skill path, so every
 place that lists skills (the prompt, the `#` picker, a `#skill` reference) offers them beside the project's and Pi's
 own, and the sandbox grants it for reading, as it does Pi's `skills` directory, since a skill is used by reading its
-file. The original four cost about 950 tokens of every session's prompt; `git-workflow` and `pr-writing` add to
+file. The Agent Skills shared locations (`~/.agents/skills` and the repository's `.agents/skills`) are loaded the same
+way, below Pi's own directories in precedence. The original four cost about 950 tokens of every session's prompt; `git-workflow` and `pr-writing` add to
 that. *Alternatives:* copying them into Pi's `skills`
 directory, which pigui does not write; seeding them into the data directory like agent definitions, which would
 make them editable over SSH but let an update leave an edited copy behind the shipped one.
@@ -1170,10 +1171,15 @@ with none of its tools is refused. Definitions and the setting are read at every
 restart and nothing caches them. *Alternative:* refusing an agent for any tool it names that pigui lacks, which would
 refuse the person's own definitions, written for a CLI with `grep`, `find` and `ls`.
 
-**pigui seeds the files itself.** At startup, when the data directory has no `agents/` folder, pigui copies the
-repository's bundled definitions into it, and writes the setting when it is missing; after that both are the person's.
-One step covers the installer, OnPrem and Docker alike. *Alternative:* each installer and the image doing it, three
-ways.
+**Bundled and user agents load from separate roots.** Definitions are read from four roots, lowest precedence first:
+the app's bundled `agents/` (replaced on update), the person's own (the Pi CLI's `agents/` directory, shared with it),
+the session's `.agents/agents`, and the session's `.pi/agents`. A name defined at a higher root shadows the lower one;
+a definition refused at any root removes the name rather than falling back to a lower root silently; the person's
+`.disabled` file (one name per line in their `agents/` directory) hides a name from every root. An earlier pigui
+seeded the bundled definitions into the data directory; at startup, unchanged seeded copies are deleted and edited
+ones are moved into the person's agent directory, so updates to the bundled definitions reach them again. The setting
+is still written when missing, and is the person's once it exists. *Alternative:* one writable folder seeded once,
+which froze the bundled four at their first-run versions and mixed the person's edits with them.
 
 **What the phone shows of an agent.** The session's live stream watches each agent's `pi.live`, `pi.usage` and
 `pi.agent` from the moment its row appears, for the panel and the spend; `/api/live?agent=` streams one agent's

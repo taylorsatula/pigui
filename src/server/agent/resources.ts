@@ -1,5 +1,6 @@
 // Project instructions and skills, through Pi's own loaders, so a repository behaves here as it does in the Pi CLI.
 import { readFileSync } from "node:fs";
+import { homedir } from "node:os";
 import { join } from "node:path";
 import { formatSkillsForPrompt, loadProjectContextFiles, loadSkills, type Skill, stripFrontmatter } from "@earendil-works/pi-coding-agent";
 
@@ -22,8 +23,11 @@ export function renderProjectContext(files: readonly { path: string; content: st
  */
 export const BUNDLED_SKILLS = join(import.meta.dirname, "..", "..", "..", "skills");
 
+/** The agent definitions pigui ships, in pi-subagents' layout (`<name>.md`); the person's and the session's win a name they share. */
+export const BUNDLED_AGENTS = join(import.meta.dirname, "..", "..", "..", "agents");
+
 export function skillsAt(cwd: string, agentDir: string): Skill[] {
-	return loadSkills({ cwd, agentDir, skillPaths: [BUNDLED_SKILLS], includeDefaults: true }).skills;
+	return loadSkills({ cwd, agentDir, skillPaths: [join(cwd, ".agents", "skills"), join(homedir(), ".agents", "skills"), BUNDLED_SKILLS], includeDefaults: true }).skills;
 }
 
 export function renderSkills(skills: Skill[]): string | undefined {

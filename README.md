@@ -52,7 +52,8 @@ None of this touches GitHub until you tap. The agent commits; the server deliver
   - `implementer` — executes an already-specified code change and reports what landed.
   - `verifier` — read-only check of a finished change against its spec.
 
-  A fourth bundled definition, `thought-partner`, pressure-tests designs. You can define your own as Markdown files. An agent runs in the session's directory, under the session's sandbox,
+  A fourth bundled definition, `thought-partner`, pressure-tests designs. You can define your own as Markdown files; see
+  [Your own agents and skills](#your-own-agents-and-skills). An agent runs in the session's directory, under the session's sandbox,
   with the project's instructions and skills, but never with PiGUI's own session tools, and agents start no agents of
   their own.
 - **Long-term memory (optional).** Pi remembers across sessions and repositories what no file states: how a host is
@@ -64,6 +65,24 @@ None of this touches GitHub until you tap. The agent commits; the server deliver
 - **Delivery.** Push the branch or open a pull request from the report card, with the report as its body. The diff is
   measured from where the session's work began.
 - **Push notifications** for the moments that need you: a question, a plan to approve, a report, a spend cap.
+
+## Your own agents and skills
+
+PiGUI loads the same files the Pi CLI does, so what you already use works here with no setup.
+
+- **Agents** are Markdown files in Pi's agents directory: `~/.pi/agent/agents` (or `$PI_CODING_AGENT_DIR/agents`). A
+  repository can carry its own in `.pi/agents/` and `.agents/agents/`, which override yours, which override the bundled
+  four. A file that names a tool PiGUI does not have runs without it, with the missing tools named; one that names a
+  model Pi does not run is refused. Definitions are read at every use, so an edit applies with no restart. To hide an
+  agent, list its name, one per line, in `~/.pi/agent/agents/.disabled`.
+- **Skills** are directories with a `SKILL.md`, loaded from `~/.pi/agent/skills`, `~/.agents/skills`, the repository's
+  `.pi/skills` and `.agents/skills`, and the ones PiGUI ships. On a name collision the project's and your own win over
+  the bundled one.
+
+Which installs see your existing Pi configuration: the local install that shares `~/.pi/agent` (the default when you
+already use the Pi CLI) and a remote install with `--pi-config overlap`. The sandboxed server install and the Docker
+container start with an empty Pi configuration — the service user signs in fresh — so they inherit nothing from your
+laptop.
 
 ## Desktop and mobile parity
 
