@@ -12,6 +12,7 @@ import { createNodePhotonImages } from "@earendil-works/pi-durable/images/node";
 import { openNodeSqliteStorage } from "@earendil-works/pi-durable/storage/sqlite/node";
 import { createCodingTools } from "@earendil-works/pi-durable/tools";
 import { picloudAgent } from "./agent/extension.ts";
+import { BUNDLED_SKILLS } from "./agent/resources.ts";
 import type { AgentServices, Faults } from "./agent/services.ts";
 import type { Config } from "./config.ts";
 import { Delivery } from "./delivery.ts";
@@ -181,7 +182,7 @@ export async function startApp(options: AppOptions): Promise<App> {
 		onPrem: config.onPrem,
 		// Skills are read and run, while the rest of Pi's directory (sign-in, settings, models) stays out of reach. In fake
 		// mode the agent's git fetch reads the stand-in remote.
-		readable: readableGrants([join(options.agentDir, "skills"), ...(fakeGitHub === undefined ? [] : [fakeGitHub.root])]),
+		readable: readableGrants([join(options.agentDir, "skills"), BUNDLED_SKILLS, ...(fakeGitHub === undefined ? [] : [fakeGitHub.root])]),
 	});
 	opened = await Harness.open(
 		await openNodeSqliteStorage(paths.database),

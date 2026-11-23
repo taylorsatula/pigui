@@ -1,5 +1,6 @@
 // Project instructions and skills, through Pi's own loaders, so a repository behaves here as it does in the Pi CLI.
 import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { formatSkillsForPrompt, loadProjectContextFiles, loadSkills, type Skill, stripFrontmatter } from "@earendil-works/pi-coding-agent";
 
 export function projectContext(cwd: string, agentDir: string): { path: string; content: string }[] {
@@ -15,8 +16,14 @@ export function renderProjectContext(files: readonly { path: string; content: st
 	].join("\n\n");
 }
 
+/**
+ * The skills picloud ships, in Pi's layout (`<name>/SKILL.md`): offered in every session beside the project's and Pi's
+ * own, which win a name they share.
+ */
+export const BUNDLED_SKILLS = join(import.meta.dirname, "..", "..", "..", "skills");
+
 export function skillsAt(cwd: string, agentDir: string): Skill[] {
-	return loadSkills({ cwd, agentDir, skillPaths: [], includeDefaults: true }).skills;
+	return loadSkills({ cwd, agentDir, skillPaths: [BUNDLED_SKILLS], includeDefaults: true }).skills;
 }
 
 export function renderSkills(skills: Skill[]): string | undefined {

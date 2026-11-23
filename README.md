@@ -225,8 +225,9 @@ database.
     home, tmp and `gh` configuration of the session's own. They never see the `PICLOUD_*` settings, provider keys or
     picloud's token.
   - **Landlock:** every command and file tool can write only the session's workspace, its home and tmp, and `/dev`,
-    and read only those, the system's directories and Pi's skills. Other sessions, the database, Pi's sign-in,
-    picloud's home and code, and the shared `/tmp` are out of reach. From Landlock ABI 6 (Debian 13's kernel),
+    and read only those, the system's directories and the skills (Pi's, and those picloud ships in `skills/`). Other
+    sessions, the database, Pi's sign-in, picloud's home and the rest of its code, and the shared `/tmp` are out of
+    reach. From Landlock ABI 6 (Debian 13's kernel),
     commands cannot signal picloud's or other sessions' processes either.
 - **What stays open:**
   - **The network:** commands can reach any host. That includes picloud's own API on loopback, where they could act

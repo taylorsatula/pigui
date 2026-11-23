@@ -14,14 +14,14 @@ import { CHECKPOINT_ENTRY, type CheckpointEntryData, COMPACTION_NOTE_ENTRY, type
 import { checkpoints, context, modelText, TestServer, type TestOptions } from "./helpers.ts";
 
 /**
- * Context windows for the [long] scenario, whose builds print about 4k tokens each beside a system prompt of about 4k.
- * The trigger sits between Durable's thresholds and the agent's start, so these are calibrated by the scenario: at 24k
- * picloud compacts once, after the second build; at 19k after each build; at 33k the [backstop] flood starts Durable's
- * background compaction and the next build its blocking one.
+ * Context windows for the [long] scenario, whose builds print about 4k tokens each beside a system prompt of about 5k
+ * (1k of it picloud's bundled skills). The trigger sits between Durable's thresholds and the agent's start, so these are
+ * calibrated by the scenario: at 25k picloud compacts once, after the second build; at 20k after each build; at 34k the
+ * [backstop] flood starts Durable's background compaction and the next build its blocking one.
  */
-const ONE_COMPACTION = 24_000;
-const SEVERAL_COMPACTIONS = 19_000;
-const BACKGROUND_THEN_BLOCKING = 33_000;
+const ONE_COMPACTION = 25_000;
+const SEVERAL_COMPACTIONS = 20_000;
+const BACKGROUND_THEN_BLOCKING = 34_000;
 
 /** These windows are calibrated to the prompt without long-term memory, whose tool, report part and prompt text add about 2k tokens. */
 const start = (options: TestOptions) => TestServer.start({ embedder: { off: "Off in these tests." }, ...options });

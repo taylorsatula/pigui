@@ -97,6 +97,15 @@ The prompt (`prompt.ts`) is picloud's own preamble, then sections that change ra
 `loadProjectContextFiles` rendered as Pi renders them, Pi's skills list through `loadSkills`/`formatSkillsForPrompt`,
 and repo memory. Durable re-sends only changed sections, so prompt caching stays warm.
 
+**Skills picloud ships, through Pi's own loader.** The repository's `skills/` holds skills in Pi's layout
+(`<name>/SKILL.md`), at first the four for delegating to subagents (`subagent-orchestration` and the scout,
+implementer and verifier dispatch contracts). `skillsAt` passes the folder to `loadSkills` as a skill path, so every
+place that lists skills (the prompt, the `#` picker, a `#skill` reference) offers them beside the project's and Pi's
+own, and the sandbox grants it for reading, as it does Pi's `skills` directory, since a skill is used by reading its
+file. They cost about 950 tokens of every session's prompt. *Alternatives:* copying them into Pi's `skills`
+directory, which picloud does not write; seeding them into the data directory like agent definitions, which would
+make them editable over SSH but let an update leave an edited copy behind the shipped one.
+
 **The preamble is written from primitives, for unattended runs.** It was rewritten by first listing every fact the
 agent needs and every rule the server depends on, each marked as stated, stated badly or missing, and then writing
 from that list rather than editing sentences. It is organised around the moments of a run:
@@ -693,7 +702,7 @@ dependencies. It restricts itself, then runs the command, with these grants:
   - the real directory behind `/etc/resolv.conf`;
   - the Node.js running picloud (under `/usr` in both deployments, but anywhere on a developer's machine);
   - the CA files the environment names;
-  - Pi's `skills` directory;
+  - Pi's `skills` directory, and the skills picloud ships (`skills/` in its code);
   - in fake mode, the stand-in remote.
 
 Everything else is out of reach: other workspaces, the database, push keys, uploads, backups, picloud's home and code,
