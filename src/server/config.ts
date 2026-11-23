@@ -14,9 +14,10 @@ export type MemoryConfig = {
 
 /**
  * picloud OnPrem (`PICLOUD_ONPREM=on`): it runs on the person's own computer, as them, with their home directory. Agent
- * commands get their environment and credentials, unconfined; local sessions work in any directory.
+ * commands get their environment and credentials, unconfined; local sessions work in any directory. It answers to
+ * localhost, and to `hosts`: the names it is reached by through `tailscale serve`, from a phone on the tailnet.
  */
-export type OnPrem = { home: string };
+export type OnPrem = { home: string; hosts: string[] };
 
 export type Config = {
 	/** Undefined on a server. */
@@ -27,7 +28,10 @@ export type Config = {
 	port: number;
 	/** VAPID subject sent to push services: a `mailto:` or `https:` URL that identifies the operator. */
 	pushSubject: string;
-	/** Tailscale logins allowed in; empty allows everyone who can reach the server through the tailnet. Never in OnPrem. */
+	/**
+	 * Tailscale logins allowed in; empty allows everyone who can reach picloud through the tailnet. In OnPrem it applies
+	 * to what comes through Tailscale, not to the computer's own browser at localhost.
+	 */
 	allowedLogins: string[];
 	/** Default per-session spend cap in US dollars; undefined means no cap. */
 	spendCap: number | undefined;
@@ -49,6 +53,11 @@ export function readConfig(env: NodeJS.ProcessEnv): Config {
 	const fake = flag(env.PICLOUD_FAKE, "PICLOUD_FAKE");
 	const onPrem = onOff(env.PICLOUD_ONPREM, "PICLOUD_ONPREM", false);
 	if (onPrem) refuseWithOnPrem(env);
+	else if ((env.PICLOUD_ALLOWED_HOSTS ?? "").trim() !== "") {
+		throw new ConfigError(
+			"PICLOUD_ALLOWED_HOSTS applies only with PICLOUD_ONPREM=on: a server is reached through Tailscale alone and checks no host name. Remove it, or turn OnPrem on.",
+		);
+	}
 	const dataDir = env.PICLOUD_DATA_DIR;
 	if (dataDir === undefined || dataDir.trim() === "") {
 		throw new ConfigError("PICLOUD_DATA_DIR is not set. Set it to the directory picloud keeps its database and workspaces in.");
@@ -60,7 +69,7 @@ export function readConfig(env: NodeJS.ProcessEnv): Config {
 		);
 	}
 	return {
-		onPrem: onPrem ? { home: resolve(env.HOME?.trim() || homedir()) } : undefined,
+		onPrem: onPrem ? { home: resolve(env.HOME?.trim() || homedir()), hosts: hostNames(env.PICLOUD_ALLOWED_HOSTS) } : undefined,
 		dataDir: resolve(dataDir),
 		host,
 		port: integer(env.PICLOUD_PORT, "PICLOUD_PORT", onPrem ? 2025 : 8787, 0, 65535),
@@ -141,8 +150,8 @@ function onOff(value: string | undefined, name: string, fallback: boolean): bool
 }
 
 /**
- * OnPrem gives the agent the person's own access, so the settings that confine it or decide who gets in mean nothing
- * there. Given anyway, they say the operator expects a protection that is not in place, so picloud refuses to start.
+ * OnPrem gives the agent the person's own access, so the settings that confine it or stand in for the person's own
+ * credentials mean nothing there. Given anyway, they say the operator expects a protection that is not in place, so picloud refuses to start.
  */
 function refuseWithOnPrem(env: NodeJS.ProcessEnv): void {
 	if (env.PICLOUD_SANDBOX === "on") {
@@ -150,16 +159,28 @@ function refuseWithOnPrem(env: NodeJS.ProcessEnv): void {
 			"PICLOUD_SANDBOX=on cannot be combined with PICLOUD_ONPREM=on: OnPrem runs agent commands as you, with your full access, so there is no sandbox. Remove PICLOUD_SANDBOX, or turn OnPrem off.",
 		);
 	}
-	if ((env.PICLOUD_ALLOWED_LOGINS ?? "").trim() !== "") {
-		throw new ConfigError(
-			"PICLOUD_ALLOWED_LOGINS cannot be combined with PICLOUD_ONPREM=on: OnPrem is reached on this computer's localhost, never through Tailscale, so there is no login to check. Remove PICLOUD_ALLOWED_LOGINS, or turn OnPrem off.",
-		);
-	}
 	if ((env.PICLOUD_AGENT_GH_TOKEN ?? "").trim() !== "") {
 		throw new ConfigError(
 			"PICLOUD_AGENT_GH_TOKEN cannot be combined with PICLOUD_ONPREM=on: OnPrem's agent uses your own gh and git credentials. Remove PICLOUD_AGENT_GH_TOKEN, or turn OnPrem off.",
 		);
 	}
+}
+
+/**
+ * `PICLOUD_ALLOWED_HOSTS`: host names, without a port, such as the computer's MagicDNS name. Each is one a page on this
+ * computer cannot be pointed at by someone else's DNS, which is what the host check guards against.
+ */
+function hostNames(value: string | undefined): string[] {
+	const names = (value ?? "")
+		.split(",")
+		.map((name) => name.trim().toLowerCase().replace(/\.$/, ""))
+		.filter((name) => name !== "");
+	for (const name of names) {
+		if (!/^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)*$/.test(name)) {
+			throw new ConfigError(`PICLOUD_ALLOWED_HOSTS must be host names separated by commas, without a scheme or port (for example mac.tail1234.ts.net), not ${JSON.stringify(name)}.`);
+		}
+	}
+	return names;
 }
 
 function httpUrl(value: string | undefined, name: string): string | undefined {

@@ -160,12 +160,15 @@ test("the trim script's dry run masks only installed units, adds swap, caps the 
 });
 
 // picloud OnPrem's installer, as a dry run only: never for real here. Each run gets a temporary home, and stand-ins
-// early on PATH for uname (the system it believes it is on), the login shell (the PATH it captures) and systemctl.
+// early on PATH for uname (the system it believes it is on), the login shell (the PATH it captures), systemctl and,
+// when asked, the tailscale CLI: logged in as `name`, with https://name/ served to `servedTo`.
 const onprem = join(import.meta.dirname, "..", "deploy", "onprem.sh");
 
 type OnPremRun = { status: number | null; stdout: string; stderr: string; home: string };
 
-function onPremDryRun(system: "Darwin" | "Linux", args: string[], prepare?: (home: string) => void): OnPremRun {
+type TailscaleStub = { name: string; servedTo?: string };
+
+function onPremDryRun(system: "Darwin" | "Linux", args: string[], prepare?: (home: string) => void, tailscale?: TailscaleStub): OnPremRun {
 	const home = mkdtempSync(join(tmpdir(), "picloud-onprem-home-"));
 	const bin = mkdtempSync(join(tmpdir(), "picloud-onprem-bin-"));
 	const stub = (name: string, body: string) => {
@@ -177,6 +180,13 @@ function onPremDryRun(system: "Darwin" | "Linux", args: string[], prepare?: (hom
 	stub("systemctl", "exit 0");
 	// A login shell whose profile puts Homebrew and nvm on PATH, as a person's does and launchd's environment does not.
 	stub("login-shell", 'PATH=/opt/homebrew/bin:/home/someone/.nvm/versions/node/v22/bin:/usr/bin:/bin; eval "${@: -1}"');
+	if (tailscale !== undefined) {
+		const serve = tailscale.servedTo === undefined ? {} : { Web: { [`${tailscale.name}:443`]: { Handlers: { "/": { Proxy: tailscale.servedTo } } } } };
+		stub(
+			"tailscale",
+			`case "$1 $2" in\n"status --json") echo '${JSON.stringify({ Self: { DNSName: `${tailscale.name}.` } })}' ;;\n"serve status") echo '${JSON.stringify(serve)}' ;;\n*) echo "tailscale $*" ;;\nesac`,
+		);
+	}
 	try {
 		prepare?.(home);
 		const result = spawnSync("bash", [onprem, "--dry-run", ...args], {
@@ -195,7 +205,9 @@ test("the OnPrem installer passes a syntax check, and says how to use it", () =>
 	assert.equal(spawnSync("bash", ["-n", onprem], { encoding: "utf8" }).status, 0);
 	const help = spawnSync("bash", [onprem, "--help"], { encoding: "utf8" });
 	assert.equal(help.status, 0);
-	for (const flag of ["--speech on|off", "--memory-local on|off", "--port PORT", "--ref REF", "--dry-run", "--uninstall", "-h, --help"]) assert.ok(help.stdout.includes(flag), flag);
+	for (const flag of ["--speech on|off", "--memory-local on|off", "--port PORT", "--ref REF", "--tailscale on|off", "--allowed-logins LIST", "--dry-run", "--uninstall", "-h, --help"]) {
+		assert.ok(help.stdout.includes(flag), flag);
+	}
 	assert.match(help.stdout, /curl -fsSL https:\/\/raw\.githubusercontent\.com\/taylorsatula\/picloud\/main\/deploy\/onprem\.sh \| bash -s --/);
 });
 
@@ -209,6 +221,7 @@ test("its dry run on macOS writes a LaunchAgent with the login shell's PATH, OnP
 			"Install its packages and build it",
 			"Install the local models (speech on, memory off)",
 			"Check Pi's sign-in",
+			"Tailscale (off)",
 			"Install the service (LaunchAgent com.github.taylorsatula.picloud)",
 			"Start (or restart) picloud",
 		]);
@@ -274,6 +287,8 @@ test("its dry run refuses flags it cannot use, and an uninstall removes the serv
 		[["--memory-local", "yes"], /--memory-local must be on or off/],
 		[["--port", "http"], /--port must be a number/],
 		[["--port", "70000"], /--port must be a number/],
+		[["--tailscale", "yes"], /--tailscale must be on or off/],
+		[["--allowed-logins", "a@b.c, d@e.f"], /--allowed-logins takes logins separated by commas/],
 		[["--sandbox", "on"], /Unknown option: --sandbox/],
 	] as const) {
 		const refused = onPremDryRun("Linux", [...args]);
@@ -301,6 +316,79 @@ test("its dry run refuses flags it cannot use, and an uninstall removes the serv
 		} finally {
 			rmSync(run.home, { recursive: true, force: true });
 		}
+	}
+});
+
+test("with --tailscale on it serves picloud to the tailnet and tells the service its name and the logins let in", () => {
+	for (const system of ["Darwin", "Linux"] as const) {
+		const run = onPremDryRun(system, ["--tailscale", "on", "--allowed-logins", "me@example.com"], undefined, { name: "mac.tail1234.ts.net" });
+		try {
+			assert.equal(run.status, 0, run.stderr);
+			assert.ok(stepsOf(run.stdout).includes("Tailscale (on)"));
+			assert.match(run.stdout, /\[dry run\] \S+\/tailscale serve --bg --https=443 http:\/\/127\.0\.0\.1:2025$/m);
+			assert.doesNotMatch(run.stdout, /funnel/);
+			if (system === "Darwin") {
+				assert.ok(run.stdout.includes("| \t\t<key>PICLOUD_ALLOWED_HOSTS</key>\n      | \t\t<string>mac.tail1234.ts.net</string>\n"), run.stdout);
+				assert.ok(run.stdout.includes("| \t\t<key>PICLOUD_ALLOWED_LOGINS</key>\n      | \t\t<string>me@example.com</string>\n"));
+			} else {
+				assert.ok(run.stdout.includes('| Environment="PICLOUD_ALLOWED_HOSTS=mac.tail1234.ts.net"\n'), run.stdout);
+				assert.ok(run.stdout.includes('| Environment="PICLOUD_ALLOWED_LOGINS=me@example.com"\n'));
+			}
+			assert.match(run.stdout, /On your phone, with Tailscale connected: https:\/\/mac\.tail1234\.ts\.net\//);
+			// The choices are kept for the next run, which a dry run only shows.
+			assert.ok(run.stdout.includes("| TAILSCALE=on\n      | ALLOWED_LOGINS=me@example.com\n"));
+			assert.deepEqual(readdirSync(run.home), []);
+		} finally {
+			rmSync(run.home, { recursive: true, force: true });
+		}
+	}
+	// Something else already served at https://NAME/ is not taken over.
+	const taken = onPremDryRun("Linux", ["--tailscale", "on"], undefined, { name: "mac.tail1234.ts.net", servedTo: "http://127.0.0.1:3000" });
+	rmSync(taken.home, { recursive: true, force: true });
+	assert.match(taken.stderr, /tailscale serve already sends https:\/\/mac\.tail1234\.ts\.net\/ to http:\/\/127\.0\.0\.1:3000/);
+	assert.doesNotMatch(taken.stdout, /serve --bg/);
+	assert.doesNotMatch(taken.stdout, /PICLOUD_ALLOWED_HOSTS/);
+	// Without Tailscale here, it says what to install.
+	const missing = onPremDryRun("Linux", ["--tailscale", "on"]);
+	rmSync(missing.home, { recursive: true, force: true });
+	assert.match(missing.stderr, /--tailscale on needs Tailscale on this computer/);
+});
+
+test("a run with no options keeps the last install's choices, and turning Tailscale off takes picloud's serve down", () => {
+	const remembered = (home: string) => {
+		mkdirSync(join(home, ".picloud"), { recursive: true });
+		writeFileSync(join(home, ".picloud", "onprem.conf"), "SPEECH=off\nMEMORY_LOCAL=on\nPORT=4100\nREF=v2.0\nTAILSCALE=on\nALLOWED_LOGINS=me@example.com\nPATH=/evil\n");
+	};
+	const again = onPremDryRun("Linux", [], remembered, { name: "box.tail1234.ts.net", servedTo: "http://127.0.0.1:4100" });
+	try {
+		assert.equal(again.status, 0, again.stderr);
+		assert.match(again.stdout, /fetch --quiet origin v2\.0$/m);
+		assert.match(again.stdout, /^== \d+\. Install the local models \(speech off, memory on\)$/m);
+		assert.match(again.stdout, /^== \d+\. Tailscale \(on\)$/m);
+		assert.ok(again.stdout.includes("| Environment=PICLOUD_PORT=4100\n"));
+		assert.ok(again.stdout.includes('| Environment="PICLOUD_ALLOWED_HOSTS=box.tail1234.ts.net"\n'));
+		assert.ok(!again.stdout.includes("/evil"), "only the installer's own choices are read from the file");
+	} finally {
+		rmSync(again.home, { recursive: true, force: true });
+	}
+	const off = onPremDryRun("Linux", ["--tailscale", "off"], remembered, { name: "box.tail1234.ts.net", servedTo: "http://127.0.0.1:4100" });
+	try {
+		assert.equal(off.status, 0, off.stderr);
+		assert.match(off.stdout, /\[dry run\] \S+\/tailscale serve --https=443 off$/m);
+		assert.doesNotMatch(off.stdout, /PICLOUD_ALLOWED_HOSTS/);
+		assert.ok(off.stdout.includes("| TAILSCALE=off\n"));
+	} finally {
+		rmSync(off.home, { recursive: true, force: true });
+	}
+	// An uninstall takes it down too, and forgets the choices.
+	const gone = onPremDryRun("Darwin", ["--uninstall"], remembered, { name: "box.tail1234.ts.net", servedTo: "http://127.0.0.1:4100" });
+	try {
+		assert.equal(gone.status, 0, gone.stderr);
+		assert.ok(stepsOf(gone.stdout).includes("Stop serving picloud to the tailnet"));
+		assert.match(gone.stdout, /\[dry run\] \S+\/tailscale serve --https=443 off$/m);
+		assert.match(gone.stdout, /\[dry run\] rm \S+\/\.picloud\/onprem\.conf$/m);
+	} finally {
+		rmSync(gone.home, { recursive: true, force: true });
 	}
 });
 

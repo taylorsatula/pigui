@@ -59,7 +59,7 @@ export type AppOptions = {
 	staticDir?: string;
 	/**
 	 * Check who opened each connection (see callers.ts): on a server, refuse picloud's own user; in OnPrem on Linux,
-	 * allow only it. On in real mode; off in fake mode, where tests connect as picloud's own user.
+	 * allow only it and root (tailscaled). On in real mode; off in fake mode, where tests connect as picloud's own user.
 	 */
 	checkCallers?: boolean;
 	/**
@@ -275,8 +275,9 @@ export async function startApp(options: AppOptions): Promise<App> {
 }
 
 /**
- * The caller check, when on. OnPrem allows only picloud's own user where the kernel's socket table says who that is,
- * on Linux; elsewhere it checks no caller, and any user of the computer can reach it (README, "PiCloud OnPrem").
+ * The caller check, when on. OnPrem allows only picloud's own user and root (tailscaled) where the kernel's socket
+ * table says who that is, on Linux; elsewhere it checks no caller, and any user of the computer can reach it (README,
+ * "PiCloud OnPrem").
  */
 function callers(on: boolean, onPrem: boolean): { callerCheck?: ReturnType<typeof callerCheck> } {
 	if (!on) return {};

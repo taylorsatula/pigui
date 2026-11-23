@@ -115,12 +115,13 @@ installer writes its three into the service it installs.
 
 | Variable | Default | Meaning |
 |---|---|---|
-| `PICLOUD_ONPREM` | `off` | `on` runs picloud on your own computer, as you ([PiCloud OnPrem](#picloud-onprem)): local sessions in any directory, agent commands with your environment and credentials, no sandbox, no Tailscale, answering only to localhost. It cannot be combined with `PICLOUD_SANDBOX=on`, `PICLOUD_ALLOWED_LOGINS` or `PICLOUD_AGENT_GH_TOKEN`, each of which promises a protection OnPrem does not have: picloud exits with code 2 and says which. |
+| `PICLOUD_ONPREM` | `off` | `on` runs picloud on your own computer, as you ([PiCloud OnPrem](#picloud-onprem)): local sessions in any directory, agent commands with your environment and credentials, no sandbox, answering to localhost and to the tailnet names in `PICLOUD_ALLOWED_HOSTS`. It cannot be combined with `PICLOUD_SANDBOX=on` or `PICLOUD_AGENT_GH_TOKEN`, each of which promises a protection OnPrem does not have: picloud exits with code 2 and says which. |
+| `PICLOUD_ALLOWED_HOSTS` | empty | OnPrem only: comma-separated host names, without a port, that picloud answers to besides localhost, such as the computer's MagicDNS name when `tailscale serve` puts it on your tailnet for your phone. The installer's `--tailscale on` sets it. Set without OnPrem, picloud exits with code 2. |
 | `PICLOUD_DATA_DIR` | required | Database, workspaces, uploads, backups, push keys (and fake mode's stand-in GitHub). |
 | `PICLOUD_HOST` | `127.0.0.1` | Bind address. Must be loopback; Tailscale serve, or in OnPrem this computer's browser, is the only way in. |
 | `PICLOUD_PORT` | `8787`; `2025` in OnPrem | Bind port. `0` picks a free one. |
 | `PICLOUD_PUSH_SUBJECT` | `mailto:picloud@localhost` | Contact (`mailto:` or `https:`) sent to push services with VAPID. Set a real one: Apple may reject a placeholder. |
-| `PICLOUD_ALLOWED_LOGINS` | empty | Comma-separated Tailscale logins allowed in, checked against the `Tailscale-User-Login` header that `tailscale serve` adds. Empty allows anyone who reaches the server. Not in OnPrem. |
+| `PICLOUD_ALLOWED_LOGINS` | empty | Comma-separated Tailscale logins allowed in, checked against the `Tailscale-User-Login` header that `tailscale serve` adds. Empty allows anyone who reaches picloud through the tailnet. In OnPrem it applies to what comes through Tailscale; the computer's own browser at localhost needs no login. |
 | `PICLOUD_SPEND_CAP` | none | Default spend cap per session, in US dollars. The person can raise a session's cap from the phone. |
 | `PICLOUD_COMPACTION_MODEL` | each session's model | The model that writes compaction checkpoints, as `provider/modelId` the way Pi names it (for example `anthropic/claude-sonnet-4-5`). It must be one Pi has credentials for; while it is not, picloud logs a warning and uses the session's model. Its spend counts toward the session's cap. |
 | `PICLOUD_FAKE` | `0` | `1` runs fake mode. |
@@ -370,7 +371,8 @@ http://localhost:2025, with the same app. A new session starts in a directory on
 (`~`) unless you type another, any existing absolute directory, `/` included. Pi works there in place, as you, as if
 you had opened a terminal there and run `pi`. Repository sessions, on a clone and a branch of their own that picloud
 pushes when you tap, remain the other choice wherever `gh` is signed in; if listing repositories fails, the New
-session screen says why and sessions on the computer still start.
+session screen says why and sessions on the computer still start. With `--tailscale on` the same picloud is also on
+your tailnet, for your phone, whether the computer is a laptop or a server somewhere.
 
 ### Install, update and uninstall
 
@@ -386,11 +388,16 @@ curl -fsSL https://raw.githubusercontent.com/taylorsatula/picloud/main/deploy/on
 | `--memory-local on\|off` | `off` | Embed long-term memory on this computer with LEAF: about 135 MB of models. |
 | `--port N` | `2025` | The localhost port. |
 | `--ref REF` | `main` | The branch, tag or commit of picloud to install. |
+| `--tailscale on\|off` | `off` | Serve picloud to your tailnet too, at `https://<this computer's MagicDNS name>/`, so your phone can use it as the PWA (see below). Off takes down picloud's own `tailscale serve`, if it had one. |
+| `--allowed-logins LIST` | everyone on the tailnet | Comma-separated Tailscale logins let in through the tailnet; `''` for everyone again. |
 | `--dry-run` | | Show every step and the service it would write; change nothing. |
 | `--uninstall` | | Stop and remove the service and the app; the data stays. |
 | `-h`, `--help` | | Show the help. |
 
-- **Run it as yourself**, never with sudo. Nothing outside your home directory changes.
+- **Run it as yourself**, never with sudo. Nothing outside your home directory changes, apart from Tailscale's serve
+  configuration with `--tailscale on`.
+- **It remembers your choices.** Each install writes its flags to `~/.picloud/onprem.conf`, and the next run starts
+  from them, so the bare one-liner updates picloud as it is; a flag given changes that choice.
 - **It needs** Node.js 22.19 or newer, which it does not install (Homebrew: `brew install node@22`; or nvm:
   `nvm install 22`), and git. No C compiler is needed: OnPrem has no sandbox, and the build skips its launcher without
   one. `gh` is optional: repository sessions need it signed in (`gh auth login`).
@@ -405,18 +412,32 @@ curl -fsSL https://raw.githubusercontent.com/taylorsatula/picloud/main/deploy/on
      server installer does;
   4. fetches the chosen local models with `deploy/models.sh`;
   5. checks Pi's sign-in;
-  6. writes a service of your own user: on macOS the LaunchAgent
+  6. with `--tailscale on`, runs `tailscale serve --bg --https=443 http://127.0.0.1:<port>` (never `funnel`), unless
+     `https://<name>/` already serves something else, which it leaves alone and stops; with it off, takes down
+     picloud's own serve if there is one;
+  7. writes a service of your own user: on macOS the LaunchAgent
      `~/Library/LaunchAgents/com.github.taylorsatula.picloud.plist` (started at login and kept alive, logs in
      `~/.picloud/logs/picloud.log`); on Linux the systemd user unit `~/.config/systemd/user/picloud.service` (logs:
      `journalctl --user -u picloud`). It sets `PICLOUD_ONPREM=on`, `PICLOUD_DATA_DIR=~/.picloud/data`,
-     `PICLOUD_PORT`, and the PATH your login shell builds, captured now, because launchd and systemd start services
-     with almost none and the agent's commands should find Homebrew, nvm and the rest;
-  7. starts it, waits for it to answer, prints the URL and opens it.
+     `PICLOUD_PORT`, with Tailscale `PICLOUD_ALLOWED_HOSTS` (and `PICLOUD_ALLOWED_LOGINS` if given), and the PATH your
+     login shell builds, captured now, because launchd and systemd start services with almost none and the agent's
+     commands should find Homebrew, nvm and the rest;
+  8. starts it, waits for it to answer, remembers the choices, prints the URL (and the tailnet one) and opens it.
 - **Update** by running the one-liner again: it updates the app in place, rebuilds, captures your PATH again and
   restarts. **Uninstall** with `--uninstall`: the service and `~/.picloud/app` go, and your sessions and backups stay
   in `~/.picloud/data` until you remove `~/.picloud`.
 - **On Linux,** a user service runs while you are logged in. To keep it running after you log out:
-  `loginctl enable-linger $USER`.
+  `loginctl enable-linger $USER`. `tailscale serve` as yourself needs Tailscale's operator to be you, once:
+  `sudo tailscale set --operator=$USER`; the installer says so if it is refused.
+
+### On your phone, through Tailscale
+
+With `--tailscale on`, the computer serves picloud to your tailnet at `https://<its MagicDNS name>/`, which the
+installer prints; MagicDNS and HTTPS certificates must be on in the tailnet's admin console. On the phone, with
+Tailscale connected, open that URL in Safari, tap Share, then Add to Home Screen, and open picloud from there to turn
+on notifications. It is the same picloud as at localhost, with the same sessions and the same full access: anyone you
+let into it through the tailnet acts on this computer as you, so `--allowed-logins` is worth setting on a tailnet you
+share. On a laptop, picloud is reachable while the laptop is awake.
 
 ### What OnPrem de-restricts, and what that means
 
@@ -439,15 +460,20 @@ curl -fsSL https://raw.githubusercontent.com/taylorsatula/picloud/main/deploy/on
 
 ### Security on localhost
 
-- **Loopback only.** picloud listens on 127.0.0.1 and nothing else; no Tailscale is involved, `PICLOUD_ALLOWED_LOGINS`
-  is refused, and Tailscale's identity header means nothing.
-- **Host check.** It answers only requests addressed to `localhost`, `127.0.0.1` or `[::1]` at its own port. A web
-  page on a name pointed at 127.0.0.1 (DNS rebinding) is refused, so it can neither read picloud nor drive it.
+- **Loopback only.** picloud listens on 127.0.0.1 and nothing else. The tailnet reaches it only through
+  `tailscale serve`, when you turn that on.
+- **Host check.** It answers only requests addressed to `localhost`, `127.0.0.1` or `[::1]` at its own port, or to a
+  name in `PICLOUD_ALLOWED_HOSTS` (the tailnet name). A web page on a name pointed at 127.0.0.1 (DNS rebinding) is
+  refused, so it can neither read picloud nor drive it; a tailnet name is one no one else's DNS can point here.
+- **Logins, for the tailnet.** What comes through Tailscale (addressed to the tailnet name, or carrying the
+  `Tailscale-User-Login` header `tailscale serve` adds) is held to `PICLOUD_ALLOWED_LOGINS` when it is set, as on a
+  server. Your browser at localhost needs no login.
 - **Page-origin gate.** A request that changes something is refused when the browser says it comes from another site
   (see [Security model](#security-model)), so a page you visit cannot start a session or answer a card, which on this
   computer would mean running commands as you.
-- **Own user only, on Linux.** picloud answers only connections opened by your own user, found in the kernel's socket
-  table; other users of a shared machine are refused. On macOS there is no such table, so picloud checks no caller:
+- **Own user only, on Linux.** picloud answers only connections opened by your own user, or by root, which is how
+  `tailscale serve` arrives (root could read everything picloud holds anyway), found in the kernel's socket table;
+  other users of a shared machine are refused. On macOS there is no such table, so picloud checks no caller:
   **any user account on the Mac can reach it on localhost and use it as you.** On a Mac shared with other accounts, do
   not install it.
 - **No login of its own.** Any program running as you can use it, which already has your access.

@@ -877,14 +877,15 @@ whatever is mounted into it, which is a sandbox by another name. So picloud runs
 `~/.picloud/app`, under a service of their own user. *Alternative:* the Docker setup with the home directory mounted
 in, which gives files without tools, and tools of the wrong system.
 
-**One switch, `PICLOUD_ONPREM`, rather than separate de-restriction flags.** Each protection on a server exists
-because the server is shared with an agent the person does not watch: the sandbox, the read-only agent token with its
-scratch home, Tailscale's login check, and the caller check that refuses picloud's own user. On the person's own
-computer each of them is wrong in the same way at the same moment, so one switch changes all of them, and a setting
-that would promise one of them back (`PICLOUD_SANDBOX=on`, `PICLOUD_ALLOWED_LOGINS`, `PICLOUD_AGENT_GH_TOKEN`) is a
-configuration error naming why, rather than silently ignored. It defaults to off, and its port to 2025, so nothing
+**One switch, `PICLOUD_ONPREM`, rather than separate de-restriction flags.** Each protection on a server that keeps the
+agent from the person's own access exists because the server is shared with an agent the person does not watch: the
+sandbox, the read-only agent token with its scratch home, and the caller check that refuses picloud's own user. On the
+person's own computer each of them is wrong in the same way at the same moment, so one switch changes all of them, and
+a setting that would promise one of them back (`PICLOUD_SANDBOX=on`, `PICLOUD_AGENT_GH_TOKEN`) is a configuration
+error naming why, rather than silently ignored. Who may reach picloud is a separate question, and OnPrem answers it as
+a server does where Tailscale is involved: see below. It defaults to off, and its port to 2025, so nothing
 changes for a server. *Alternative:* a flag per protection, which multiplies the combinations to test and document,
-most of them meaningless (a sandbox without a scratch home, Tailscale logins on localhost).
+most of them meaningless (a sandbox without a scratch home).
 
 **Local sessions beside repository sessions, and the working directory split from picloud's workspace.** A session's
 `place` is a discriminant in the shared shapes: `repo` (repository, start, branch, base, start commit, delivery) or
@@ -920,12 +921,29 @@ session or cookie picloud does not have.
 **In OnPrem, the Host is checked and the caller check is turned around.** Bound to loopback, OnPrem is still reachable
 by DNS rebinding: a page whose name resolves to 127.0.0.1 is same-origin with picloud as far as the browser knows, and
 could read it and pass the origin gate. So OnPrem answers only requests whose `Host` is `localhost`, `127.0.0.1` or
-`[::1]` at its own port. On a server the caller check refuses picloud's own user, because the agent runs as that user
-and shares loopback; in OnPrem the person's browser is that user, so on Linux the same socket-table lookup
-(`clientOwner`) allows only picloud's own user and refuses other users of a shared machine. macOS has no such table, so
-OnPrem there checks no caller, and the README says any user of the Mac can reach it. Tailscale's identity header is
-never consulted, since `PICLOUD_ALLOWED_LOGINS` cannot be set. *Alternative:* a login or token for OnPrem, which the
-person would have to carry into every browser and which guards nothing against programs that already run as them.
+`[::1]` at its own port, or a name in `PICLOUD_ALLOWED_HOSTS`. On a server the caller check refuses picloud's own
+user, because the agent runs as that user and shares loopback; in OnPrem the person's browser is that user, so on
+Linux the same socket-table lookup (`clientOwner`) allows picloud's own user and root, which is how `tailscale serve`
+arrives and which could read everything picloud holds anyway, and refuses other users of a shared machine. macOS has
+no such table, so OnPrem there checks no caller, and the README says any user of the Mac can reach it.
+*Alternative:* a login or token for OnPrem, which the person would have to carry into every browser and which guards
+nothing against programs that already run as them.
+
+**OnPrem may be put on the tailnet too.** A computer running OnPrem, a laptop or a server somewhere, can be the one the
+phone drives: `tailscale serve` puts it on the tailnet with TLS and identity, as it does a server, and nothing about
+that is less safe than a server. *Before:* OnPrem refused `PICLOUD_ALLOWED_LOGINS` and answered localhost only, which
+ruled that out for no gain. Now the tailnet names it is served under are listed in `PICLOUD_ALLOWED_HOSTS` (a name no
+one else's DNS can point at the computer, so the rebinding check holds; the installer's `--tailscale on` finds the
+MagicDNS name and runs `tailscale serve --bg --https=443`, refusing to take over a name already serving something
+else, and never `funnel`). What comes through Tailscale, addressed to such a name or carrying the
+`Tailscale-User-Login` header `tailscale serve` adds (should a proxy name picloud by localhost), is held to
+`PICLOUD_ALLOWED_LOGINS` as on a server; the computer's own browser at localhost carries no login and needs none.
+*Alternatives:* trusting the login header wherever it appears, which a rebound page on the computer could send
+itself; asking Tailscale for the name at every start, which ties startup to a CLI that macOS does not put on PATH.
+
+**The installer remembers its choices.** Each install writes its flags to `~/.picloud/onprem.conf`, read as plain
+values (never sourced) before the flags given, so the bare one-liner updates picloud as it is. Without it, an update
+would quietly turn Tailscale off, drop the local memory model, or move the port.
 
 **The OnPrem installer: a user service with the login shell's PATH, from a checkout it fetches itself.** Piped from
 curl, the script has no directory of its own, so it first clones picloud (or finds the installed copy) and runs the

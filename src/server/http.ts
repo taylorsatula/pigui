@@ -1,7 +1,7 @@
 // The HTTP boundary: every request is checked here (access, size, shape) before it reaches the session logic, and
 // every failure leaves as JSON the phone can show with a next step. Access is checked in layers: in OnPrem the host
-// the request names, then who opened the connection, then on a server the Tailscale login, and for anything that
-// changes something, that the request comes from picloud's own page.
+// the request names, then who opened the connection, then the Tailscale login of what came through Tailscale, and for
+// anything that changes something, that the request comes from picloud's own page.
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import type { Socket } from "node:net";
 import { readFile, stat } from "node:fs/promises";
@@ -58,7 +58,7 @@ export type HttpDeps = {
 	agentDir: string;
 	/** Where a session's agent works (see AgentServices). */
 	workingDir: (doc: Readonly<SessionDoc>) => string;
-	/** picloud OnPrem: reached on this computer's loopback names only, with local sessions and their listings. */
+	/** picloud OnPrem: reached at this computer's loopback names and its allowed tailnet names, with local sessions. */
 	onPrem: OnPrem | undefined;
 	staticDir: string;
 	/** Undefined when this server does not read aloud. */
@@ -153,15 +153,21 @@ function abortOnClose(response: ServerResponse): AbortSignal {
 }
 
 /**
- * OnPrem answers only to its loopback names at its own port. A page elsewhere whose name was pointed at 127.0.0.1 (DNS
- * rebinding) would otherwise be same-origin with picloud as far as the browser knew, and could read and drive it.
+ * How an OnPrem request names picloud: one of its loopback names at its own port (`local`, the computer's own browser),
+ * one of the names it is served under by `tailscale serve` (`tailnet`), or neither. A page elsewhere whose name was
+ * pointed at 127.0.0.1 (DNS rebinding) would otherwise be same-origin with picloud as far as the browser knew, and
+ * could read and drive it; the allowed names are ones no one else's DNS can point at this computer.
  */
-function localHostName(request: IncomingMessage): boolean {
+function addressedAs(request: IncomingMessage, hosts: readonly string[]): "local" | "tailnet" | undefined {
 	const port = request.socket.localPort;
+	const host = (request.headers.host ?? "").toLowerCase();
 	const names = ["localhost", "127.0.0.1", "[::1]"];
-	const allowed = names.map((name) => `${name}:${port}`);
-	if (port === 80) allowed.push(...names);
-	return allowed.includes((request.headers.host ?? "").toLowerCase());
+	const local = names.map((name) => `${name}:${port}`);
+	if (port === 80) local.push(...names);
+	if (local.includes(host)) return "local";
+	// tailscale serve passes the name the phone asked for, which carries no port on 443.
+	const name = host.startsWith("[") ? host : host.replace(/:\d+$/, "");
+	return hosts.includes(name) ? "tailnet" : undefined;
 }
 
 /**
@@ -425,7 +431,7 @@ export function createHttpServer(deps: HttpDeps): Server {
 	const callerRefused: ApiError =
 		deps.onPrem === undefined
 			? { error: "This connection comes from picloud's own user, as the agent's commands do. picloud is reached through Tailscale." }
-			: { error: "This connection comes from another user of this computer. picloud OnPrem answers only the user it runs as." };
+			: { error: "This connection comes from another user of this computer. picloud OnPrem answers only the user it runs as, and Tailscale." };
 
 	return createServer((request, response) => {
 		const started = Date.now();
@@ -438,16 +444,25 @@ export function createHttpServer(deps: HttpDeps): Server {
 			deps.log.warn(event, { path: url.pathname });
 			send(response, 403, body);
 		};
-		if (deps.onPrem !== undefined && !localHostName(request)) {
+		const addressed = deps.onPrem === undefined ? undefined : addressedAs(request, deps.onPrem.hosts);
+		if (deps.onPrem !== undefined && addressed === undefined) {
 			const port = request.socket.localPort;
-			refuse("http.host", { error: "picloud OnPrem answers only to localhost.", hint: `Open http://localhost:${port} on this computer.` });
+			const name = String(request.headers.host ?? "").replace(/:\d+$/, "");
+			refuse("http.host", {
+				error: `picloud OnPrem answers only to localhost and to the names in PICLOUD_ALLOWED_HOSTS, and not to ${name || "a request without a host"}.`,
+				hint: `Open http://localhost:${port} on this computer. To reach it as ${name || "another name"} through tailscale serve, add that name to PICLOUD_ALLOWED_HOSTS (the installer's --tailscale on does).`,
+			});
 			return;
 		}
 		const caller = deps.callerCheck === undefined ? Promise.resolve(true) : deps.callerCheck(request.socket);
 		void caller.then((allowed) => {
 			if (!allowed) return refuse("http.local_caller", callerRefused);
 			const login = String(request.headers["tailscale-user-login"] ?? "").toLowerCase();
-			if (deps.allowedLogins.length > 0 && !deps.allowedLogins.includes(login)) {
+			// On a server everything comes through Tailscale. In OnPrem, what comes through it is addressed to a tailnet
+			// name, or carries the login header tailscale serve adds should it have named picloud by localhost; the
+			// computer's own browser at localhost has no login, and needs none.
+			const throughTailscale = deps.onPrem === undefined || addressed === "tailnet" || login !== "";
+			if (throughTailscale && deps.allowedLogins.length > 0 && !deps.allowedLogins.includes(login)) {
 				return refuse("http.forbidden", { error: "This Tailscale login is not allowed to use picloud." });
 			}
 			if (request.method !== "GET" && request.method !== "HEAD" && !fromOwnPage(request)) {

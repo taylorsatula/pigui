@@ -11,9 +11,14 @@
 #   --memory-local on|off  embed long-term memory on this computer (default off)
 #   --port PORT            the localhost port (default 2025)
 #   --ref REF              the branch, tag or commit of picloud to install (default main)
+#   --tailscale on|off     serve it to your tailnet with tailscale serve, for your phone (default off)
+#   --allowed-logins LIST  comma-separated Tailscale logins allowed in through the tailnet (default: everyone on it)
 #   --dry-run              show every step without changing anything
 #   --uninstall            stop and remove the service and the app; the data stays
 #   -h, --help             show this help
+#
+# Each run keeps the choices of the last install (in ~/.picloud/onprem.conf), so running it again with no options
+# updates picloud as it is; an option given changes that choice.
 set -euo pipefail
 
 readonly REPOSITORY=https://github.com/taylorsatula/picloud.git
@@ -23,6 +28,7 @@ readonly DATA=$ROOT/data
 readonly LOGS=$ROOT/logs
 readonly NODE_MINIMUM=22.19.0
 readonly LABEL=com.github.taylorsatula.picloud
+readonly CONF=$ROOT/onprem.conf
 
 # Kept to run the installer again from the version it fetches. Empty arrays are expanded as ${ARGS[@]+"${ARGS[@]}"},
 # since macOS's bash 3.2 calls a plain "${ARGS[@]}" of none unbound.
@@ -33,6 +39,17 @@ SPEECH=on
 MEMORY_LOCAL=off
 PORT=2025
 REF=main
+TAILSCALE=off
+ALLOWED_LOGINS=""
+
+# The last install's choices, as defaults the options below override. Read as plain values, never run.
+if [[ -f $CONF ]]; then
+	while IFS='=' read -r key value; do
+		case $key in
+			SPEECH | MEMORY_LOCAL | PORT | REF | TAILSCALE | ALLOWED_LOGINS) printf -v "$key" '%s' "$value" ;;
+		esac
+	done <"$CONF"
+fi
 
 usage() { sed -n '2,/^#   -h/p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; }
 
@@ -42,6 +59,8 @@ while [[ $# -gt 0 ]]; do
 		--memory-local) MEMORY_LOCAL=${2:?--memory-local needs on or off}; shift ;;
 		--port) PORT=${2:?--port needs a number}; shift ;;
 		--ref) REF=${2:?--ref needs a branch, tag or commit}; shift ;;
+		--tailscale) TAILSCALE=${2:?--tailscale needs on or off}; shift ;;
+		--allowed-logins) ALLOWED_LOGINS=${2?--allowed-logins needs a list, or '' for everyone on the tailnet}; shift ;;
 		--dry-run) DRY_RUN=1 ;;
 		--uninstall) UNINSTALL=1 ;;
 		-h | --help)
@@ -55,6 +74,8 @@ done
 [[ $SPEECH == on || $SPEECH == off ]] || { echo "--speech must be on or off." >&2; exit 2; }
 [[ $MEMORY_LOCAL == on || $MEMORY_LOCAL == off ]] || { echo "--memory-local must be on or off." >&2; exit 2; }
 [[ $PORT =~ ^[0-9]+$ ]] && ((PORT >= 1 && PORT <= 65535)) || { echo "--port must be a number from 1 to 65535." >&2; exit 2; }
+[[ $TAILSCALE == on || $TAILSCALE == off ]] || { echo "--tailscale must be on or off." >&2; exit 2; }
+[[ $ALLOWED_LOGINS =~ ^[^[:space:]=]*$ ]] || { echo "--allowed-logins takes logins separated by commas, without spaces." >&2; exit 2; }
 
 # ---- Piped from curl, this script has no checkout around it, so it gets one first and runs the copy in it: the
 # installed app's when there is one (which updates itself to --ref), otherwise a fresh clone of --ref. A dry run or an
@@ -133,7 +154,24 @@ stop_launch_agent() {
 	exit 1
 }
 
-# ---- Uninstall: the service and the app go, the data and logs stay.
+# The Tailscale CLI: on PATH, or inside the macOS app, which does not put it there.
+tailscale_cli() {
+	command -v tailscale 2>/dev/null && return 0
+	if [[ -x /Applications/Tailscale.app/Contents/MacOS/Tailscale ]]; then echo /Applications/Tailscale.app/Contents/MacOS/Tailscale; fi
+}
+
+# The string at a JSON path (a JSON array of keys) in the document on stdin, or nothing; node is here either way.
+json_get() {
+	node -e 'let text = ""; process.stdin.on("data", (chunk) => (text += chunk)).on("end", () => { try { let value = JSON.parse(text); for (const key of JSON.parse(process.argv[1])) value = value?.[key]; if (typeof value === "string") process.stdout.write(value); } catch {} });' "$1"
+}
+
+# This computer's MagicDNS name on the tailnet, without the final dot, or nothing when Tailscale is not up.
+tailnet_name() { "$TS" status --json 2>/dev/null | json_get '["Self","DNSName"]' | sed 's/\.$//'; }
+
+# Where tailscale serve sends https://NAME/ now, or nothing.
+served_to() { "$TS" serve status --json 2>/dev/null | json_get "[\"Web\",\"$1:443\",\"Handlers\",\"/\",\"Proxy\"]"; }
+
+# ---- Uninstall: the service, the app and picloud's own tailscale serve go; the data and logs stay.
 
 if [[ $UNINSTALL == 1 ]]; then
 	step "Stop and remove the service"
@@ -147,8 +185,17 @@ if [[ $UNINSTALL == 1 ]]; then
 	else
 		note "no systemd user unit at $UNIT"
 	fi
+	TS=$(tailscale_cli || true)
+	if [[ -n $TS ]] && command -v node >/dev/null; then
+		name=$(tailnet_name)
+		if [[ -n $name && $(served_to "$name") == "http://127.0.0.1:$PORT" ]]; then
+			step "Stop serving picloud to the tailnet"
+			run "$TS" serve --https=443 off
+		fi
+	fi
 	step "Remove the app ($APP)"
 	if [[ -d $APP ]]; then run rm -rf "$APP"; else note "not installed"; fi
+	if [[ -f $CONF ]]; then run rm "$CONF"; fi
 	printf '\nYour sessions, database and backups remain in %s, and the logs in %s. Remove %s to delete them too.\n' "$DATA" "$LOGS" "$ROOT"
 	exit 0
 fi
@@ -252,6 +299,56 @@ else
 	[[ $DRY_RUN == 1 ]] || exit 1
 fi
 
+# ---- Tailscale. On, picloud is served to the tailnet at https://NAME/ and answers to that name, for a phone on the
+# tailnet; off, picloud's own serve, if it had one, comes down. Never funnel, which would put it on the internet.
+
+step "Tailscale ($TAILSCALE)"
+TS=$(tailscale_cli || true)
+TS_NAME=$([[ -n $TS ]] && tailnet_name || true)
+OURS=http://127.0.0.1:$PORT
+if [[ $TAILSCALE == on ]]; then
+	problem=""
+	if [[ -z $TS ]]; then
+		problem="--tailscale on needs Tailscale on this computer, logged in to your tailnet: https://tailscale.com/download"
+	elif [[ -z $TS_NAME ]]; then
+		problem="Tailscale is not running, not logged in, or has no MagicDNS name here. Log in, and turn on MagicDNS and HTTPS certificates in the tailnet's admin console."
+	else
+		current=$(served_to "$TS_NAME")
+		if [[ -n $current && $current != "$OURS" ]]; then
+			problem="tailscale serve already sends https://$TS_NAME/ to $current. Free it ($TS serve --https=443 off), or leave --tailscale off, and run this again."
+		fi
+	fi
+	if [[ -n $problem ]]; then
+		echo "$problem" >&2
+		[[ $DRY_RUN == 1 ]] || exit 1
+		TS_NAME=""
+	else
+		note "this computer on the tailnet: $TS_NAME"
+		if ! run "$TS" serve --bg --https=443 "$OURS"; then
+			echo "tailscale serve was refused. On Linux it needs root or Tailscale's operator: sudo tailscale set --operator=$USER, then run this again." >&2
+			exit 1
+		fi
+	fi
+elif [[ -n $TS_NAME && $(served_to "$TS_NAME") == "$OURS" ]]; then
+	run "$TS" serve --https=443 off
+	TS_NAME=""
+else
+	note "off: picloud answers at $URL only"
+	TS_NAME=""
+fi
+
+# What the service is told beyond the basics: the tailnet name it answers to, and the logins it lets in through it.
+plist_env=""
+unit_env=""
+if [[ -n $TS_NAME ]]; then
+	plist_env+=$'\n\t\t<key>PICLOUD_ALLOWED_HOSTS</key>\n\t\t<string>'"$(xml "$TS_NAME")</string>"
+	unit_env+=$'\n'"Environment=\"PICLOUD_ALLOWED_HOSTS=$(unit_value "$TS_NAME")\""
+fi
+if [[ -n $ALLOWED_LOGINS ]]; then
+	plist_env+=$'\n\t\t<key>PICLOUD_ALLOWED_LOGINS</key>\n\t\t<string>'"$(xml "$ALLOWED_LOGINS")</string>"
+	unit_env+=$'\n'"Environment=\"PICLOUD_ALLOWED_LOGINS=$(unit_value "$ALLOWED_LOGINS")\""
+fi
+
 # ---- The service. launchd and systemd start it with almost no environment, so it gets the PATH your login shell
 # builds (Homebrew, nvm and the like), which is what the agent's commands then find.
 
@@ -288,7 +385,7 @@ if [[ $SYSTEM == macos ]]; then
 		<key>PICLOUD_DATA_DIR</key>
 		<string>$(xml "$DATA")</string>
 		<key>PICLOUD_PORT</key>
-		<string>$PORT</string>
+		<string>$PORT</string>$plist_env
 	</dict>
 	<key>RunAtLoad</key>
 	<true/>
@@ -315,7 +412,7 @@ WorkingDirectory=$(unit_value "$APP")
 Environment="PATH=$(unit_value "$SERVICE_PATH")"
 Environment=PICLOUD_ONPREM=on
 Environment="PICLOUD_DATA_DIR=$(unit_value "$DATA")"
-Environment=PICLOUD_PORT=$PORT
+Environment=PICLOUD_PORT=$PORT$unit_env
 ExecStart="$(unit_value "$NODE")" --disable-warning=ExperimentalWarning "$(unit_value "$APP/src/server/main.ts")"
 Restart=on-failure
 RestartSec=5
@@ -354,8 +451,20 @@ else
 		exit 1
 	fi
 fi
+# Kept for the next run, which updates picloud with the same choices unless told otherwise.
+write_file "$CONF" 0644 "$OWNER" <<EOF
+SPEECH=$SPEECH
+MEMORY_LOCAL=$MEMORY_LOCAL
+PORT=$PORT
+REF=$REF
+TAILSCALE=$TAILSCALE
+ALLOWED_LOGINS=$ALLOWED_LOGINS
+EOF
 
 printf '\npicloud OnPrem %s at %s\n' "$([[ $DRY_RUN == 1 ]] && echo "would run" || echo "is running")" "$URL"
+if [[ -n $TS_NAME ]]; then
+	printf 'On your phone, with Tailscale connected: https://%s/ (in Safari, Share, then Add to Home Screen).\n' "$TS_NAME"
+fi
 printf 'Logs: %s. Run this again to update it, or with --uninstall to remove it.\n' "$logs"
 if [[ $SYSTEM == macos ]]; then
 	# A LaunchAgent's commands are refused Documents, Desktop and Downloads until the person allows it; the README says how.

@@ -6,7 +6,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, test } from "node:test";
 import type { ApiError } from "../src/shared/api.ts";
-import { clientOwner } from "../src/server/callers.ts";
+import { admits, clientOwner } from "../src/server/callers.ts";
 import { ConfigError, readConfig } from "../src/server/config.ts";
 import { TestServer } from "./helpers.ts";
 
@@ -139,7 +139,7 @@ describe("access and configuration", () => {
 		assert.throws(() => readConfig({ ...base, PICLOUD_ONPREM: "1" }), /PICLOUD_ONPREM must be on or off/);
 		// No agent token is needed, the sandbox is off, and Pi's real configuration is the person's own.
 		const onPrem = readConfig({ ...base, PICLOUD_ONPREM: "on", HOME: "/home/someone" });
-		assert.deepEqual(onPrem.onPrem, { home: "/home/someone" });
+		assert.deepEqual(onPrem.onPrem, { home: "/home/someone", hosts: [] });
 		assert.equal(onPrem.port, 2025);
 		assert.equal(onPrem.host, "127.0.0.1", "still loopback only");
 		assert.equal(onPrem.sandbox, false);
@@ -149,7 +149,13 @@ describe("access and configuration", () => {
 		assert.equal(readConfig({ ...base, PICLOUD_ONPREM: "on", PICLOUD_SANDBOX: "off" }).sandbox, false);
 		assert.equal(readConfig({ ...base, PICLOUD_ONPREM: "on", PICLOUD_FAKE: "1" }).fake, true, "fake mode combines with it");
 		assert.throws(() => readConfig({ ...base, PICLOUD_ONPREM: "on", PICLOUD_SANDBOX: "on" }), /PICLOUD_SANDBOX=on cannot be combined with PICLOUD_ONPREM=on/);
-		assert.throws(() => readConfig({ ...base, PICLOUD_ONPREM: "on", PICLOUD_ALLOWED_LOGINS: "a@b.c" }), /PICLOUD_ALLOWED_LOGINS cannot be combined/);
+		// Reached through Tailscale too, from a phone: the names it is served under, and the logins let in through it.
+		const tailnet = readConfig({ ...base, PICLOUD_ONPREM: "on", PICLOUD_ALLOWED_HOSTS: " Mac.Tail1234.ts.net., other.example ", PICLOUD_ALLOWED_LOGINS: "Me@Example.com" });
+		assert.deepEqual(tailnet.onPrem?.hosts, ["mac.tail1234.ts.net", "other.example"]);
+		assert.deepEqual(tailnet.allowedLogins, ["me@example.com"]);
+		assert.throws(() => readConfig({ ...base, PICLOUD_ONPREM: "on", PICLOUD_ALLOWED_HOSTS: "https://mac.ts.net" }), /PICLOUD_ALLOWED_HOSTS must be host names/);
+		assert.throws(() => readConfig({ ...base, PICLOUD_ONPREM: "on", PICLOUD_ALLOWED_HOSTS: "mac.ts.net:443" }), /without a scheme or port/);
+		assert.throws(() => readConfig({ ...base, PICLOUD_AGENT_GH_TOKEN: "t", PICLOUD_ALLOWED_HOSTS: "mac.ts.net" }), /PICLOUD_ALLOWED_HOSTS applies only with PICLOUD_ONPREM=on/);
 		assert.throws(() => readConfig({ ...base, PICLOUD_ONPREM: "on", PICLOUD_AGENT_GH_TOKEN: "t" }), /PICLOUD_AGENT_GH_TOKEN cannot be combined/);
 		assert.throws(() => readConfig({ ...base, PICLOUD_ONPREM: "on", PICLOUD_HOST: "0.0.0.0" }), /not a loopback address/);
 	});
@@ -215,6 +221,44 @@ describe("access and configuration", () => {
 			await server.close();
 			await rm(home, { recursive: true, force: true });
 		}
+	});
+
+	test("OnPrem answers to its tailnet names too, and lets in through them only the allowed Tailscale logins", async () => {
+		const home = await mkdtemp(join(tmpdir(), "picloud-home-"));
+		const server = await TestServer.start({ env: { PICLOUD_ONPREM: "on", HOME: home, PICLOUD_ALLOWED_HOSTS: "mac.tail1234.ts.net", PICLOUD_ALLOWED_LOGINS: "me@example.com" } });
+		try {
+			const { port } = new URL(server.app.url);
+			const get = (host: string, login?: string) => raw(server.app.url, "GET", "/api/bootstrap", login === undefined ? { host } : { host, "tailscale-user-login": login });
+			// tailscale serve names picloud as the phone asked, without a port on 443, and adds the login.
+			assert.equal((await get("mac.tail1234.ts.net", "me@example.com")).status, 200);
+			assert.equal((await get("MAC.tail1234.ts.net:443", "Me@Example.com")).status, 200);
+			const stranger = await get("mac.tail1234.ts.net", "someone@else.com");
+			assert.equal(stranger.status, 403);
+			assert.match(stranger.error ?? "", /Tailscale login is not allowed/);
+			assert.equal((await get("mac.tail1234.ts.net")).status, 403, "through the tailnet without a login");
+			// The computer's own browser, at localhost, needs no login; one that claims a login is held to it.
+			assert.equal((await get(`localhost:${port}`)).status, 200);
+			assert.equal((await get(`localhost:${port}`, "someone@else.com")).status, 403);
+			const elsewhere = await get("other.tail1234.ts.net");
+			assert.equal(elsewhere.status, 403);
+			assert.match(elsewhere.error ?? "", /PICLOUD_ALLOWED_HOSTS/);
+			// A change through the tailnet comes from picloud's page at that name.
+			const post = (origin: string) =>
+				raw(server.app.url, "POST", "/api/push/subscribe", { host: "mac.tail1234.ts.net", "tailscale-user-login": "me@example.com", "content-type": "application/json", "sec-fetch-site": "same-origin", origin }, SUBSCRIPTION);
+			assert.equal((await post("https://mac.tail1234.ts.net")).status, 200);
+			assert.equal((await post("https://evil.example")).status, 403);
+		} finally {
+			await server.close();
+			await rm(home, { recursive: true, force: true });
+		}
+	});
+
+	test("the caller check admits, on a server, anyone but picloud's own user; in OnPrem, that user and root", () => {
+		assert.equal(admits("others", 0, 999), true, "tailscaled, as root");
+		assert.equal(admits("others", 999, 999), false, "the agent's commands");
+		assert.equal(admits("own", 999, 999), true, "the person's browser");
+		assert.equal(admits("own", 0, 999), true, "tailscale serve, as root");
+		assert.equal(admits("own", 1001, 999), false, "another user of the computer");
 	});
 
 	test("OnPrem on Linux lets in only its own user, whose browser it serves, and never trusts a Tailscale header", async () => {
