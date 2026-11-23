@@ -959,6 +959,23 @@ by reading Pi's files. *Alternatives:* a wrapper that sources the login shell at
 person's shell profile, prompts and all, under launchd; Homebrew services or a `.app`, each one more thing to package
 for one platform only.
 
+**One decision tree installs picloud anywhere: `install.sh` at the root.** Four ways to run picloud — remote
+sandboxed (a server over SSH, the systemd installer), remote full (OnPrem over SSH as a user it creates), local
+sandboxed (Docker on this computer), local full (OnPrem here, sharing `~/.pi/agent` or standalone in
+`~/.picloud/pi-agent`) — chosen by three questions: container or not, this computer or a server, then the flags. A
+remote server is reached as root over SSH and the script refuses to proceed without a key already installed
+(`ssh -o BatchMode=yes`), because a password prompt would hang a non-interactive run and an unauthenticated host is
+not a place to install. Remote full copies this computer's credentials to the new user: the `gh` token (piped, never
+printed) and the Pi configuration — `~/.pi/agent` for `overlap`, or a standalone `~/.picloud/pi-agent` for
+`standalone`, which is what `PI_CODING_AGENT_DIR` then points at, so no packages, extensions or skills overlap with
+the person's own Pi. Standalone writes a minimal `settings.json` (default provider and model only) and an empty
+`auth.json`: an OAuth entry there would fight the one in `~/.pi/agent` over refresh-token rotation, and the provider
+key in `models.json` is what picloud signs with. `deploy/onprem.sh` remains as a shim for `install.sh --local-full`.
+*Alternatives:* one installer per platform, which is what the tree replaces — the four paths share the OnPrem
+implementation rather than duplicating it; a wrapper that shells out to `deploy/onprem.sh` for the remote full path,
+which cannot run the OnPrem steps on the server without a checkout there (the piped-from-curl path clones one and
+re-runs itself instead).
+
 ## Dependencies
 
 Pinned exactly, with the lockfile committed: the five `@earendil-works/*` packages at 1.6.0; `preact`, `marked` and

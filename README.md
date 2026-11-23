@@ -246,6 +246,42 @@ database.
 - The phone app sanitizes the agent's Markdown (DOMPurify) and is served with a restrictive Content Security Policy.
 - OnPrem's security model is different, and much weaker by design: see [PiCloud OnPrem](#picloud-onprem).
 
+## Install
+
+One script decides how and where picloud runs, and installs (or updates) it there:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/taylorsatula/picloud/main/install.sh | bash -s --
+```
+
+Three questions: **container or not**, **this computer or a remote server**, then **the flags** (each with a default).
+With no terminal, the answers come from flags instead.
+
+| | This computer | A remote server (over SSH) |
+|---|---|---|
+| **Container (sandboxed)** | Docker on this computer; nothing published on its ports, access through the tailnet | `deploy/install.sh` on the server: a systemd service as its own user, agent commands confined by Landlock |
+| **Full access** | OnPrem: as you, at http://localhost:2025, sharing your Pi configuration — or totally standalone in `~/.picloud/pi-agent` | OnPrem over SSH: creates a user (default `taylor`) with sudo, copies your GitHub and Pi credentials to it, installs as that user |
+
+```bash
+install.sh                                  # ask the three questions
+install.sh --where local --how full --pi-config standalone
+install.sh --where remote --remote 1.2.3.4 --how sandboxed
+install.sh --local-full                     # only the OnPrem path (what deploy/onprem.sh runs)
+install.sh --dry-run ...                    # show every step, change nothing
+```
+
+- **A remote server needs an SSH key already installed** (`ssh-copy-id root@IP`); without one the script stops and
+  says so. The remote paths run as root on the server.
+- **Full access on a remote server copies credentials**: your `gh` token (for cloning and pushing) and your Pi
+  configuration — `~/.pi/agent` for `overlap`, or a standalone `~/.picloud/pi-agent` for `standalone`. Sessions and
+  backups stay behind.
+- **`--pi-config standalone`** gives picloud its own Pi directory (`~/.picloud/pi-agent`, override with
+  `--pi-agent-dir`): its own `models.json`, a minimal `settings.json` and an empty `auth.json`, with
+  `PI_CODING_AGENT_DIR` set in the service. No packages, extensions or skills overlap with your `~/.pi/agent`.
+- Every install updates in place when run again; the OnPrem path keeps its choices in `~/.picloud/onprem.conf`, the
+  tree's in `~/.picloud/install.conf`.
+- `deploy/onprem.sh` remains as a shim for `install.sh --local-full`.
+
 ## Deploy
 
 Deployment is Part B of [RUNBOOK-OPEN.md](RUNBOOK-OPEN.md) and happens only when someone deliberately deploys. On a
@@ -377,9 +413,9 @@ your tailnet, for your phone, whether the computer is a laptop or a server somew
 ### Install, update and uninstall
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/taylorsatula/picloud/main/deploy/onprem.sh | bash -s --
+curl -fsSL https://raw.githubusercontent.com/taylorsatula/picloud/main/install.sh | bash -s -- --local-full
 # Every flag is optional; see every step first with --dry-run:
-curl -fsSL https://raw.githubusercontent.com/taylorsatula/picloud/main/deploy/onprem.sh | bash -s -- --dry-run --port 2026
+curl -fsSL https://raw.githubusercontent.com/taylorsatula/picloud/main/install.sh | bash -s -- --local-full --dry-run --port 2026
 ```
 
 | Flag | Default | Meaning |
@@ -514,7 +550,7 @@ src/client/     the phone app (Preact), bundled by scripts/build.ts
 src/sw/         the service worker
 test/           automated tests (node:test)
 e2e/            end-to-end tests (Playwright)
-deploy/         the installers (install.sh for a server, onprem.sh for your own computer), the local models' download,
-                and the serve config for the Docker setup (Dockerfile and compose.yaml are at the root)
+deploy/         the server installer (install.sh), the OnPrem shim (onprem.sh), the local models' download,
+                and the serve config for the Docker setup (Dockerfile and compose.yaml are at the root); install.sh at the root is the decision tree
 models/         the local models, once deploy/models.sh has fetched them (not in git)
 ```

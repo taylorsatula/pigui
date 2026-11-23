@@ -162,13 +162,13 @@ test("the trim script's dry run masks only installed units, adds swap, caps the 
 // picloud OnPrem's installer, as a dry run only: never for real here. Each run gets a temporary home, and stand-ins
 // early on PATH for uname (the system it believes it is on), the login shell (the PATH it captures), systemctl and,
 // when asked, the tailscale CLI: logged in as `name`, with https://name/ served to `servedTo`.
-const onprem = join(import.meta.dirname, "..", "deploy", "onprem.sh");
+const install = join(import.meta.dirname, "..", "install.sh");
 
-type OnPremRun = { status: number | null; stdout: string; stderr: string; home: string };
+type OnPremRun = { status: number | null; stdout: string; stderr: string; home: string; node: string };
 
 type TailscaleStub = { name: string; servedTo?: string };
 
-function onPremDryRun(system: "Darwin" | "Linux", args: string[], prepare?: (home: string) => void, tailscale?: TailscaleStub): OnPremRun {
+function onPremDryRun(system: "Darwin" | "Linux", args: string[], prepare?: (home: string) => void, tailscale?: TailscaleStub, hideTailscale = false): OnPremRun {
 	const home = mkdtempSync(join(tmpdir(), "picloud-onprem-home-"));
 	const bin = mkdtempSync(join(tmpdir(), "picloud-onprem-bin-"));
 	const stub = (name: string, body: string) => {
@@ -187,13 +187,19 @@ function onPremDryRun(system: "Darwin" | "Linux", args: string[], prepare?: (hom
 			`case "$1 $2" in\n"status --json") echo '${JSON.stringify({ Self: { DNSName: `${tailscale.name}.` } })}' ;;\n"serve status") echo '${JSON.stringify(serve)}' ;;\n*) echo "tailscale $*" ;;\nesac`,
 		);
 	}
+	// A PATH without any directory holding a tailscale binary, for the case where this computer has none.
+	const pathDirs = (process.env.PATH ?? "").split(":").filter((dir) => !hideTailscale || !existsSync(join(dir, "tailscale")));
+	const path = `${bin}:${pathDirs.join(":")}`;
 	try {
 		prepare?.(home);
-		const result = spawnSync("bash", [onprem, "--dry-run", ...args], {
+		const node = spawnSync("bash", ["-c", "command -v node"], { encoding: "utf8", env: { ...process.env, PATH: path } }).stdout.trim();
+		const state = mkdtempSync(join(tmpdir(), "picloud-onprem-state-"));
+		const result = spawnSync("bash", [install, "--local-full", "--dry-run", ...args], {
 			encoding: "utf8",
-			env: { ...process.env, HOME: home, SHELL: join(bin, "login-shell"), PATH: `${bin}:${process.env.PATH ?? ""}`, XDG_CONFIG_HOME: "", PICLOUD_ONPREM_FETCHED: "" },
+			env: { ...process.env, HOME: home, SHELL: join(bin, "login-shell"), PATH: path, XDG_CONFIG_HOME: "", XDG_STATE_HOME: state, PICLOUD_ONPREM_FETCHED: "", ...(hideTailscale ? { PICLOUD_TAILSCALE_APP: join(bin, "no-such-app") } : {}) },
 		});
-		return { status: result.status, stdout: result.stdout, stderr: result.stderr, home };
+		rmSync(state, { recursive: true, force: true });
+		return { status: result.status, stdout: result.stdout, stderr: result.stderr, home, node };
 	} finally {
 		rmSync(bin, { recursive: true, force: true });
 	}
@@ -202,13 +208,13 @@ function onPremDryRun(system: "Darwin" | "Linux", args: string[], prepare?: (hom
 const stepsOf = (stdout: string) => [...stdout.matchAll(/^== \d+\. (.+)$/gm)].map((match) => match[1]);
 
 test("the OnPrem installer passes a syntax check, and says how to use it", () => {
-	assert.equal(spawnSync("bash", ["-n", onprem], { encoding: "utf8" }).status, 0);
-	const help = spawnSync("bash", [onprem, "--help"], { encoding: "utf8" });
+	assert.equal(spawnSync("bash", ["-n", install], { encoding: "utf8" }).status, 0);
+	const help = spawnSync("bash", [install, "--local-full", "--help"], { encoding: "utf8" });
 	assert.equal(help.status, 0);
 	for (const flag of ["--speech on|off", "--memory-local on|off", "--port PORT", "--ref REF", "--tailscale on|off", "--allowed-logins LIST", "--dry-run", "--uninstall", "-h, --help"]) {
 		assert.ok(help.stdout.includes(flag), flag);
 	}
-	assert.match(help.stdout, /curl -fsSL https:\/\/raw\.githubusercontent\.com\/taylorsatula\/picloud\/main\/deploy\/onprem\.sh \| bash -s --/);
+	assert.match(help.stdout, /curl -fsSL https:\/\/raw\.githubusercontent\.com\/taylorsatula\/picloud\/main\/install\.sh \| bash -s --/);
 });
 
 test("its dry run on macOS writes a LaunchAgent with the login shell's PATH, OnPrem on, and changes nothing", () => {
@@ -233,7 +239,7 @@ test("its dry run on macOS writes a LaunchAgent with the login shell's PATH, OnP
 		const plist = join(run.home, "Library", "LaunchAgents", "com.github.taylorsatula.picloud.plist");
 		assert.ok(run.stdout.includes(`[dry run] write ${plist} (mode 0644`), run.stdout);
 		const written = run.stdout.slice(run.stdout.indexOf("<?xml")).split("\n").filter((line) => line.startsWith("      | ")).map((line) => line.slice(8)).join("\n");
-		const node = process.execPath;
+		const node = run.node;
 		assert.ok(written.includes(`<string>${node}</string>\n\t\t<string>--disable-warning=ExperimentalWarning</string>\n\t\t<string>${app}/src/server/main.ts</string>`));
 		assert.ok(written.includes(`<key>PATH</key>\n\t\t<string>${join(node, "..")}:/opt/homebrew/bin:/home/someone/.nvm/versions/node/v22/bin:/usr/bin:/bin</string>`), "the login shell's PATH, after node's own directory");
 		assert.ok(written.includes("<key>PICLOUD_ONPREM</key>\n\t\t<string>on</string>"));
@@ -262,11 +268,11 @@ test("its dry run on Linux writes a systemd user unit, and maps the model flags 
 		assert.doesNotMatch(run.stdout, /npm prune --omit=optional/);
 		const unit = join(run.home, ".config", "systemd", "user", "picloud.service");
 		assert.ok(run.stdout.includes(`[dry run] write ${unit} (mode 0644`));
-		assert.ok(run.stdout.includes(`| Environment="PATH=${join(process.execPath, "..")}:/opt/homebrew/bin:/home/someone/.nvm/versions/node/v22/bin:/usr/bin:/bin"\n`));
+		assert.ok(run.stdout.includes(`| Environment="PATH=${join(run.node, "..")}:/opt/homebrew/bin:/home/someone/.nvm/versions/node/v22/bin:/usr/bin:/bin"\n`));
 		assert.ok(run.stdout.includes("| Environment=PICLOUD_ONPREM=on\n"));
 		assert.ok(run.stdout.includes("| Environment=PICLOUD_PORT=2025\n"));
 		assert.ok(run.stdout.includes(`| Environment="PICLOUD_DATA_DIR=${run.home}/.picloud/data"\n`));
-		assert.ok(run.stdout.includes(`| ExecStart="${process.execPath}" --disable-warning=ExperimentalWarning "${run.home}/.picloud/app/src/server/main.ts"\n`));
+		assert.ok(run.stdout.includes(`| ExecStart="${run.node}" --disable-warning=ExperimentalWarning "${run.home}/.picloud/app/src/server/main.ts"\n`));
 		assert.ok(run.stdout.includes("| RestartPreventExitStatus=78 2\n"));
 		assert.match(run.stdout, /\[dry run\] systemctl --user restart picloud\.service$/m);
 		assert.doesNotMatch(run.stdout, /^ {3}\$ /m);
@@ -349,7 +355,7 @@ test("with --tailscale on it serves picloud to the tailnet and tells the service
 	assert.doesNotMatch(taken.stdout, /serve --bg/);
 	assert.doesNotMatch(taken.stdout, /PICLOUD_ALLOWED_HOSTS/);
 	// Without Tailscale here, it says what to install.
-	const missing = onPremDryRun("Linux", ["--tailscale", "on"]);
+	const missing = onPremDryRun("Linux", ["--tailscale", "on"], undefined, undefined, true);
 	rmSync(missing.home, { recursive: true, force: true });
 	assert.match(missing.stderr, /--tailscale on needs Tailscale on this computer/);
 });

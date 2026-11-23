@@ -3,6 +3,7 @@
 import assert from "node:assert/strict";
 import { existsSync } from "node:fs";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { realpathSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { after, before, describe, test } from "node:test";
@@ -25,7 +26,7 @@ describe("local sessions in picloud OnPrem", () => {
 	let home: string;
 	let elsewhere: string;
 	before(async () => {
-		home = await mkdtemp(join(tmpdir(), "picloud-home-"));
+		home = realpathSync(await mkdtemp(join(tmpdir(), "picloud-home-")));
 		elsewhere = await mkdtemp(join(tmpdir(), "picloud-elsewhere-"));
 		await writeFile(join(home, "notes.txt"), "a note in the home directory\n");
 		await mkdir(join(home, "code", "app"), { recursive: true });
