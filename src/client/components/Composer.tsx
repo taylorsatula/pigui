@@ -18,6 +18,8 @@ type ComposerProps = {
 	disabled?: boolean;
 	/** Changes whenever something asks the composer to take focus. */
 	focusToken: number;
+	/** Take focus when shown, and whenever it can be typed in again, where the device has a keyboard (see KEYBOARD). */
+	autoFocus?: boolean;
 	files: () => Promise<string[]>;
 	skills: () => Promise<SkillSummary[]>;
 	onSend: (text: string, attachments: string[], requestId: string) => Promise<void>;
@@ -25,6 +27,13 @@ type ComposerProps = {
 };
 
 const PICKER_SIZE = 8;
+
+/**
+ * A device with a keyboard and a mouse or trackpad. There Return sends, Shift+Return writes a new line, and the field
+ * takes focus as a session opens. On a touch keyboard Return is the only way to write a new line, the send button sits
+ * beside it, and focusing the field would raise the keyboard over the conversation, so neither applies.
+ */
+const KEYBOARD = "(hover: hover) and (pointer: fine)";
 
 export function Composer(props: ComposerProps): JSX.Element {
 	const [draft, setDraft] = useState<Draft>(() => loadDraft(props.draftKey));
@@ -52,6 +61,9 @@ export function Composer(props: ComposerProps): JSX.Element {
 	useEffect(() => {
 		if (props.focusToken > 0) input.current?.focus();
 	}, [props.focusToken]);
+	useEffect(() => {
+		if (props.autoFocus === true && props.disabled !== true && matchMedia(KEYBOARD).matches) input.current?.focus();
+	}, [props.autoFocus, props.disabled, props.draftKey]);
 	useEffect(() => {
 		const element = input.current;
 		if (element === null) return;
@@ -209,11 +221,20 @@ export function Composer(props: ComposerProps): JSX.Element {
 					onInput={onInput}
 					onClick={(event) => refreshTrigger(draft.text, (event.target as HTMLTextAreaElement).selectionStart)}
 					onKeyDown={(event) => {
-						if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
+						if (event.key === "Escape") setTrigger(undefined);
+						// Not while an input method is composing: its Return confirms the text being composed.
+						if (event.key !== "Enter" || event.isComposing) return;
+						const plain = !event.shiftKey && !event.altKey && !event.metaKey && !event.ctrlKey;
+						const first = list[0];
+						if (plain && matchMedia(KEYBOARD).matches) {
+							event.preventDefault();
+							// With a picker open, Return takes its first match rather than sending half a reference.
+							if (first !== undefined) choose(first.value);
+							else void send();
+						} else if (event.metaKey || event.ctrlKey) {
 							event.preventDefault();
 							void send();
 						}
-						if (event.key === "Escape") setTrigger(undefined);
 					}}
 					onBlur={() => setTimeout(() => setTrigger(undefined), 150)}
 				/>

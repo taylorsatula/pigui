@@ -1,6 +1,6 @@
 // The transformers.js runtime that the optional on-device models load through: Kokoro for speech, and LEAF for memory's
 // embeddings. Its settings are one environment for the whole process, so they are set here, once, for both.
-// @huggingface/transformers is an optional dependency, imported only when a model is first used.
+// @huggingface/transformers is an optional dependency, imported only when a model it runs is installed.
 import { join } from "node:path";
 
 /** Where deploy/models.sh puts the models: `models` beside the sources. */

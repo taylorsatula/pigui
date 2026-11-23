@@ -188,7 +188,7 @@ ONNX exports: `MongoDB/mdbr-leaf-ir` (23M parameters, with the query prompt) for
 searched many times. Each export ends in the model's own pooling, projection and normalisation, so a vector is its
 `sentence_embedding` output as it stands. The embedder is told which side a text is on (`query` or `document`); the
 endpoint ignores it. Measured here: half a second to load, 23 ms a search, 29 ms a memory, about 300 MB resident,
-released after five idle minutes as Kokoro is. Three choices in it:
+loaded as the server starts and kept, as Kokoro is. Three choices in it:
 - **One text per forward pass.** The 8-bit exports quantize activations with one scale per tensor, taken over the whole
   batch with its padding, so a memory embedded beside others came out at cosine 0.990 to itself embedded alone. Stored
   vectors must reproduce (the golden check depends on it), so every text runs alone; re-embedding a thousand memories
@@ -536,6 +536,15 @@ swiped down, and its clock stops while a finger is on it or the app is in the ba
 hook each (`src/client/motion.ts`, `useDrawerDrag`) on touch events, which hand the remaining motion to the
 stylesheet's transitions; a gesture library would bring more than these three need.
 
+**Return sends where there is a keyboard.** With a mouse or trackpad (`(hover: hover) and (pointer: fine)`), Return
+sends, Shift+Return writes a new line, Return with the `@` or `#` picker open takes its first match rather than
+sending half a reference, and a session's field takes focus when it opens or can be typed in again. On a touch
+keyboard Return still writes a new line and nothing takes focus by itself. *Alternative:* Return sends everywhere,
+as asked. A touch keyboard's Return is the only way to write a new line there, the send button sits beside it, and
+focusing the field as a session opens would raise the keyboard over half the conversation, which is there to be read.
+The pointer, not the screen width, decides, so an iPad with a trackpad behaves like a laptop. ⌘/Ctrl+Return sends on
+both. Return never sends while an input method is composing.
+
 **The page follows the transcript's end, in one place.** `src/client/viewport.ts` keeps the end in view while the
 person is at the bottom (new content, a taller composer, a banner, the keyboard resizing the viewport), stops when they
 scroll up, re-pins when they send, and keeps the reading position by hand when earlier messages load, since Safari has
@@ -761,13 +770,32 @@ paragraph had to be written in full first, so sentences start the reading severa
 three segments ahead keeps the synthesizer busy, so it pulls ahead of playback and a long sentence after a short one
 leaves no gap.
 
-**Kokoro in picloud's own process, one synthesis at a time.** `kokoroSynthesizer` loads the model on first use and
-releases it five minutes after its last synthesis. Reading takes about 650 MB more resident memory; releasing gives back
-about 400 MB of it, and loading again takes about a second, so an occasional feature does not hold memory the agent's
-builds could use. ONNX Runtime runs on its own threads, so
+**Kokoro in picloud's own process, loaded at startup and kept, one synthesis at a time.** `kokoroSynthesizer` starts
+loading the model when the server starts (0.7 s on two vCPU, logged as `speech.ready`), and keeps it: about 600 MB
+resident. *Alternative:* load on first use and release after five idle minutes, as first built, to give the memory
+back to the agent's builds. Readings are minutes apart, so nearly every one began with a load, and on a busy server,
+whose page cache had dropped the model's file, that load ran well past its 0.7 s, all of it before the first word.
+The first synthesis after a load runs at the same speed as the next (measured), so no warm-up reading is spent. A
+failed load is logged (`speech.load`) and tried again by the next reading. ONNX Runtime runs on its own threads, so
 the event loop stalled at most 180 ms during a synthesis; a worker process would add a protocol for no gain. Requests
 queue, since two vCPU have no room for two at once. The WAV is picloud's own 16-bit PCM encoder (`src/shared/wav.ts`,
 also used by the phone): transformers.js's `toWav` writes 32-bit float, twice the bytes.
+
+**A sentence's pause, not Kokoro's padding.** Kokoro pads each reading with about 0.3 s of silence before it and 0.5 s
+after (measured on `af_heart`; the same at any threshold from 0.002 to 0.01 of full scale), which is right for one
+utterance and wrong for sentences played one after another: each was followed by most of a second of nothing, plus
+the phone's swap to the next segment, and the reading sounded halting. The synthesizer trims each segment to 50 ms
+before its first sample above 0.005 and 200 ms after its last, so the pause between sentences is that, plus the swap.
+
+**The phone waits once rather than stammering.** At 0.6 of real time the synthesizer pulls ahead of playback, except
+after a short first sentence: "What changed." plays for a second while the next sentence takes three to synthesize,
+so the reading paused for two seconds after its first words. When nothing is playing and a segment arrives, the phone
+plays it unless the segment being fetched is expected to arrive after what is ready has played, expected from how
+long the segments so far took per character; then it waits for that one. The wait moves to the start, where it reads
+as preparing, and the reading then runs on. An end-to-end test delays each segment's audio as Kokoro would and checks
+that no gap between segments reaches 250 ms; the earlier phone left 1.3 s after the first sentence. The rewrite's own
+time to its first sentence, the other part of the wait before the first words, is logged as `firstMs` on
+`speech.script`.
 
 **The voice comes from the kokoro-js package.** In Node, kokoro-js 1.2.1 reads `voices/<name>.bin` from its own
 package directory with `fs`; its Hugging Face URL is the browser's path only. That `af_heart.bin` is byte-identical

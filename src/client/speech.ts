@@ -15,6 +15,10 @@ const audio = new Audio();
 const AHEAD = 3;
 const SILENCE = URL.createObjectURL(new Blob([encodeWav(new Float32Array(2400), 24_000)], { type: "audio/wav" }));
 
+/** The server's WAV: a 44-byte header, then 16-bit mono samples at 24 kHz. */
+const WAV_HEADER = 44;
+const WAV_BYTES_PER_SECOND = 48_000;
+
 /** Each reply's script once complete, so reading it again costs no model call. */
 const scripts = new Map<string, readonly string[]>();
 
@@ -27,11 +31,16 @@ type Playback = {
 	/** The next segment to fetch. */
 	next: number;
 	fetching: boolean;
-	/** Fetched segments waiting to play, in order. */
-	ready: string[];
+	/** When the segment being fetched was asked for. */
+	fetchStarted: number;
+	/** How long the segments fetched so far took to arrive, and how many characters they held. */
+	fetchedMs: number;
+	fetchedChars: number;
+	/** Fetched segments waiting to play, in order, each with how long it plays. */
+	ready: Array<{ url: string; seconds: number }>;
 	/** What the element is playing, released when it is done with. */
 	playing: string | undefined;
-	/** The element ran out with nothing ready, so the next segment plays as soon as it arrives. */
+	/** The element ran out with nothing ready, so the next segment plays as soon as it arrives, unless `hold` waits. */
 	starved: boolean;
 };
 
@@ -40,7 +49,20 @@ let current: Playback | undefined;
 /** Read `markdown` aloud, as the reply `key` of session `session`; stops whatever was reading. Call it inside the tap. */
 export function speak(key: string, session: number, markdown: string): void {
 	stopReading();
-	const playback: Playback = { key, controller: new AbortController(), segments: [], complete: false, next: 0, fetching: false, ready: [], playing: undefined, starved: false };
+	const playback: Playback = {
+		key,
+		controller: new AbortController(),
+		segments: [],
+		complete: false,
+		next: 0,
+		fetching: false,
+		fetchStarted: 0,
+		fetchedMs: 0,
+		fetchedChars: 0,
+		ready: [],
+		playing: undefined,
+		starved: false,
+	};
 	current = playback;
 	store.set({ reading: { key, state: "preparing" } });
 	// Within the tap, before anything waits: this is what lets the element play later without one.
@@ -73,7 +95,7 @@ export function stopReading(): void {
 	if (playback === undefined) return;
 	current = undefined;
 	playback.controller.abort();
-	for (const url of playback.ready) release(url);
+	for (const { url } of playback.ready) release(url);
 	release(playback.playing);
 	audio.pause();
 	audio.removeAttribute("src");
@@ -109,18 +131,35 @@ function fetchNext(playback: Playback): void {
 	if (text === undefined) return;
 	playback.next++;
 	playback.fetching = true;
+	playback.fetchStarted = performance.now();
 	api.speech(text, playback.controller.signal).then(
 		(blob) => {
 			playback.fetching = false;
 			if (playback !== current) return;
-			const url = URL.createObjectURL(blob);
-			if (playback.starved) play(playback, url);
-			else playback.ready.push(url);
+			playback.fetchedMs += performance.now() - playback.fetchStarted;
+			playback.fetchedChars += text.length;
+			playback.ready.push({ url: URL.createObjectURL(blob), seconds: (blob.size - WAV_HEADER) / WAV_BYTES_PER_SECOND });
 			fetchNext(playback);
+			const next = playback.starved && !hold(playback) ? playback.ready.shift() : undefined;
+			if (next !== undefined) play(playback, next.url);
 			finishIfDone(playback);
 		},
 		(error: unknown) => fail(playback, error),
 	);
+}
+
+/**
+ * Whether to wait for the segment being fetched before playing what is ready, when nothing plays: it is expected to
+ * arrive after what is ready has played, so playing now would leave a gap in the reading. That happens after a short
+ * first sentence (a heading, "Done."), since the server reads at about 0.6 of real time: one wait at the start
+ * rather than a stammer after the first words. Expected from how long the segments so far took per character.
+ */
+function hold(playback: Playback): boolean {
+	const fetching = playback.segments[playback.next - 1];
+	if (!playback.fetching || fetching === undefined || playback.fetchedChars === 0) return false;
+	const expected = (playback.fetchedMs / playback.fetchedChars) * fetching.length - (performance.now() - playback.fetchStarted);
+	const ready = playback.ready.reduce((total, segment) => total + segment.seconds, 0);
+	return expected > ready * 1000;
 }
 
 function finishIfDone(playback: Playback): void {
@@ -137,7 +176,7 @@ audio.addEventListener("ended", () => {
 		finishIfDone(playback);
 		return;
 	}
-	play(playback, next);
+	play(playback, next.url);
 	fetchNext(playback);
 });
 

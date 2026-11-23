@@ -7,7 +7,8 @@ import { silentLogger } from "../src/server/log.ts";
 import { kokoroInstalled, kokoroSynthesizer } from "../src/server/speech/kokoro.ts";
 import { context, TestServer } from "./helpers.ts";
 
-type Wav = { riff: string; wave: string; format: number; channels: number; rate: number; bits: number; dataBytes: number; seconds: number; peak: number };
+/** `lead` and `trail`: the seconds of silence before the first sample above 1% of full scale and after the last. */
+type Wav = { riff: string; wave: string; format: number; channels: number; rate: number; bits: number; dataBytes: number; seconds: number; peak: number; lead: number; trail: number };
 
 function readWav(bytes: Uint8Array): Wav {
 	const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
@@ -15,8 +16,20 @@ function readWav(bytes: Uint8Array): Wav {
 	const rate = view.getUint32(24, true);
 	const dataBytes = view.getUint32(40, true);
 	let peak = 0;
-	for (let offset = 44; offset + 1 < bytes.length; offset += 2) peak = Math.max(peak, Math.abs(view.getInt16(offset, true)) / 0x7fff);
-	return { riff: text(0), wave: text(8), format: view.getUint16(20, true), channels: view.getUint16(22, true), rate, bits: view.getUint16(34, true), dataBytes, seconds: dataBytes / 2 / rate, peak };
+	let first: number | undefined;
+	let last = 0;
+	const samples = dataBytes / 2;
+	for (let index = 0; index < samples; index++) {
+		const level = Math.abs(view.getInt16(44 + 2 * index, true)) / 0x7fff;
+		peak = Math.max(peak, level);
+		if (level >= 0.01) {
+			first ??= index;
+			last = index;
+		}
+	}
+	const lead = (first ?? samples) / rate;
+	const trail = first === undefined ? 0 : (samples - 1 - last) / rate;
+	return { riff: text(0), wave: text(8), format: view.getUint16(20, true), channels: view.getUint16(22, true), rate, bits: view.getUint16(34, true), dataBytes, seconds: samples / rate, peak, lead, trail };
 }
 
 /** Every line of a speech script, with when each arrived. */
@@ -195,10 +208,12 @@ describe("reading a reply aloud", () => {
 		}
 	});
 
-	test("real Kokoro reads a short phrase", { skip: installed ? false : "the speech model is not installed: deploy/models.sh models speech" }, async () => {
+	test("real Kokoro reads a short phrase, with only a sentence's pause of silence around it", { skip: installed ? false : "the speech model is not installed: deploy/models.sh models speech" }, async () => {
 		const wav = readWav(await kokoroSynthesizer(silentLogger).synthesize("picloud reads replies aloud.", new AbortController().signal));
 		assert.equal(wav.rate, 24_000);
 		assert.ok(wav.seconds > 1 && wav.seconds < 6, `${wav.seconds} s`);
 		assert.ok(wav.peak > 0.1, "it is not silence");
+		// Kokoro pads with about 0.3 s before and 0.5 s after; one segment follows another, so most of it goes.
+		assert.ok(wav.lead < 0.1 && wav.trail < 0.3, `${wav.lead.toFixed(3)} s before, ${wav.trail.toFixed(3)} s after`);
 	});
 });

@@ -45,17 +45,20 @@ export class Speech {
 	async script(id: number, model: Model<Api>, markdown: string, send: (line: ScriptLine) => void, signal: AbortSignal, context: Context): Promise<void> {
 		const started = Date.now();
 		let count = 0;
+		// How long the model took to its first sentence: the part of the wait before the first words that is not synthesis.
+		let firstMs: number | undefined;
 		const result = await writeScript(this.#deps.agent.models(), model, markdown, {
 			now: this.#deps.now(),
 			signal,
 			segment: (text) => {
 				count++;
+				firstMs ??= Date.now() - started;
 				send({ t: "segment", text });
 			},
 		});
 		const spend = result.spend;
 		if (spend !== undefined) await this.#deps.harness().commit((tx) => countSpend(tx, id as ConversationId, spend), context);
-		this.#deps.log.info("speech.script", { session: id, segments: count, ms: Date.now() - started, failed: result.problem !== undefined });
+		this.#deps.log.info("speech.script", { session: id, segments: count, firstMs, ms: Date.now() - started, failed: result.problem !== undefined });
 		if (result.problem === undefined) send({ t: "done" });
 		else send({ t: "error", error: `The model could not prepare the reply for reading: ${result.problem}`, hint: "Tap the speaker to try again." });
 	}

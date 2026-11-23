@@ -55,52 +55,41 @@ async function load() {
 	};
 }
 
-/** How long the models stay loaded after their last use: releasing them gives back about 300 MB, and loading takes half a second. */
-const IDLE_MS = 5 * 60_000;
-
 /**
- * LEAF, loaded on first use and released after five idle minutes. Both exports end in the model's own pooling and
- * normalisation (mean and a dense projection to 768 dimensions for the query model, the CLS token for arctic), as the
- * `sentence_embedding` output, so a text's vector is that output as it stands.
+ * LEAF, loaded as the server starts (in about half a second) and kept, about 300 MB resident. Both exports end in the
+ * model's own pooling and normalisation (mean and a dense projection to 768 dimensions for the query model, the CLS
+ * token for arctic), as the `sentence_embedding` output, so a text's vector is that output as it stands. A load that
+ * fails is logged and tried again by the next embedding.
  */
 export function leafEmbedder(log: Logger): Embedder {
 	let models: ReturnType<typeof load> | undefined;
-	let busy = 0;
-	let idle: NodeJS.Timeout | undefined;
-	const release = () => {
-		const loaded = models;
-		models = undefined;
-		loaded
-			?.then((both) => Promise.all([both.query.model.dispose(), both.document.model.dispose()]))
-			.catch((error: unknown) => log.error("memory.release", { error: errorKind(error) }));
-	};
+	const loaded = () =>
+		(models ??= load().catch((error: unknown) => {
+			models = undefined;
+			throw error;
+		}));
+	const started = Date.now();
+	loaded().then(
+		() => log.info("memory.ready", { ms: Date.now() - started }),
+		(error: unknown) => log.error("memory.load", { error: errorKind(error) }),
+	);
 	return {
 		model: "mdbr-leaf-ir-asym",
 		floor: LEAF_FLOOR,
 		async embed(texts, kind, signal) {
 			if (texts.length === 0) return [];
-			busy++;
-			clearTimeout(idle);
-			try {
-				models ??= load().catch((error: unknown) => {
-					models = undefined;
-					throw error;
-				});
-				const { tokenizer, model } = (await models)[kind];
-				// One text per pass. The 8-bit models quantize their activations with one scale per tensor, taken over the
-				// whole batch, padding included, so in a batch a text's vector depends on the texts beside it (cosine 0.990
-				// to the same text alone, measured). Alone, a vector is a function of its text, as stored vectors must be.
-				const vectors: Float32Array[] = [];
-				for (const text of texts) {
-					signal?.throwIfAborted();
-					const inputs = await tokenizer(kind === "query" ? QUERY_PROMPT + text : text, { truncation: true });
-					const { sentence_embedding: embedding } = await model(inputs);
-					vectors.push((embedding.data as Float32Array).slice());
-				}
-				return vectors;
-			} finally {
-				if (--busy === 0) idle = setTimeout(release, IDLE_MS).unref();
+			const { tokenizer, model } = (await loaded())[kind];
+			// One text per pass. The 8-bit models quantize their activations with one scale per tensor, taken over the
+			// whole batch, padding included, so in a batch a text's vector depends on the texts beside it (cosine 0.990
+			// to the same text alone, measured). Alone, a vector is a function of its text, as stored vectors must be.
+			const vectors: Float32Array[] = [];
+			for (const text of texts) {
+				signal?.throwIfAborted();
+				const inputs = await tokenizer(kind === "query" ? QUERY_PROMPT + text : text, { truncation: true });
+				const { sentence_embedding: embedding } = await model(inputs);
+				vectors.push((embedding.data as Float32Array).slice());
 			}
+			return vectors;
 		},
 	};
 }

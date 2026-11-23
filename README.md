@@ -146,10 +146,12 @@ stops. Reading goes on with the phone locked.
   the first words come once the first sentence is ready. The rewrite is one small model call per reply,
   counted in the session's spend; reading the same reply again reuses its script.
 - **The voice** is [Kokoro-82M](https://huggingface.co/onnx-community/Kokoro-82M-v1.0-ONNX) through `kokoro-js`, the
-  8-bit model on the CPU, in the `af_heart` voice. It loads on first use, takes about 650 MB of memory while it reads, and
-  gives about 400 MB of that back after five idle minutes; loading again takes a second. On two vCPU, synthesis takes
-  about 0.6 of the speech's own length: a sentence takes about 3 seconds, so reading starts that long after the first
-  sentence is written, and then stays ahead. One segment is read at a time.
+  8-bit model on the CPU, in the `af_heart` voice. It loads as the server starts (`speech.ready` in the log) and stays
+  loaded, about 600 MB of memory. On two vCPU, synthesis takes about 0.6 of the speech's own length: a sentence takes
+  about 3 seconds, so reading starts that long after the first sentence is written, and then stays ahead. After a
+  short first sentence the phone waits for the next before it starts, so the reading does not stop after its first
+  words. Kokoro's padding around each sentence is trimmed to a sentence's pause. One segment is read at a time. The log
+  line `speech.script` gives the rewrite's time to its first sentence (`firstMs`), the other part of the wait.
 - **Nothing leaves the machine for speech** apart from the rewrite, which goes to the session's model provider like
   the reply itself. The model is fetched at build or install time, from a pinned Hugging Face revision with checked
   checksums (`deploy/models.sh`); at run time picloud loads it from `models/` beside the sources and touches no
@@ -177,8 +179,8 @@ database.
   - **On this server,** when it is built with the local model: [LEAF](https://huggingface.co/MongoDB/mdbr-leaf-ir-asym)
     (`mdbr-leaf-ir-asym`), 8-bit on the CPU, with no key and no network. A search is embedded by the 23M-parameter
     `mdbr-leaf-ir`; a memory, embedded once and searched many times, by `snowflake-arctic-embed-m-v1.5`, whose vector
-    space LEAF was distilled into. It loads on first use (half a second), takes about 300 MB while it embeds and gives
-    it back after five idle minutes; a search embeds in about 25 ms. With Docker, `PICLOUD_MEMORY_LOCAL=on` in `.env`
+    space LEAF was distilled into. It loads as the server starts (half a second, `memory.ready` in the log) and stays
+    loaded, about 300 MB; a search embeds in about 25 ms. With Docker, `PICLOUD_MEMORY_LOCAL=on` in `.env`
     builds it in (about 135 MB of models); the installer takes `--memory-local on`. Its similarity floor was measured
     on a small set, so its search is less proven than `emb-qwen3`'s.
   - **From an OpenAI-compatible endpoint** otherwise, by default `emb-qwen3` through LunaRoute, signed with the key Pi

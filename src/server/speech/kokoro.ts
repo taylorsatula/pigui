@@ -1,5 +1,5 @@
 // Speech synthesis with Kokoro-82M through kokoro-js: the 8-bit model on the CPU, in the af_heart voice. kokoro-js is an
-// optional dependency that a build leaves out with PICLOUD_SPEECH=off, so it is imported only when speech is first used.
+// optional dependency that a build leaves out with PICLOUD_SPEECH=off, so it is imported only where it is installed.
 // deploy/models.sh bakes the model into the app's models directory; the voice ships inside kokoro-js, which reads
 // it from its own package in Node. At runtime nothing touches the network or writes a cache (see transformers.ts): the
 // container's root is read-only.
@@ -39,44 +39,52 @@ async function load() {
 	return KokoroTTS.from_pretrained(MODEL, { dtype: "q8", device: "cpu" });
 }
 
-/** How long Kokoro stays loaded after it last read: releasing it gives back about 400 MB, and loading again takes a second. */
-const IDLE_MS = 5 * 60_000;
+/**
+ * Silence kept around a segment's speech. Kokoro pads each one with about 0.3 s before it and 0.5 s after (measured on
+ * af_heart, the same at any threshold from 0.002 to 0.01), so sentences read one after another would each be followed
+ * by most of a second of nothing. What is kept, with the phone's swap to the next segment, makes a sentence's pause.
+ */
+const KEEP_BEFORE_S = 0.05;
+const KEEP_AFTER_S = 0.2;
+/** Below this the padding lies; speech rises far above it within a few milliseconds of its start. */
+const QUIET = 0.005;
+
+function trimSilence(samples: Float32Array, rate: number): Float32Array {
+	let first = 0;
+	while (first < samples.length && Math.abs(samples[first] ?? 0) < QUIET) first++;
+	if (first === samples.length) return samples;
+	let last = samples.length - 1;
+	while (Math.abs(samples[last] ?? 0) < QUIET) last--;
+	return samples.subarray(Math.max(0, first - Math.round(KEEP_BEFORE_S * rate)), Math.min(samples.length, last + 1 + Math.round(KEEP_AFTER_S * rate)));
+}
 
 /**
- * Kokoro, loaded on first use (about 650 MB more resident while it reads) and released after five idle minutes, reading
- * one text at a time: on two CPUs a second synthesis would only slow the first.
+ * Kokoro, loaded as the server starts (in about 0.7 s on two vCPU) and kept, about 600 MB resident, so the first reading
+ * a person asks for waits on no load, reading one text at a time: on two CPUs a second synthesis would only slow the
+ * first. A load that fails is logged and tried again by the next reading.
  */
 export function kokoroSynthesizer(log: Logger): Synthesizer {
 	let model: ReturnType<typeof load> | undefined;
+	const loaded = () =>
+		(model ??= load().catch((error: unknown) => {
+			model = undefined;
+			throw error;
+		}));
+	const started = Date.now();
+	loaded().then(
+		() => log.info("speech.ready", { ms: Date.now() - started }),
+		(error: unknown) => log.error("speech.load", { error: errorKind(error) }),
+	);
 	let queue: Promise<unknown> = Promise.resolve();
-	let waiting = 0;
-	let idle: NodeJS.Timeout | undefined;
-	const release = () => {
-		const loaded = model;
-		model = undefined;
-		loaded
-			?.then((tts) => tts.model.dispose())
-			.catch((error: unknown) => log.error("speech.release", { error: errorKind(error) }));
-	};
 	return {
 		synthesize(text, signal) {
-			waiting++;
-			clearTimeout(idle);
 			const turn = queue.then(async () => {
 				// Stopped while it waited its turn: nothing is read for it.
 				signal.throwIfAborted();
-				model ??= load().catch((error: unknown) => {
-					model = undefined;
-					throw error;
-				});
-				const audio = await (await model).generate(text, { voice: VOICE });
-				return encodeWav(audio.audio, audio.sampling_rate);
+				const audio = await (await loaded()).generate(text, { voice: VOICE });
+				return encodeWav(trimSilence(audio.audio, audio.sampling_rate), audio.sampling_rate);
 			});
-			queue = turn
-				.catch(() => undefined)
-				.finally(() => {
-					if (--waiting === 0) idle = setTimeout(release, IDLE_MS).unref();
-				});
+			queue = turn.catch(() => undefined);
 			return turn;
 		},
 	};

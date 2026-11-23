@@ -224,6 +224,7 @@ export function SessionView(props: { id: number }): JSX.Element {
 					running={running}
 					disabled={doc.setup.status !== "ready" || doc.cleanedAt !== undefined}
 					focusToken={focus}
+					autoFocus
 					files={async () => (await api.sessionFiles(props.id)).files}
 					skills={() => api.sessionSkills(props.id)}
 					onSend={async (text, attachments, requestId) => {

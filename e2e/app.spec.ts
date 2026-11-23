@@ -94,3 +94,53 @@ test.describe("the app around a session", () => {
 		await expect(page.locator(".is-person .said")).toHaveText("Look at @src/greet.ts then #release-notes mail me@example.com about #12 ");
 	});
 });
+
+test.describe("the composer with a keyboard and a mouse", () => {
+	test.use({ isMobile: false, hasTouch: false, viewport: { width: 1280, height: 800 } });
+
+	test("Return sends, Shift+Return writes a new line, Return takes a picker's first match, and a session's field has focus", async ({ page }) => {
+		await page.goto("/");
+		const task = page.getByRole("textbox", { name: "Describe the task…" });
+		await expect(task).toBeEnabled();
+		await task.fill("What does greet() return?");
+		await task.press("Enter");
+		await expect(page).toHaveURL(/#\/s\/\d+/);
+		const first = new URL(page.url()).hash;
+		await expect(page.locator(".session-status")).toHaveText("Replied");
+
+		const composer = page.locator(".composer textarea");
+		await expect(composer).toBeFocused();
+		await page.keyboard.type("Look at @greet");
+		await expect(page.getByRole("listbox", { name: "Files" }).getByRole("option").first()).toHaveText("@src/greet.ts");
+		await page.keyboard.press("Enter");
+		await expect(composer).toHaveValue("Look at @src/greet.ts ");
+		await page.keyboard.type("first");
+		await page.keyboard.press("Shift+Enter");
+		await page.keyboard.type("second");
+		await expect(composer).toHaveValue("Look at @src/greet.ts first\nsecond");
+		await page.keyboard.press("Enter");
+		await expect(page.locator(".is-person .said").last()).toHaveText("Look at @src/greet.ts first\nsecond");
+		await expect(composer).toHaveValue("");
+
+		// Opening another session gives its field the focus too.
+		await page.getByRole("button", { name: "New" }).click();
+		await task.fill("What is in src?");
+		await task.press("Enter");
+		await expect(page.locator(".session-status")).toHaveText("Replied");
+		await page.getByRole("navigation", { name: "Sessions" }).locator(`a[href="${first}"]`).click();
+		await expect(composer).toBeFocused();
+	});
+});
+
+test("on a touch keyboard Return writes a new line, and opening a session leaves the keyboard down", async ({ page }) => {
+	await startSession(page, "What does greet() return?");
+	await expect(page.locator(".session-status")).toHaveText("Replied");
+	const composer = page.locator(".composer textarea");
+	await expect(composer).not.toBeFocused();
+	await composer.tap();
+	await page.keyboard.type("first");
+	await page.keyboard.press("Enter");
+	await page.keyboard.type("second");
+	await expect(composer).toHaveValue("first\nsecond");
+	await expect(page.locator(".is-person")).toHaveCount(1);
+});
