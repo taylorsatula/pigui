@@ -14,7 +14,7 @@ import { pinToEnd } from "../viewport.ts";
 import type { CardActions, DeliveryActions } from "./Cards.tsx";
 import { Composer, ComposerDock } from "./Composer.tsx";
 import { DiffSheet } from "./Diff.tsx";
-import { DrawerButton } from "./Drawer.tsx";
+import { SessionsButton } from "./Sessions.tsx";
 import { Icon } from "./Icons.tsx";
 import { Transcript } from "./Transcript.tsx";
 
@@ -172,7 +172,7 @@ export function SessionView(props: { id: number }): JSX.Element {
 		return (
 			<div class="session">
 				<header class="topbar">
-					<DrawerButton />
+					<SessionsButton />
 					<h1 class="title">Not found</h1>
 				</header>
 				<p class="empty">This session does not exist.</p>
@@ -183,7 +183,7 @@ export function SessionView(props: { id: number }): JSX.Element {
 		return (
 			<div class="session">
 				<header class="topbar">
-					<DrawerButton />
+					<SessionsButton />
 					<h1 class="title">Loading…</h1>
 				</header>
 			</div>
@@ -194,7 +194,7 @@ export function SessionView(props: { id: number }): JSX.Element {
 		<div class="session">
 			<div class="pinned">
 				<header class="topbar">
-					<DrawerButton />
+					<SessionsButton />
 					<div class="title-block">
 						<h1 class="title">{doc.title}</h1>
 						{/* Status leads, as a word: marked when it is the person's turn. */}

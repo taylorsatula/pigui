@@ -25,6 +25,7 @@ import {
 	type SkillSummary,
 	SpeechBody,
 	SpeechScriptBody,
+	StarDirBody,
 } from "../shared/api.ts";
 import type { SessionDoc } from "../shared/session.ts";
 import { skillsAt } from "./agent/resources.ts";
@@ -35,7 +36,7 @@ import { HttpError, notFound } from "./errors.ts";
 import { trackedFiles } from "./git.ts";
 import type { RepoHost } from "./host.ts";
 import { MAX_UPLOAD_BYTES, type Uploads } from "./input.ts";
-import { listDirectory, localDirectory } from "./local.ts";
+import { absolutePath, listDirectory, localDirectory } from "./local.ts";
 import { openLines, serveLive } from "./live.ts";
 import { errorKind, type Logger } from "./log.ts";
 import type { Presence } from "./presence.ts";
@@ -87,6 +88,7 @@ const bodies = {
 	deliver: validator<DeliverBody>(DeliverBody),
 	budget: validator<BudgetBody>(BudgetBody),
 	archive: validator<ArchiveBody>(ArchiveBody),
+	star: validator<StarDirBody>(StarDirBody),
 	push: validator<PushSubscriptionBody>(PushSubscriptionBody),
 	script: validator<SpeechScriptBody>(SpeechScriptBody),
 	speech: validator<SpeechBody>(SpeechBody),
@@ -318,6 +320,19 @@ export function createHttpServer(deps: HttpDeps): Server {
 			const name = decodeURIComponent(String(request.headers["x-filename"] ?? "attachment"));
 			const type = String(request.headers["content-type"] ?? "application/octet-stream").split(";")[0]?.trim() ?? "application/octet-stream";
 			return send(response, 200, await deps.uploads.save(bytes, name, type));
+		}
+		if (is("POST", "local", "starred") && parts.length === 3) {
+			const at = home();
+			const body = await json(request, bodies.star);
+			// Starring checks the directory is one; unstarring does not, so a directory since removed can still go.
+			const dir = body.starred ? await localDirectory(body.dir, at) : absolutePath(body.dir, at);
+			await harness.commit(async (tx) => {
+				const index = await tx.doc(SessionIndexToken);
+				const starred = index.starred ?? [];
+				if (starred.includes(dir) === body.starred) return;
+				index.starred = body.starred ? [...starred, dir] : starred.filter((path) => path !== dir);
+			}, context);
+			return send(response, 200, {});
 		}
 		if (area === "local" && method === "GET" && parts.length === 3) {
 			// What a local session's first message can refer to, before the session exists: the chosen directory's files and skills.

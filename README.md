@@ -5,8 +5,8 @@ and lets you drive it from your phone. Pick a repository, describe a task, answe
 approve its plan, and put the phone away. Pi implements, verifies and commits on its own branch; you get a
 notification and a report, and you choose whether to push the branch, open a pull request, or keep working.
 Titles, buttons and your own messages are set in a serif, the agent's replies in a sans, and what it did as one quiet
-line each, and the app follows the phone's light or dark mode. A sidebar lists the sessions under way, each with a
-coloured mark for its status.
+line each, and the app follows the phone's light or dark mode. The ☰ button opens the session picker, a listing of
+every session in columns, as a file browser lists a folder, with a coloured mark for each one's status.
 A speaker under each reply reads it aloud, with a speech model that runs on the server ([Reading aloud](#reading-aloud)).
 With an embedding key, or a local embedding model built in, Pi also remembers across sessions what no file states
 ([Long-term memory](#long-term-memory)).
@@ -99,7 +99,7 @@ message), a smaller context window (`fakeModel.contextWindow`), `speech: false` 
 `faults`, hooks that hold the code at an exact point so a test can cut it off there the way a crash would. The test that
 reads with the real speech model runs only where `deploy/models.sh models speech` has fetched it, and those that embed
 with LEAF only where `deploy/models.sh models memory` has. `PICLOUD_FAKE_MEMORY=off` starts `npm run fake` as a server
-without an embedder, as `e2e/memory.spec.ts` does to see the sidebar's notice.
+without an embedder, as `e2e/memory.spec.ts` does to see the session picker's notice.
 
 The end-to-end tests (`e2e/`) start `scripts/fake.ts` as a child process per test file, on a free port with temporary
 directories, and drive it with Playwright in Chromium at 390×844 (375 px for the horizontal-scroll check) with touch.
@@ -204,8 +204,8 @@ database.
   `models.json`. Pi's configuration is the service user's `~/.pi/agent` (with Docker, in the `home` volume). Then
   restart picloud; its `started` log line names the embedding model.
 - **Off otherwise.** With neither, picloud logs `memory.off` with the reason and runs without memory: no search tool,
-  no memory part in the report and nothing about it in the prompt. The sidebar says memory is off, why, and how to
-  turn it on, for as long as it stays off.
+  no memory part in the report and nothing about it in the prompt. The session picker's status bar says memory is
+  off, why, and how to turn it on, for as long as it stays off.
 - **When embedding fails,** a search returns the error to Pi, and a report is filed anyway, records nothing in memory
   and says why in its notes. After a model change, the first search or report re-embeds every memory.
 
@@ -404,8 +404,9 @@ three 10 MB files.
 
 picloud can run on your own computer instead of a server: a Mac or a Linux machine, as a web app at
 http://localhost:2025, with the same app. A new session starts in a directory on the computer: your home directory
-(`~`) unless you type another, any existing absolute directory, `/` included. Pi works there in place, as you, as if
-you had opened a terminal there and run `pi`. Repository sessions, on a clone and a branch of their own that picloud
+(`~`) unless you type another, any existing absolute directory, `/` included. Under the field are the directories you
+starred, all of them, and the five you worked in most recently; tap one to choose it, or its star to pin it above the
+recent ones. Pi works there in place, as you, as if you had opened a terminal there and run `pi`. Repository sessions, on a clone and a branch of their own that picloud
 pushes when you tap, remain the other choice wherever `gh` is signed in; if listing repositories fails, the New
 session screen says why and sessions on the computer still start. With `--tailscale on` the same picloud is also on
 your tailnet, for your phone, whether the computer is a laptop or a server somewhere.
@@ -426,12 +427,13 @@ curl -fsSL https://raw.githubusercontent.com/taylorsatula/picloud/main/install.s
 | `--ref REF` | `main` | The branch, tag or commit of picloud to install. |
 | `--tailscale on\|off` | `off` | Serve picloud to your tailnet too, at `https://<this computer's MagicDNS name>/`, so your phone can use it as the PWA (see below). Off takes down picloud's own `tailscale serve`, if it had one. |
 | `--allowed-logins LIST` | everyone on the tailnet | Comma-separated Tailscale logins let in through the tailnet; `''` for everyone again. |
+| `--tailscale-auth-key KEY` | | As root, join the tailnet with this key instead of a login link. Used once, never kept. |
 | `--dry-run` | | Show every step and the service it would write; change nothing. |
 | `--uninstall` | | Stop and remove the service and the app; the data stays. |
 | `-h`, `--help` | | Show the help. |
 
-- **Run it as yourself**, never with sudo. Nothing outside your home directory changes, apart from Tailscale's serve
-  configuration with `--tailscale on`.
+- **Run it as yourself** on your own computer, and nothing outside your home directory changes, apart from Tailscale's
+  serve configuration with `--tailscale on`. **Run it as root on a server** (below) for picloud as root.
 - **It remembers your choices.** Each install writes its flags to `~/.picloud/onprem.conf`, and the next run starts
   from them, so the bare one-liner updates picloud as it is; a flag given changes that choice.
 - **It needs** Node.js 22.19 or newer, which it does not install (Homebrew: `brew install node@22`; or nvm:
@@ -465,6 +467,32 @@ curl -fsSL https://raw.githubusercontent.com/taylorsatula/picloud/main/install.s
 - **On Linux,** a user service runs while you are logged in. To keep it running after you log out:
   `loginctl enable-linger $USER`. `tailscale serve` as yourself needs Tailscale's operator to be you, once:
   `sudo tailscale set --operator=$USER`; the installer says so if it is refused.
+
+### A server of your own, on your phone
+
+The case OnPrem is for on a server: a machine somewhere, yours, which you drive from your phone with Pi as root, with
+nothing between it and the machine. On a fresh Debian or Ubuntu server, logged in as root:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/taylorsatula/picloud/main/deploy/onprem.sh | bash -s -- --tailscale on
+```
+
+- **As root,** the installer first installs what is missing with apt (git, curl, Node.js 22 from NodeSource, and
+  Tailscale from its own repository, the same steps as the server installer), then installs picloud for root, in
+  `/root/.picloud` whatever `HOME` says, as the system unit `picloud-onprem.service` (started at boot, after the
+  network and Tailscale; logs: `journalctl -u picloud-onprem`).
+- **Tailscale** logs in if it is not already: open the link it prints, or pass `--tailscale-auth-key`. Turn on
+  MagicDNS and HTTPS certificates in the tailnet's admin console, if they are not on.
+- **Pi** must be signed in as root: the installer stops and says how (`/root/.picloud/app/node_modules/.bin/pi`, then
+  `/login` and `/model`); run the one-liner again after.
+- Then open the printed `https://<server>.<tailnet>.ts.net/` on your phone. Sessions start in `/root`; any directory
+  works, `/` included. The agent's commands run as root: `systemctl`, `apt`, `/etc`, `/sys`, everything.
+- **As another user,** picloud runs with that user's rights and a user service (with `loginctl enable-linger`). sudo
+  works for the agent only without a password (a `NOPASSWD` sudoers rule, as many cloud images give their default
+  user), since nothing can answer a password prompt; the installer says which it is.
+- **Not in a container.** A container would see only its own files, processes, `/sys` and network, and have no
+  systemd to talk to; opened up enough to manage the host, it is root on the host with extra steps, and the tools are
+  still the image's. picloud OnPrem installs on the machine itself.
 
 ### On your phone, through Tailscale
 

@@ -60,6 +60,10 @@ export type BudgetBody = Static<typeof BudgetBody>;
 export const ArchiveBody = obj({ archived: bool() });
 export type ArchiveBody = Static<typeof ArchiveBody>;
 
+/** Star a directory on this computer, or unstar it (picloud OnPrem only). */
+export const StarDirBody = obj({ dir: LocalDir, starred: bool() });
+export type StarDirBody = Static<typeof StarDirBody>;
+
 export const PushSubscriptionBody = obj(
 	{
 		endpoint: str({ pattern: "^https://", maxLength: 2000 }),

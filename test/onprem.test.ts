@@ -170,6 +170,22 @@ describe("local sessions in picloud OnPrem", () => {
 		assert.ok(listed.files.every((path) => !/^(proc|sys|dev)\//.test(path)), "no /proc, /sys or /dev");
 	});
 
+	test("a starred directory is kept once, absolute; one that is not a directory cannot be starred, and a removed one can be unstarred", async () => {
+		const star = (dir: string, starred: boolean) => server.post("/api/local/starred", { dir, starred });
+		const starred = async () => (await server.index())?.starred ?? [];
+		await star("~/code/app", true);
+		await star(join(home, "code", "app/"), true);
+		assert.deepEqual(await starred(), [join(home, "code", "app")]);
+		await refused(star("~/notes.txt", true), 400, /is not a directory/);
+		await refused(star("code", true), 400, /is not an absolute directory/);
+		await mkdir(join(home, "gone"));
+		await star("~/gone", true);
+		await rm(join(home, "gone"), { recursive: true });
+		await star("~/gone", false);
+		await star("~/code/app", false);
+		assert.deepEqual(await starred(), []);
+	});
+
 	test("a directory that does not exist, is a file, or is not absolute is refused before anything starts", async () => {
 		await refused(server.createLocalSession("Hello", join(home, "missing")), 400, /does not exist/);
 		await refused(server.createLocalSession("Hello", "~/notes.txt"), 400, /is not a directory/);
@@ -183,6 +199,7 @@ describe("local sessions outside OnPrem", () => {
 		try {
 			await refused(server.createLocalSession("Hello", "/"), 403, /picloud OnPrem/);
 			await refused(server.get(`/api/local/files?dir=/`), 404, /picloud OnPrem/);
+			await refused(server.post("/api/local/starred", { dir: "/", starred: true }), 404, /picloud OnPrem/);
 			assert.equal((await server.get<Bootstrap>("/api/bootstrap")).onPrem, undefined);
 		} finally {
 			await server.close();

@@ -58,14 +58,29 @@
 set -euo pipefail
 
 readonly REPOSITORY=https://github.com/taylorsatula/picloud.git
-readonly ROOT=$HOME/.picloud
-readonly APP=$ROOT/app
-readonly DATA=$ROOT/data
-readonly LOGS=$ROOT/logs
+ROOT=$HOME/.picloud
+APP=$ROOT/app
+DATA=$ROOT/data
+LOGS=$ROOT/logs
 readonly NODE_MINIMUM=22.19.0
 readonly LABEL=com.github.taylorsatula.picloud
-readonly CONF=$ROOT/onprem.conf
-readonly TREE_CONF=$ROOT/install.conf
+CONF=$ROOT/onprem.conf
+TREE_CONF=$ROOT/install.conf
+
+# As root, picloud is root's, in root's home whatever HOME says, so running this with sudo from an account never leaves
+# root's files in that account's home.
+AS_ROOT=0
+if [[ $(id -u) == 0 ]]; then
+	AS_ROOT=1
+	if [[ $(uname -s) == Linux ]]; then HOME=/root; else HOME=$(eval echo ~root); fi
+	export HOME
+	ROOT=$HOME/.picloud
+	APP=$ROOT/app
+	DATA=$ROOT/data
+	LOGS=$ROOT/logs
+	CONF=$ROOT/onprem.conf
+	TREE_CONF=$ROOT/install.conf
+fi
 
 # Kept to run the installer again from the version it fetches. Empty arrays are expanded as ${ARGS[@]+"${ARGS[@]}"},
 # since macOS's bash 3.2 calls a plain "${ARGS[@]}" of none unbound.
@@ -335,13 +350,31 @@ fi
 # ---- The OnPrem path: picloud on this computer, as you. Also the second phase of a remote full install.
 
 run_onprem() {
+	# picloud OnPrem: picloud on this computer, macOS or Linux, as a web app at http://localhost:2025 whose sessions run
+	# as you, with your full access — or, as root on a Linux server, as root, as a system service, with the machine's
+	# full access. Installs, and when run again updates in place, in the home directory: the app in ~/.picloud/app, its
+	# data in ~/.picloud/data, and a service that keeps it running (a LaunchAgent on macOS, a systemd user unit — or, as
+	# root, a system unit picloud-onprem.service — on Linux). Nothing outside the home directory changes, and nothing
+	# needs sudo, unless it is root itself.
+
 	case $(uname -s) in
 		Darwin) SYSTEM=macos ;;
 		Linux) SYSTEM=linux ;;
 		*) echo "picloud OnPrem runs on macOS and Linux; this is $(uname -s)." >&2; exit 1 ;;
 	esac
 	PLIST=$HOME/Library/LaunchAgents/$LABEL.plist
-	UNIT=${XDG_CONFIG_HOME:-$HOME/.config}/systemd/user/picloud.service
+	# A user's own unit; as root, a system unit, named apart from the server installer's picloud.service.
+	if [[ $AS_ROOT == 1 ]]; then
+		SERVICE=picloud-onprem.service
+		UNIT=/etc/systemd/system/$SERVICE
+		SCOPE=()
+		LOG_COMMAND="journalctl -u picloud-onprem"
+	else
+		SERVICE=picloud.service
+		UNIT=${XDG_CONFIG_HOME:-$HOME/.config}/systemd/user/$SERVICE
+		SCOPE=(--user)
+		LOG_COMMAND="journalctl --user -u picloud"
+	fi
 	DOMAIN=gui/$(id -u)
 	OWNER=$(id -un):$(id -gn)
 	URL=http://localhost:$PORT
@@ -387,11 +420,11 @@ run_onprem() {
 			stop_launch_agent
 			if [[ -f $PLIST ]]; then run rm "$PLIST"; else note "no LaunchAgent at $PLIST"; fi
 		elif [[ -f $UNIT ]]; then
-			run systemctl --user disable --now picloud.service
+			run systemctl ${SCOPE[@]+"${SCOPE[@]}"} disable --now "$SERVICE"
 			run rm "$UNIT"
-			run systemctl --user daemon-reload
+			run systemctl ${SCOPE[@]+"${SCOPE[@]}"} daemon-reload
 		else
-			note "no systemd user unit at $UNIT"
+			note "no systemd unit at $UNIT"
 		fi
 		TS=$(tailscale_cli || true)
 		if [[ -n $TS ]] && command -v node >/dev/null; then
@@ -410,12 +443,35 @@ run_onprem() {
 
 	# ---- Checks before anything changes.
 
-	step "Check this computer"
-	if [[ $DRY_RUN != 1 && $EUID -eq 0 ]]; then
-		echo "Run this as yourself, without sudo: picloud OnPrem runs as the user whose computer it is." >&2
+	if [[ $AS_ROOT == 1 && $SYSTEM == macos ]]; then
+		echo "On macOS, run this as yourself, without sudo: picloud OnPrem there is a LaunchAgent of your own user." >&2
 		exit 1
 	fi
+	if [[ $AS_ROOT == 1 ]] && command -v apt-get >/dev/null; then
+		step "Install what picloud needs (apt)"
+		apt_install ca-certificates curl gnupg git
+		current_node=$(node --version 2>/dev/null | sed 's/^v//' || true)
+		if [[ -n $current_node ]] && version_at_least "$current_node" "$NODE_MINIMUM"; then
+			note "node $current_node"
+		else
+			install_node "${NODE_MINIMUM%%.*}"
+		fi
+		if [[ $TAILSCALE == on && -z $(tailscale_cli || true) ]]; then
+			release=$(apt_release)
+			install_tailscale "$([[ $release == debian/* || $release == ubuntu/* ]] && echo "$release" || echo debian/trixie)"
+		fi
+	fi
+
+	step "Check this computer"
 	note "$([[ $SYSTEM == macos ]] && echo "macOS $(sw_vers -productVersion 2>/dev/null || true)" || echo "Linux $(uname -r)")"
+	if [[ $AS_ROOT == 1 ]]; then
+		note "as root: picloud runs as root, as a system service, from $ROOT; its sessions can do anything on this machine"
+		if [[ -n ${SUDO_USER:-} && $SUDO_USER != root ]]; then note "you ran this with sudo from $SUDO_USER; to install picloud as $SUDO_USER instead, run it without sudo"; fi
+	elif sudo -n true 2>/dev/null; then
+		note "sudo needs no password here, so the agent's commands can act as root"
+	else
+		note "the agent's commands run with your rights: sudo would ask for a password, which they cannot answer. For root, install as root, or give $(id -un) passwordless sudo"
+	fi
 	NODE=$(command -v node || true)
 	node_version=$([[ -n $NODE ]] && "$NODE" --version | sed 's/^v//' || true)
 	if [[ -z $node_version ]] || ! version_at_least "$node_version" "$NODE_MINIMUM"; then
@@ -423,7 +479,7 @@ run_onprem() {
 		exit 1
 	fi
 	note "node $node_version ($NODE)"
-	command -v git >/dev/null || { echo "picloud needs git. macOS: xcode-select --install. Linux: your package manager." >&2; exit 1; }
+	command -v git >/dev/null || { echo "picloud OnPrem needs git. macOS: xcode-select --install. Linux: your package manager." >&2; exit 1; }
 	note "$(git --version)"
 	if ! command -v gh >/dev/null; then
 		note "gh is not installed: sessions on this computer work; repository sessions need gh, signed in (https://cli.github.com)"
@@ -432,7 +488,7 @@ run_onprem() {
 	else
 		note "gh is not signed in: sessions on this computer work; for repository sessions, run gh auth login"
 	fi
-	if [[ $SYSTEM == linux ]] && ! systemctl --user show-environment >/dev/null 2>&1; then
+	if [[ $SYSTEM == linux && $AS_ROOT == 0 ]] && ! systemctl --user show-environment >/dev/null 2>&1; then
 		if [[ $DRY_RUN == 1 ]]; then
 			note "systemd's user instance is not running for you; the install would stop here"
 		else
@@ -531,7 +587,7 @@ run_onprem() {
 	fi
 
 	step "Check Pi's sign-in"
-	# picloud's own check, as it runs at every start: Pi's default model, with credentials, in Pi's configuration.
+	# picloud's own check, as it runs at every start: Pi's default model, with credentials, in your Pi configuration.
 	if [[ ! -d $APP/node_modules ]]; then
 		note "dry run: Pi's sign-in is checked once the app is installed"
 	elif (
@@ -555,12 +611,17 @@ run_onprem() {
 	TS=$(tailscale_cli || true)
 	TS_NAME=$([[ -n $TS ]] && tailnet_name || true)
 	OURS=http://127.0.0.1:$PORT
+	if [[ $TAILSCALE == on && -n $TS && -z $TS_NAME && $AS_ROOT == 1 ]]; then
+		# A login link to open, or the key given; either way the machine joins the tailnet as itself.
+		run "$TS" up ${TS_AUTHKEY:+"--auth-key=$TS_AUTHKEY"}
+		TS_NAME=$(tailnet_name)
+	fi
 	if [[ $TAILSCALE == on ]]; then
 		problem=""
 		if [[ -z $TS ]]; then
-			problem="--tailscale on needs Tailscale on this computer, logged in to your tailnet: https://tailscale.com/download"
+			problem="--tailscale on needs Tailscale on this computer, logged in to your tailnet: https://tailscale.com/download (as root on Debian or Ubuntu, this installs it)"
 		elif [[ -z $TS_NAME ]]; then
-			problem="Tailscale is not running, not logged in, or has no MagicDNS name here. Log in, and turn on MagicDNS and HTTPS certificates in the tailnet's admin console."
+			problem="Tailscale is not running, not logged in, or has no MagicDNS name here. Log in (sudo tailscale up, or run this as root), and turn on MagicDNS and HTTPS certificates in the tailnet's admin console."
 		else
 			current=$(served_to "$TS_NAME")
 			if [[ -n $current && $current != "$OURS" ]]; then
@@ -606,7 +667,7 @@ run_onprem() {
 	# ---- The service. launchd and systemd start it with almost no environment, so it gets the PATH your login shell
 	# builds (Homebrew, nvm and the like), which is what the agent's commands then find.
 
-	step "Install the service ($([[ $SYSTEM == macos ]] && echo "LaunchAgent $LABEL" || echo "systemd user unit picloud.service"))"
+	step "Install the service ($([[ $SYSTEM == macos ]] && echo "LaunchAgent $LABEL" || echo "systemd $([[ $AS_ROOT == 1 ]] && echo "system" || echo "user") unit $SERVICE"))"
 	login_path=$("${SHELL:-/bin/sh}" -lic 'printf "\n__PICLOUD_PATH__%s\n" "$PATH"' </dev/null 2>/dev/null | sed -n 's/^__PICLOUD_PATH__//p' | tail -n1 || true)
 	SERVICE_PATH=${login_path:-$PATH}
 	[[ -n $login_path ]] || note "your login shell did not report a PATH; the service gets this one"
@@ -656,9 +717,11 @@ run_onprem() {
 EOF
 	else
 		run mkdir -p "$(dirname "$UNIT")"
+		# A system unit starts at boot, so it waits for the network and, when it is here, Tailscale.
+		unit_after=$([[ $AS_ROOT == 1 ]] && printf '\nWants=network-online.target\nAfter=network-online.target tailscaled.service' || true)
 		write_file "$UNIT" 0644 "$OWNER" <<EOF
 [Unit]
-Description=picloud OnPrem: the Pi coding agent on this computer, at $URL
+Description=picloud OnPrem: the Pi coding agent on this computer, at $URL$unit_after
 
 [Service]
 Type=simple
@@ -675,7 +738,7 @@ RestartPreventExitStatus=78 2
 TimeoutStopSec=60
 
 [Install]
-WantedBy=default.target
+WantedBy=$([[ $AS_ROOT == 1 ]] && echo multi-user.target || echo default.target)
 EOF
 	fi
 
@@ -684,11 +747,11 @@ EOF
 		stop_launch_agent
 		run launchctl bootstrap "$DOMAIN" "$PLIST"
 	else
-		run systemctl --user daemon-reload
-		run systemctl --user enable picloud.service
-		run systemctl --user restart picloud.service
+		run systemctl ${SCOPE[@]+"${SCOPE[@]}"} daemon-reload
+		run systemctl ${SCOPE[@]+"${SCOPE[@]}"} enable "$SERVICE"
+		run systemctl ${SCOPE[@]+"${SCOPE[@]}"} restart "$SERVICE"
 	fi
-	logs=$([[ $SYSTEM == macos ]] && echo "$LOGS/picloud.log" || echo "journalctl --user -u picloud")
+	logs=$([[ $SYSTEM == macos ]] && echo "$LOGS/picloud.log" || echo "$LOG_COMMAND")
 	if [[ $DRY_RUN == 1 ]]; then
 		note "dry run: would wait for $URL/api/bootstrap"
 	else
@@ -733,9 +796,6 @@ EOF
 		note "open $URL in your browser"
 	fi
 }
-
-# ---- Local (sandboxed): this computer, in Docker. Nothing is published on this computer's ports; access through the
-# tailnet. Needs Docker; installs nothing else.
 
 install_local_sandboxed() {
 	step "Check Docker"

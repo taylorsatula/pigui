@@ -14,7 +14,8 @@ const paths = {
 	minus: "M6 12h12",
 	diff: "M12 4v8M8 8h8M8 18h8",
 	archive: "M4 7h16v13H4zM3 3h18v4H3zM10 11h4",
-	sidebar: "M4 5h16v14H4zM9 5v14",
+	folder: "M3 6.5h6.5l2 2H21V19H3z",
+	star: "M12 3.5l2.6 5.3 5.9.9-4.25 4.15 1 5.85L12 16.9l-5.25 2.8 1-5.85L3.5 9.7l5.9-.9z",
 	bell: "M6 16V11a6 6 0 0 1 12 0v5l2 2H4zM10 20a2 2 0 0 0 4 0",
 	speaker: "M4 9.5h3l5-4v13l-5-4H4zM16 9a4.5 4.5 0 0 1 0 6M18.5 6.5a8 8 0 0 1 0 11",
 } as const;

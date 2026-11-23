@@ -19,7 +19,9 @@ test.describe("picloud OnPrem", () => {
 		// It works in place: there is no branch, so no diff to view.
 		await expect(page.getByRole("button", { name: "View changes" })).toHaveCount(0);
 		await page.getByRole("button", { name: /^Sessions/ }).tap();
-		await expect(page.getByRole("navigation", { name: "Sessions" }).getByRole("link", { name: /What is in this directory\?/ })).toHaveAttribute("title", "Replied · ~");
+		const entry = page.getByRole("dialog", { name: "Sessions" }).getByRole("link", { name: /What is in this directory\?/ });
+		await expect(entry.locator(".row-where")).toHaveText("~");
+		await expect(entry.locator(".row-status")).toHaveText("Replied");
 		await expect(page.locator("body")).not.toContainText("Tailscale");
 		expect(errors).toEqual([]);
 	});
@@ -38,6 +40,51 @@ test.describe("picloud OnPrem", () => {
 		await expect(report.getByRole("button", { name: "Push branch" })).toHaveCount(0);
 		await expect(report.getByRole("button", { name: "Keep working" })).toBeVisible();
 		expect(existsSync(join(server.home!, "project", "src", "shout.ts"))).toBe(true);
+	});
+
+	test("directories worked in are offered under the field, the five most recent, with starred ones pinned above them", async ({ page, server, errors }) => {
+		const directory = page.getByRole("textbox", { name: "Directory" });
+		await mkdir(join(server.home!, "stars"));
+		await page.goto("/");
+		await directory.fill("~/stars");
+		await page.getByRole("textbox", { name: "Describe the task…" }).fill("What is here?");
+		await page.getByRole("button", { name: "Send", exact: true }).tap();
+		await expect(page.locator(".subtitle .where")).toHaveText("~/stars");
+
+		await page.goto("/");
+		const recent = page.getByRole("region", { name: "Recent" });
+		const starred = page.getByRole("region", { name: "Starred" });
+		await expect(recent.locator(".dir-path").first()).toHaveText("~/stars");
+		await expect(starred).toHaveCount(0);
+		await recent.getByRole("button", { name: "Star ~/stars" }).tap();
+		await expect(starred.locator(".dir-path")).toHaveText(["~/stars"]);
+		await expect(recent.getByText("~/stars")).toHaveCount(0);
+		// Choosing one fills the field, and the field's star says it is starred.
+		await starred.getByRole("button", { name: /^~\/stars/ }).tap();
+		await expect(directory).toHaveValue("~/stars");
+		await expect(starred.getByRole("button", { name: /^~\/stars/ })).toHaveAttribute("aria-current", "true");
+		await expect(page.getByRole("button", { name: "Star this directory" })).toHaveAttribute("aria-pressed", "true");
+
+		// A directory not yet worked in is starred from the field. Stars are the server's, so they outlast a reload.
+		await mkdir(join(server.home!, "later"));
+		await directory.fill("~/later/");
+		await page.getByRole("button", { name: "Star this directory" }).tap();
+		await expect(starred.locator(".dir-path")).toHaveText(["~/later", "~/stars"]);
+		await page.reload();
+		await expect(starred.locator(".dir-path")).toHaveText(["~/later", "~/stars"]);
+		await starred.getByRole("button", { name: "Star ~/stars" }).tap();
+		await expect(starred.locator(".dir-path")).toHaveText(["~/later"]);
+		await expect(recent.getByText("~/stars")).toBeVisible();
+
+		// However many directories have been worked in, five are offered; every starred one is.
+		for (const name of ["d1", "d2", "d3", "d4", "d5", "d6"]) {
+			await mkdir(join(server.home!, name));
+			const created = await page.request.post("/api/sessions", { data: { requestId: `recent-${name}-request`, place: "local", dir: `~/${name}`, text: "Hello", attachments: [] } });
+			expect(created.ok()).toBe(true);
+		}
+		await expect(recent.locator(".dir-path")).toHaveText(Array<RegExp>(5).fill(/^~\/d\d$/));
+		await expect(starred.locator(".dir-path")).toHaveText(["~/later"]);
+		expect(errors).toEqual([]);
 	});
 
 	test("a repository is still a choice, on a branch of its own", async ({ page }) => {

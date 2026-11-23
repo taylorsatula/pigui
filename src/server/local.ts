@@ -13,11 +13,16 @@ export function expandHome(path: string, home: string): string {
 	return path;
 }
 
-/** The absolute directory a local session works in, or a 400 the person can act on. */
-export async function localDirectory(given: string, home: string): Promise<string> {
+/** What the person typed as an absolute path, `~` expanded, or a 400 the person can act on. Not checked to exist. */
+export function absolutePath(given: string, home: string): string {
 	const expanded = expandHome(given.trim(), home);
 	if (!isAbsolute(expanded)) throw new HttpError(400, `${given} is not an absolute directory.`, "Start it with / or ~, for example ~/code/app.");
-	const dir = resolve(expanded);
+	return resolve(expanded);
+}
+
+/** The absolute directory a local session works in, or a 400 the person can act on. */
+export async function localDirectory(given: string, home: string): Promise<string> {
+	const dir = absolutePath(given, home);
 	const info = await stat(dir).catch(() => undefined);
 	if (info === undefined) throw new HttpError(400, `${dir} does not exist.`, "Choose a directory that exists on this computer.");
 	if (!info.isDirectory()) throw new HttpError(400, `${dir} is not a directory.`, "Choose the directory that holds it.");

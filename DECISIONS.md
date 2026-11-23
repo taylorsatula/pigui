@@ -211,10 +211,10 @@ model, so a model left from an earlier install would overrule the switch. The op
 both switches are off, since they run both models; with speech off and LEAF on, `kokoro-js` stays (about 33 MB),
 unused without its model.
 
-**Memory off is said in the sidebar.** A server without an embedder runs, without memory, and the sessions look the
-same, so nothing else would show that it is off. `Bootstrap.memory` carries `{ on: true, model }` or `{ on: false, reason }`, the
-reason naming the cause and how to turn memory on, and the sidebar shows it in the banner's warning style, outside the
-scrolling list, for as long as memory is off. Not a toast or a dismissible banner: it is a standing condition of the
+**Memory off is said in the session picker.** A server without an embedder runs, without memory, and the sessions look
+the same, so nothing else would show that it is off. `Bootstrap.memory` carries `{ on: true, model }` or
+`{ on: false, reason }`, the reason naming the cause and how to turn memory on, and the session picker's status bar
+shows it in the banner's warning style, outside the scrolling list, every time it opens, for as long as memory is off. Not a toast or a dismissible banner: it is a standing condition of the
 server, not an event.
 
 ## When a run ends: the supervisor and continuation
@@ -237,7 +237,7 @@ catches a run that ended while nothing was watching. It handles:
   would fail again. An earlier version continued a run ended by a failed compaction up to three times on its own,
   which only delayed the person's Continue.
 
-`activeRun` is picloud's copy of Durable's run, kept because the sidebar reads session documents alone and the
+`activeRun` is picloud's copy of Durable's run, kept because the session picker reads session documents alone and the
 supervisor needs one submission to watch per run. The open session counts a run as going while either Durable's
 `pi.live.run` or `activeRun` says so: they start in the same commit, and `activeRun` outlasts the run by the one commit
 before the supervisor decides, so a run that ends in an automatic continuation never reads as stopped in between. The
@@ -405,7 +405,7 @@ and is covered by the same tests.
 
 ## The phone app
 
-**Preact with TSX, bundled by esbuild.** The UI has real state (a streamed transcript, cards, pickers, a drawer), and
+**Preact with TSX, bundled by esbuild.** The UI has real state (a streamed transcript, cards, pickers), and
 a 10 KB virtual-DOM library keeps it declarative; esbuild is a single binary that bundles TypeScript with no
 configuration, which the runbook's "no heavy bundler pipeline" allows. Markdown is `marked` with `DOMPurify`, both
 dependency-free. The service worker caches the app shell (network first, cache when offline) and never caches the API.
@@ -420,8 +420,8 @@ How the Human Interface Guidelines shaped it:
   it.
 - **Sensible defaults:** the last repository, a new branch from its default branch, recommended options pre-selected
   so accepting them is one tap.
-- **Familiar navigation:** a ☰ drawer (and an edge swipe) on phones, a persistent sidebar on wide screens; the drawer
-  lists the sessions under way, and a dot on ☰ means another session needs you.
+- **Familiar navigation:** ☰ opens the session picker, laid out as a file browser lays out a folder, on every screen;
+  a dot on ☰ means another session needs you.
 - **Feedback and forgiveness:** archive is immediate with an Undo toast instead of a confirmation dialog; drafts are
   saved as they are typed.
 - **Accessibility:** type at the person's text size (`-apple-system-body`, which every size is a fraction of), light
@@ -467,18 +467,25 @@ badge on the menu); green is done (finished steps, met conditions, passed checks
 an unmet condition, a failed check); blue is what reaches GitHub (Open or Update pull request, Push branch, View PR).
 Everything else is ink or pencil. Yellow is never a warning and orange never the person's turn, since people read
 yellow as caution only where it sits beside orange and red, and here it never does. Each status carries its tone from
-one place (`StatusTone`, set where `sessionRow` labels the session), so the title bar and the sidebar always agree.
+one place (`StatusTone`, set where `sessionRow` labels the session), so the title bar and the session picker always agree.
 *Before:* "Working" was ink, so work under way read
 like any other status, and buttons that push to GitHub looked like buttons that only show something.
 
-**The sidebar is a listing of what is under way, nothing more.** In coding work it is a utility: it shows what the
-other active sessions are doing. Each session is one line: a dot in its status's colour (cyan working, yellow its
-turn, orange a warning, red an error, an empty ring for nothing going on), its title, and how long since it changed,
-newest first. The title is the plan's once there is one, a few words where the session's own title is the first line
-of its task. Sessions that are done, archived, or untouched for twelve hours fold into an Inactive section, since
-most are never returned to. *Before:* rows of two lines (title, then a status pill and the repository) grouped under
-"Needs you", "Working" and "Done", a theme picker and a connection line, which read as a chat app's history and
-showed nothing to act on.
+**Sessions in a picker, laid out as a file browser lists a folder.** Changing sessions is deliberate, so the list is
+not on screen the rest of the time: ☰ opens a panel over the page, dimmed to 0.6 and blurred by 3 px, and choosing a
+session, Escape, Close or a tap outside closes it. It is set out as macOS's Finder sets out a folder in list view:
+column headings (Name, Where, Modified, Status) that sort when tapped, newest first by default; one line per session,
+every other line a shade apart, with a dot in its status's colour (cyan working, yellow its turn, orange a warning,
+red an error, an empty ring for nothing going on) where Finder puts an icon; "Today at 8:00 PM" as Finder dates a
+file; the open session as the selection, filled in ink where Finder fills its accent, since blue means GitHub here;
+and the arrow keys moving through the lines. Sessions that are done, archived or untouched for twelve hours sit in an
+Inactive folder with a disclosure triangle, open when the open session is in it. On a phone the columns are Name and
+the time since the last change, with where and the status still read aloud, and the lines keep the 44 pt target;
+with a pointer they sit at a file browser's density. A status bar counts them, and holds the memory notice and
+"Turn on notifications". *Before:* a sidebar listing the sessions under way, persistent on a wide screen (it could
+be put away) and a drawer dragged from the left edge on a phone. It took a column of the screen, and a gesture of the
+edge, for something done now and then. *Before that:* rows of two lines grouped under "Needs you", "Working" and
+"Done", a theme picker and a connection line, which read as a chat app's history.
 
 **The turn under way shows whole.** Durable's live view sends the newest 50 entries and drops older ones as a run
 grows, so opening a session in the middle of a long turn, or reconnecting, left its start behind "Load earlier
@@ -510,7 +517,7 @@ from semantic tokens with a dark set, and motion from three durations (160 ms pr
 two curves (a strong ease-out, and the iOS sheet curve). The alternative, values chosen per element, is what the first
 pass had, and it showed as nine type sizes and eleven spacings. Motion follows frequency: sending, picking a file,
 opening a disclosure and switching the send/stop button are not animated; presses respond at once (filled buttons
-scale to 0.97, text and icon buttons dim, rows highlight); the sheet, drawer and toast enter on `--present` and leave
+scale to 0.97, text and icon buttons dim, rows highlight); the sheet, session picker and toast enter on `--present` and leave
 on `--quick`, with CSS transitions so a gesture can interrupt them. Reduced motion keeps the fades and drops the
 movement.
 
@@ -523,25 +530,21 @@ first paint. The Terminal theme is in the history if it is wanted back somewhere
 
 **A wide screen gets the same app, laid out for its width.** It has no extra features, only a layout for the
 space:
-- From 900 px the drawer becomes a sidebar. It can be put away (and brought back with the ☰ button), and stays put
-  away on that device across visits.
 - Every band of a page runs the full width of its pane: title bar, transcript, composer bar, setup form. So the bars and their hairlines meet the pane's edges, while the content keeps to a centred 760 px reading
   column. This is padding computed from the pane width, so no wrapper elements are needed.
-- Without the menu button, the title lines up with the content.
-- Toasts centre on the conversation, not on the window.
 - The diff sheet becomes a centred dialog, as iPad and Mac present sheets. It fades and grows slightly into place
   rather than rising from the bottom edge, and is wider for patches.
 - The grabber appears only when the device has touch, since only touch can drag the sheet.
 
-**Sheets, the drawer and toasts follow the finger and dismiss the ways people expect.** The diff is a bottom sheet with
+**Sheets and toasts follow the finger and dismiss the ways people expect.** The diff is a bottom sheet with
 a grabber and Done; it also closes with Escape, a tap on the dimmed page, or a drag down from its bar (or from its
 content when it rests at the top). A released drag settles where its momentum would carry it, projected with iOS's
 scroll deceleration as Apple's "Designing Fluid Interfaces" describes, so a short flick and a long slow drag are judged
-by one rule; the finger's speed is read over its last 100 ms, so a finger that stopped before lifting is not a flick. The drawer drags open from the left edge and shut from
-anywhere, and closes with Escape. A toast rises just above the composer, can be
+by one rule; the finger's speed is read over its last 100 ms, so a finger that stopped before lifting is not a flick. A
+toast rises just above the composer, can be
 swiped down, and its clock stops while a finger is on it or the app is in the background. The gestures are one small
-hook each (`src/client/motion.ts`, `useDrawerDrag`) on touch events, which hand the remaining motion to the
-stylesheet's transitions; a gesture library would bring more than these three need.
+hook each (`src/client/motion.ts`) on touch events, which hand the remaining motion to the stylesheet's transitions;
+a gesture library would bring more than these two need.
 
 **Return sends where there is a keyboard.** With a mouse or trackpad (`(hover: hover) and (pointer: fine)`), Return
 sends, Shift+Return writes a new line, Return with the `@` or `#` picker open takes its first match rather than
@@ -907,6 +910,18 @@ and time, skipping dot-entries, dependencies, macOS's `Library`, the kernel's an
 which every repository code path would then have to recognise; `workspace(id)` pointing at the chosen directory, which
 would hand maintenance's `rm -rf` the person's own directory.
 
+**Starred and recent directories: stars in the index document, recents read from the sessions.** Under the Directory
+field the New session screen lists every starred directory, sorted by path, then the five most recently worked in
+that are not starred; tapping one fills the field. The recent ones are derived on the phone from the index's rows (a
+local row carries its directory and when it last changed), so there is no second record to keep in step and nothing
+to prune. The stars are a list of absolute directories in `SessionIndex.starred`, set by `POST /api/local/starred`,
+so the phone sees them through the watch it already has, and a star made at the computer is there on the phone.
+Starring resolves the path as a new session would and refuses one that is not a directory; unstarring only resolves
+it, so a directory since removed can still be unstarred. The field has a star too, so a directory can be starred
+before any session has worked in it. A starred directory is left out of the recent ones rather than shown twice.
+*Alternatives:* `localStorage`, which keeps stars to one browser; a recent list stored on the server beside the
+sessions, which would duplicate what their rows already say.
+
 **The request gate refuses other sites' pages, in both modes.** `json()` parsed any body whatever its content type,
 so a page on any site could send a `text/plain` POST, which needs no CORS preflight, and picloud acted on it: on a
 server, any page the phone opened could answer a card or start a run; in OnPrem it would run commands on the person's
@@ -940,6 +955,20 @@ else, and never `funnel`). What comes through Tailscale, addressed to such a nam
 `PICLOUD_ALLOWED_LOGINS` as on a server; the computer's own browser at localhost carries no login and needs none.
 *Alternatives:* trusting the login header wherever it appears, which a rebound page on the computer could send
 itself; asking Tailscale for the name at every start, which ties startup to a CLI that macOS does not put on PATH.
+
+**OnPrem as root on a server.** The case OnPrem serves on a server is a machine of the person's own, driven from the
+phone with Pi as root: `systemctl`, `apt`, `/etc`, with nothing between. So run as root on Linux, the installer installs
+picloud for root, in root's home whatever `HOME` says (so `sudo` from an account never leaves root's files in that
+account's home), as a system unit, `picloud-onprem.service`, named apart from the server installer's `picloud.service`,
+started at boot after the network and Tailscale. On Debian or Ubuntu it first installs what is missing with the server
+installer's own steps, now shared through `deploy/lib.sh` (`apt_install`, `install_node`, `install_tailscale`), and
+with `--tailscale on` it runs `tailscale up` (a login link, or `--tailscale-auth-key`, never kept). As another user,
+picloud has that user's rights; sudo works for the agent only without a password, since nothing can answer a prompt,
+and the installer says which it is rather than writing a sudoers rule. On macOS, root is refused: a Mac's picloud is
+its person's LaunchAgent. *Before:* the installer refused root, which ruled out the usual way into a fresh server.
+*Alternatives:* a container, which sees only itself and, opened up enough to manage the host, is root on the host with
+extra steps and the image's tools; a sudoers rule written by the installer, which would hand passwordless root to the
+account for everything, not only picloud.
 
 **The installer remembers its choices.** Each install writes its flags to `~/.picloud/onprem.conf`, read as plain
 values (never sourced) before the flags given, so the bare one-liner updates picloud as it is. Without it, an update

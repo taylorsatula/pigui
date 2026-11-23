@@ -86,16 +86,13 @@ fi
 # Tailscale publishes an apt source per release, debian/trixie and ubuntu/noble among them.
 tailscale_source=debian/trixie
 if [[ -r $OS_RELEASE ]]; then
-	# shellcheck disable=SC1090
-	. "$OS_RELEASE"
-	case ${ID:-}/${VERSION_CODENAME:-} in
+	release=$(apt_release "$OS_RELEASE")
+	case $release in
 		debian/trixie) note "Debian 13 (trixie), the recommended system" ;;
 		ubuntu/noble) note "Ubuntu 24.04 (noble)" ;;
-		*) note "This installer targets Debian 13 (recommended) or Ubuntu 24.04; this is ${PRETTY_NAME:-unknown}. Continuing." ;;
+		*) note "This installer targets Debian 13 (recommended) or Ubuntu 24.04; this is $( (. "$OS_RELEASE" && echo "${PRETTY_NAME:-unknown}") ). Continuing." ;;
 	esac
-	if [[ ${ID:-} == debian || ${ID:-} == ubuntu ]] && [[ -n ${VERSION_CODENAME:-} ]]; then
-		tailscale_source=$ID/$VERSION_CODENAME
-	fi
+	if [[ $release == debian/* || $release == ubuntu/* ]]; then tailscale_source=$release; fi
 fi
 [[ -f $SOURCE_DIR/package.json && -f $SOURCE_DIR/package-lock.json ]] || { echo "Run the installer from a picloud checkout." >&2; exit 1; }
 [[ -z $PORT_OPTION || $PORT_OPTION =~ ^[0-9]+$ ]] || { echo "--port must be a number." >&2; exit 2; }
@@ -117,30 +114,14 @@ note "source: $SOURCE_DIR"
 [[ $DRY_RUN == 1 ]] && note "dry run: nothing will be changed"
 
 step "Install system packages"
-packages=(ca-certificates curl gnupg git rsync sudo ripgrep unzip build-essential)
-missing=()
-for package in "${packages[@]}"; do
-	dpkg-query -W -f='${Status}' "$package" 2>/dev/null | grep -q "install ok installed" || missing+=("$package")
-done
-if [[ ${#missing[@]} -gt 0 ]]; then
-	run apt-get update
-	run env DEBIAN_FRONTEND=noninteractive apt-get install -y "${missing[@]}"
-else
-	note "all present: ${packages[*]}"
-fi
+apt_install ca-certificates curl gnupg git rsync sudo ripgrep unzip build-essential
 
 step "Install Node.js $NODE_MAJOR (at least $NODE_MINIMUM)"
 current_node=$(node --version 2>/dev/null | sed 's/^v//' || true)
 if [[ -n $current_node ]] && version_at_least "$current_node" "$NODE_MINIMUM"; then
 	note "node $current_node"
 else
-	run install -d -m 0755 /etc/apt/keyrings
-	run sh -c "curl -fsSL https://deb.nodesource.com/gpgkey/nodesource-repo.gpg.key | gpg --dearmor --yes -o /etc/apt/keyrings/nodesource.gpg"
-	write_file /etc/apt/sources.list.d/nodesource.list 0644 root:root <<EOF
-deb [signed-by=/etc/apt/keyrings/nodesource.gpg] https://deb.nodesource.com/node_$NODE_MAJOR.x nodistro main
-EOF
-	run apt-get update
-	run env DEBIAN_FRONTEND=noninteractive apt-get install -y nodejs
+	install_node "$NODE_MAJOR"
 fi
 
 step "Install the GitHub CLI (gh)"
@@ -160,14 +141,7 @@ step "Install Tailscale"
 if command -v tailscale >/dev/null; then
 	note "$(tailscale version | head -n1)"
 else
-	run install -d -m 0755 /usr/share/keyrings
-	run sh -c "curl -fsSL https://pkgs.tailscale.com/stable/$tailscale_source.noarmor.gpg -o /usr/share/keyrings/tailscale-archive-keyring.gpg"
-	write_file /etc/apt/sources.list.d/tailscale.list 0644 root:root <<EOF
-deb [signed-by=/usr/share/keyrings/tailscale-archive-keyring.gpg] https://pkgs.tailscale.com/stable/${tailscale_source%/*} ${tailscale_source#*/} main
-EOF
-	run apt-get update
-	run env DEBIAN_FRONTEND=noninteractive apt-get install -y tailscale
-	run systemctl enable --now tailscaled
+	install_tailscale "$tailscale_source"
 fi
 
 step "Create the service user $SERVICE_USER (no sudo)"

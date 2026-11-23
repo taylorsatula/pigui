@@ -73,6 +73,21 @@ export function dayHeading(at: number): string {
 	return new Date(at).toLocaleDateString(undefined, { weekday: "long", month: "long", day: "numeric" });
 }
 
+/**
+ * When a session last changed, as a file browser lists it: "Today at 8:00 PM", "Yesterday at 9:12 AM", "Nov 14 at
+ * 8:00 PM", and with its year once it is from another.
+ */
+export function listingDate(at: number, now = Date.now()): string {
+	const date = new Date(at);
+	const time = date.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
+	if (sameDay(at, now)) return `Today at ${time}`;
+	const yesterday = new Date(now);
+	yesterday.setDate(yesterday.getDate() - 1);
+	if (sameDay(at, yesterday.getTime())) return `Yesterday at ${time}`;
+	if (date.getFullYear() !== new Date(now).getFullYear()) return date.toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" });
+	return `${date.toLocaleDateString(undefined, { month: "short", day: "numeric" })} at ${time}`;
+}
+
 /** Whether two times fall on the same local day. */
 export function sameDay(a: number, b: number): boolean {
 	return new Date(a).toDateString() === new Date(b).toDateString();

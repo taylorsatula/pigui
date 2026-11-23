@@ -1,7 +1,7 @@
 import { expect, startSession, test } from "./fixtures.ts";
 
 test.describe("the app around a session", () => {
-	test("the sidebar lists the sessions under way, navigates between them, and signals one that needs attention", async ({ page }) => {
+	test("the session picker lists the sessions under way, opens one, and the menu signals one that needs attention", async ({ page }) => {
 		await startSession(page, "What does greet() return?");
 		await expect(page.locator(".session-status")).toHaveText("Replied");
 		const first = page.url();
@@ -18,8 +18,8 @@ test.describe("the app around a session", () => {
 		await expect(page.getByTestId("attention-dot")).toBeVisible();
 
 		await page.getByRole("button", { name: /^Sessions, 1 needs you$/ }).tap();
-		const drawer = page.getByRole("navigation", { name: "Sessions" });
-		const underWay = drawer.getByRole("list", { name: "Under way" });
+		const picker = page.getByRole("dialog", { name: "Sessions" });
+		const underWay = picker.getByRole("list", { name: "Under way" });
 		// Newest first, one line each, with a mark in the colour of its status.
 		await expect(underWay.getByRole("link")).toHaveCount(2);
 		await expect(underWay.getByRole("link").first()).toContainText("What does greet() return?");
@@ -27,7 +27,7 @@ test.describe("the app around a session", () => {
 		await expect(underWay.getByRole("link", { name: /Add a shout\(\) function/ }).locator(".indicator")).toHaveClass(/attention/);
 		await underWay.getByRole("link", { name: /What does greet\(\) return\?/ }).tap();
 		await expect(page).toHaveURL(first);
-		await expect(drawer).not.toHaveClass(/open/);
+		await expect(picker).toBeHidden();
 		await expect(page.getByTestId("attention-dot")).toBeHidden();
 	});
 
@@ -42,27 +42,48 @@ test.describe("the app around a session", () => {
 		await toast.getByRole("button", { name: "Undo" }).tap();
 		await expect(page).toHaveURL(url);
 		await page.getByRole("button", { name: /^Sessions/ }).tap();
-		const drawer = page.getByRole("navigation", { name: "Sessions" });
-		await expect(drawer.getByRole("list", { name: "Under way" }).getByRole("link", { name: /What is in src\?/ })).toBeVisible();
-		await expect(drawer.getByText(/^Inactive/)).toBeHidden();
+		const picker = page.getByRole("dialog", { name: "Sessions" });
+		await expect(picker.getByRole("list", { name: "Under way" }).getByRole("link", { name: /What is in src\?/ })).toBeVisible();
+		await expect(picker.getByText(/^Inactive/)).toBeHidden();
 	});
 
-	test("on a wide screen the sidebar can be put away, and stays put away after a reload", async ({ page }) => {
+	test("on a wide screen the picker lists sessions in columns, sorts by them, moves with the arrow keys, and closes", async ({ page }) => {
 		await page.setViewportSize({ width: 1280, height: 800 });
 		await startSession(page, "What is in src?");
-		const sidebar = page.getByRole("navigation", { name: "Sessions" });
-		await expect(sidebar).toBeVisible();
-		// Memory is on in this server, so nothing in the sidebar speaks of it (memory.spec.ts has it off).
-		await expect(sidebar.getByText("Memory is off")).toHaveCount(0);
-		await page.getByRole("button", { name: "Hide the sidebar" }).click();
-		await expect(sidebar).toBeHidden();
-		await page.reload();
 		await expect(page.getByText("Short answer:")).toBeVisible();
-		await expect(sidebar).toBeHidden();
-		await page.getByRole("button", { name: /^Sessions/ }).click();
-		await expect(sidebar).toBeVisible();
-		await page.reload();
-		await expect(sidebar).toBeVisible();
+		const button = page.getByRole("button", { name: /^Sessions/ });
+		await button.click();
+		const picker = page.getByRole("dialog", { name: "Sessions" });
+		await expect(picker).toBeVisible();
+		// Memory is on in this server, so nothing in the picker speaks of it (memory.spec.ts has it off).
+		await expect(picker.getByText("Memory is off")).toHaveCount(0);
+		for (const column of ["Name", "Where", "Modified", "Status"]) await expect(picker.getByRole("button", { name: column, exact: true })).toBeVisible();
+		// The open session is the selection, and has the focus, so the arrow keys start from it.
+		const current = picker.locator('a[aria-current="page"]');
+		await expect(current).toContainText("What is in src?");
+		await expect(current).toContainText("demo/greeter");
+		await expect(current).toContainText(/Today at \d/);
+		await expect(current).toBeFocused();
+		await page.keyboard.press("ArrowDown");
+		await expect(current).not.toBeFocused();
+		await expect(picker.locator(".row:focus")).toHaveCount(1);
+		// Newest first, then by name and back.
+		const titles = () => picker.getByRole("list", { name: "Under way" }).locator(":scope > li > a .row-title").allTextContents();
+		const name = picker.getByRole("button", { name: "Name", exact: true });
+		await name.click();
+		await expect(name).toHaveAttribute("aria-pressed", "true");
+		const ascending = await titles();
+		expect(ascending).toEqual([...ascending].sort((a, b) => a.localeCompare(b)));
+		await name.click();
+		expect(await titles()).toEqual([...ascending].reverse());
+		// Escape closes it and gives the menu button its focus back; so does a click on the dimmed page.
+		await page.keyboard.press("Escape");
+		await expect(picker).toBeHidden();
+		await expect(button).toBeFocused();
+		await button.click();
+		await expect(picker).toBeVisible();
+		await page.mouse.click(20, 780);
+		await expect(picker).toBeHidden();
 	});
 
 	test("the @ and # pickers narrow as the person types and insert the reference", async ({ page }) => {
@@ -123,11 +144,13 @@ test.describe("the composer with a keyboard and a mouse", () => {
 		await expect(composer).toHaveValue("");
 
 		// Opening another session gives its field the focus too.
-		await page.getByRole("button", { name: "New" }).click();
+		await page.getByRole("button", { name: /^Sessions/ }).click();
+		await page.getByRole("dialog", { name: "Sessions" }).getByRole("button", { name: "New" }).click();
 		await task.fill("What is in src?");
 		await task.press("Enter");
 		await expect(page.locator(".session-status")).toHaveText("Replied");
-		await page.getByRole("navigation", { name: "Sessions" }).locator(`a[href="${first}"]`).click();
+		await page.getByRole("button", { name: /^Sessions/ }).click();
+		await page.getByRole("dialog", { name: "Sessions" }).locator(`a[href="${first}"]`).click();
 		await expect(composer).toBeFocused();
 	});
 });
