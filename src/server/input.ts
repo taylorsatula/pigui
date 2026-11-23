@@ -1,5 +1,5 @@
 // Turning what the person sent into what the agent receives: `@file` contents, `#skill` invocations, attachments saved
-// into the workspace and images fitted for the model. The text itself is kept exactly as typed for the transcript.
+// into picloud's workspace of the session and images fitted for the model. The text itself is kept exactly as typed for the transcript.
 import { createHash, randomBytes } from "node:crypto";
 import { mkdir, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { basename, extname, join, relative, resolve, sep } from "node:path";
@@ -13,6 +13,7 @@ import { findReferences } from "../shared/references.ts";
 import type { MessageEntryData } from "../shared/session.ts";
 import { ATTACHMENTS_DIR } from "./agent/prompt.ts";
 import { skillBlock } from "./agent/resources.ts";
+import { expandHome } from "./local.ts";
 
 /** Larger files are pointed to instead of included; the agent reads them with its tools. */
 export const MAX_INCLUDED_FILE_BYTES = 64 * 1024;
@@ -65,10 +66,17 @@ function safeName(name: string): string {
 	return cleaned === "" ? "attachment" : cleaned.slice(0, 120);
 }
 
-/** A path inside the workspace, or undefined when the reference would leave it or reach into `.git`. */
-function insideWorkspace(workspace: string, path: string): string | undefined {
-	const target = resolve(workspace, path);
-	const rel = relative(workspace, target);
+/**
+ * Where `@path` references lead: a repository session's stay inside its clone, out of `.git`; a local session's reach
+ * anywhere on the person's computer, as absolute, `~/` or relative paths, since nothing confines that session.
+ */
+export type ReferenceRoot = { place: "repo"; dir: string } | { place: "local"; dir: string; home: string };
+
+/** The file a reference names, or undefined when a repository session's reference would leave its clone. */
+function referenced(root: ReferenceRoot, path: string): string | undefined {
+	if (root.place === "local") return resolve(root.dir, expandHome(path, root.home));
+	const target = resolve(root.dir, path);
+	const rel = relative(root.dir, target);
 	if (rel === "" || rel.startsWith("..") || rel.split(sep)[0] === ".git") return undefined;
 	return target;
 }
@@ -84,7 +92,7 @@ type Expansion = { blocks: string[]; references: MessageEntryData["references"] 
  * The context `@` and `#` references add. A file brings its contents, or a pointer when it is too large or binary; a
  * skill brings its body as the Pi CLI invokes it. A reference to nothing known stays plain text.
  */
-export async function expandReferences(text: string, workspace: string, skills: readonly Skill[]): Promise<Expansion> {
+export async function expandReferences(text: string, root: ReferenceRoot, skills: readonly Skill[]): Promise<Expansion> {
 	const blocks: string[] = [];
 	const references: Expansion["references"] = [];
 	const seen = new Set<string>();
@@ -99,7 +107,7 @@ export async function expandReferences(text: string, workspace: string, skills: 
 			references.push({ kind: "skill", value: skill.name, status: "skill" });
 			continue;
 		}
-		const path = insideWorkspace(workspace, reference.value);
+		const path = referenced(root, reference.value);
 		if (path === undefined) continue;
 		const info = await stat(path).catch(() => undefined);
 		if (info === undefined) continue;
@@ -126,13 +134,16 @@ export async function expandReferences(text: string, workspace: string, skills: 
 }
 
 /**
- * Save attachments under the workspace's attachments directory (which git ignores) and fit images for `model`.
- * Rerunning with the same uploads writes the same files, so a setup rerun after a crash attaches them once.
+ * Save attachments under picloud's own workspace of the session, in its attachments directory (which git ignores in a
+ * repository's clone), and fit images for `model`. The agent is told each file's path as `shown` makes it: relative to
+ * a clone, which is its working directory, or absolute for a local session, which works elsewhere. Rerunning with the
+ * same uploads writes the same files, so a setup rerun after a crash attaches them once.
  */
 export async function attach(
 	ids: readonly string[],
 	uploads: Uploads,
 	workspace: string,
+	shown: "relative" | "absolute",
 	model: Model<Api> | undefined,
 	images: ImageProcessor,
 ): Promise<{ notes: string[]; images: ImageContent[]; attachments: MessageEntryData["attachments"] }> {
@@ -147,7 +158,7 @@ export async function attach(
 		// The upload ID in the name keeps two photos both called image.jpg apart.
 		const stem = basename(upload.meta.name, extname(upload.meta.name));
 		const file = `${stem}-${createHash("sha256").update(id).digest("hex").slice(0, 6)}${extname(upload.meta.name)}`;
-		const path = `${ATTACHMENTS_DIR}/${file}`;
+		const path = shown === "relative" ? `${ATTACHMENTS_DIR}/${file}` : join(dir, file);
 		await writeFile(join(dir, file), upload.bytes);
 		const image = IMAGE_TYPES.has(upload.meta.mimeType);
 		attachments.push({ name: upload.meta.name, mimeType: upload.meta.mimeType, size: upload.meta.size, path, image });

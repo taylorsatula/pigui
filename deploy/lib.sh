@@ -1,5 +1,6 @@
 # Shared by the deploy scripts: numbered steps, notes, and the dry-run boundary. Everything that changes the system
-# goes through `run` or `write_file`, which only print when DRY_RUN is 1. Source it after setting DRY_RUN.
+# goes through `run` or `write_file`, which only print when DRY_RUN is 1. Source it after setting DRY_RUN. It runs on
+# Linux and on macOS (deploy/onprem.sh), whose stat differs.
 
 STEP=0
 
@@ -19,12 +20,15 @@ run() {
 	fi
 }
 
+# A file's mode and owner as "644 user:group", with GNU stat or, on macOS, BSD stat.
+mode_owner() { stat -c '%a %U:%G' "$1" 2>/dev/null || stat -f '%Lp %Su:%Sg' "$1"; }
+
 # write_file PATH MODE OWNER: content on stdin. Unchanged files are left alone, apart from their mode and owner.
 write_file() {
 	local path=$1 mode=$2 owner=$3 content
 	content=$(cat)
 	if [[ -f $path ]] && [[ $(cat "$path") == "$content" ]]; then
-		if [[ $(stat -c '%a %U:%G' "$path") == "${mode#0} $owner" ]]; then
+		if [[ $(mode_owner "$path") == "${mode#0} $owner" ]]; then
 			note "$path is up to date"
 		else
 			run chmod "$mode" "$path"

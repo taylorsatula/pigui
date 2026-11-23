@@ -45,6 +45,14 @@ export const RepoMemoryToken = defineDocFamily<RepoMemory, null>({
 	checkpointWhen: () => true,
 });
 
+/**
+ * The repo memory a session reads and its reports replace: its repository's, or for every local session one of this
+ * computer's. A repository is always `owner/name`, so the computer's key, without a slash, can never be one.
+ */
+export function repoMemoryKey(doc: Readonly<SessionDoc>): string {
+	return doc.place === "local" ? "this computer" : doc.repo;
+}
+
 /** One long-term memory. */
 export type MemoryRow = {
 	text: string;

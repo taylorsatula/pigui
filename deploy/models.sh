@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # Makes DIR hold the models picloud runs on this machine's CPU for the features named, and only those: each model at a
 # pinned Hugging Face revision with every file's sha256 checked, and the model of a feature not named removed, since
-# picloud turns a feature on wherever it finds its model. The Dockerfile and deploy/install.sh run it; picloud itself
-# never downloads.
+# picloud turns a feature on wherever it finds its model. The Dockerfile, deploy/install.sh and deploy/onprem.sh run it;
+# picloud itself never downloads.
 #
 #   deploy/models.sh DIR [speech] [memory]
 #
@@ -55,7 +55,13 @@ for name in "$@"; do
 	[[ " ${SETS[*]} " == *" $name "* ]] || { echo "There is no model set '$name'; the sets are: ${SETS[*]}." >&2; exit 2; }
 done
 
-matches() { echo "$1  $2" | sha256sum --check --status 2>/dev/null; }
+# sha256sum where there is one (Linux); macOS has shasum instead, which reads the same checksum lines.
+if command -v sha256sum >/dev/null; then
+	sha256() { sha256sum "$@"; }
+else
+	sha256() { shasum -a 256 "$@"; }
+fi
+matches() { echo "$1  $2" | sha256 --check --status 2>/dev/null; }
 
 fetch() {
 	local repo=$1 revision=$2 sum=$3 file=$4

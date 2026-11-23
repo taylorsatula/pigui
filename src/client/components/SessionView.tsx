@@ -6,6 +6,7 @@ import { useCallback, useEffect, useMemo, useState } from "preact/hooks";
 import { runFailureText, type SessionDoc, sessionRow } from "../../shared/session.ts";
 import { formatDollars, spentOf } from "../../shared/spend.ts";
 import { api, describeFailure } from "../api.ts";
+import { shortDir } from "../format.ts";
 import { stopReading } from "../speech.ts";
 import { navigate, showToast, useStore } from "../store.ts";
 import { buildBlocks } from "../transcript.ts";
@@ -103,6 +104,7 @@ export function SessionView(props: { id: number }): JSX.Element {
 	const session = useStore((state) => state.session);
 	const view = useStore((state) => state.view);
 	const missing = useStore((state) => state.missing);
+	const home = useStore((state) => state.bootstrap?.onPrem?.home);
 	const [focus, setFocus] = useState(0);
 	const [diff, setDiff] = useState(false);
 	const doc = session?.id === props.id ? session : undefined;
@@ -198,18 +200,19 @@ export function SessionView(props: { id: number }): JSX.Element {
 						{/* Status leads, as a word: marked when it is the person's turn. */}
 						<p class="subtitle" role="status">
 							<span class={`session-status ${row.tone}`}>{row.label}</span>
-							<span class="where">
-								{doc.repo} · {doc.branch}
-							</span>
+							<span class="where">{doc.place === "local" ? shortDir(doc.dir, home) : `${doc.repo} · ${doc.branch}`}</span>
 							<span class={`spend ${spendTone(spent, doc.cap)}`}>
 								{formatDollars(spent)}
 								{doc.cap === undefined ? "" : ` of ${formatDollars(doc.cap)}`}
 							</span>
 						</p>
 					</div>
-					<button type="button" class="icon-button" aria-label="View changes" disabled={doc.setup.status !== "ready"} onClick={() => setDiff(true)}>
-						<Icon name="diff" />
-					</button>
+					{/* A local session works in place, with no branch to compare: there is no diff to view. */}
+					{doc.place === "repo" ? (
+						<button type="button" class="icon-button" aria-label="View changes" disabled={doc.setup.status !== "ready"} onClick={() => setDiff(true)}>
+							<Icon name="diff" />
+						</button>
+					) : null}
 					<button type="button" class="icon-button" aria-label="Archive session" onClick={archive}>
 						<Icon name="archive" />
 					</button>

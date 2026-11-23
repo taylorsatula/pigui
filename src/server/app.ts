@@ -5,6 +5,7 @@ import { mkdir } from "node:fs/promises";
 import { join } from "node:path";
 import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
 import type { Api, Model, Models } from "@earendil-works/pi-ai";
+import type { Draft } from "@earendil-works/chord/delta";
 import { configure, type ConversationId, createRegistry, defineExtension, Harness, type ModelRef, type Report } from "@earendil-works/pi-durable";
 import { createFitImagesExtension } from "@earendil-works/pi-durable/images/fit";
 import { createNodePhotonImages } from "@earendil-works/pi-durable/images/node";
@@ -15,7 +16,7 @@ import type { AgentServices, Faults } from "./agent/services.ts";
 import type { Config } from "./config.ts";
 import { Delivery } from "./delivery.ts";
 import { SessionDocToken, SessionIndexToken } from "./docs.ts";
-import { type SessionDoc, sessionRow } from "../shared/session.ts";
+import { type RepoSessionDoc, type SessionDoc, sessionRow } from "../shared/session.ts";
 import { LocalGitHub } from "./fake/github.ts";
 import { type ScriptedModelOptions, scriptedModels } from "./fake/model.ts";
 import { fakeSynthesizer } from "./fake/synthesizer.ts";
@@ -56,8 +57,11 @@ export type AppOptions = {
 	now?: () => number;
 	/** Where the built client is; default `dist/public` beside the sources. */
 	staticDir?: string;
-	/** Refuse connections opened by picloud's own user (see callers.ts); on in real mode, where tests run as that user. */
-	refuseOwnUser?: boolean;
+	/**
+	 * Check who opened each connection (see callers.ts): on a server, refuse picloud's own user; in OnPrem on Linux,
+	 * allow only it. On in real mode; off in fake mode, where tests connect as picloud's own user.
+	 */
+	checkCallers?: boolean;
 	/**
 	 * Read replies aloud where this build can: with kokoro-js and its model installed, and always in fake mode, whose
 	 * synthesizer needs neither. Tests set false to see a build without speech.
@@ -85,7 +89,8 @@ export async function startApp(options: AppOptions): Promise<App> {
 	const log = options.log ?? createLogger();
 	const now = options.now ?? (() => Date.now());
 	const context = BACKGROUND_CONTEXT;
-	const sandbox = await openSandbox({ enabled: config.sandbox, fake: config.fake, log });
+	// OnPrem runs agent commands as the person, so there is nothing to open.
+	const sandbox = config.onPrem === undefined ? await openSandbox({ enabled: config.sandbox, fake: config.fake, log }) : undefined;
 	const paths = {
 		database: join(config.dataDir, "picloud.sqlite"),
 		workspaces: join(config.dataDir, "workspaces"),
@@ -94,9 +99,12 @@ export async function startApp(options: AppOptions): Promise<App> {
 		sandbox: join(config.dataDir, "sandbox"),
 	};
 	for (const dir of [config.dataDir, paths.workspaces, paths.uploads, paths.backups]) await mkdir(dir, { recursive: true });
+	/** picloud's own directory for a session: a repository session's clone, and every session's attachments. */
 	const workspace = (id: number) => join(paths.workspaces, String(id));
-	/** A session's own home, tmp and gh configuration, which its commands get instead of picloud's. */
+	/** A session's own home, tmp and gh configuration, which its commands get instead of picloud's (not in OnPrem). */
 	const scratch = (id: number) => join(paths.sandbox, String(id));
+	/** Where the agent works: a repository session's clone, or the directory a local session chose. */
+	const workingDir = (doc: Readonly<SessionDoc>) => (doc.place === "local" ? doc.dir : workspace(doc.id));
 
 	const fakeGitHub = config.fake ? await LocalGitHub.open(join(config.dataDir, "fake-github")) : undefined;
 	const host: RepoHost = fakeGitHub ?? new GhHost();
@@ -127,6 +135,9 @@ export async function startApp(options: AppOptions): Promise<App> {
 		compactionModel: config.compactionModel,
 		agentDir: options.agentDir,
 		workspace,
+		workingDir,
+		onPrem: config.onPrem !== undefined,
+		sandboxed: sandbox !== undefined,
 		memory,
 		faults: options.faults ?? {},
 	};
@@ -140,6 +151,7 @@ export async function startApp(options: AppOptions): Promise<App> {
 		now,
 		defaultModel: pi.defaultModel,
 		spendCap: config.spendCap,
+		onPrem: config.onPrem,
 	});
 	const maintenance = new Maintenance({
 		harness,
@@ -166,6 +178,7 @@ export async function startApp(options: AppOptions): Promise<App> {
 		dirs: (id) => ({ workspace: workspace(id), scratch: scratch(id) }),
 		gitHubToken: config.agentGitHubToken,
 		sandbox,
+		onPrem: config.onPrem,
 		// Skills are read and run, while the rest of Pi's directory (sign-in, settings, models) stays out of reach. In fake
 		// mode the agent's git fetch reads the stand-in remote.
 		readable: readableGrants([join(options.agentDir, "skills"), ...(fakeGitHub === undefined ? [] : [fakeGitHub.root])]),
@@ -194,12 +207,15 @@ export async function startApp(options: AppOptions): Promise<App> {
 	);
 	// The drawer's document exists from the start, so a phone can watch it before the first session. Its rows are a
 	// projection of each session, recomputed here so rows an earlier picloud wrote take the current shape. Sessions
-	// an earlier picloud created with a turn limit lose it: a run takes as many tool rounds as its work needs.
+	// an earlier picloud created with a turn limit lose it: a run takes as many tool rounds as its work needs. Sessions
+	// from before local sessions were all repository sessions, and say so from here on.
 	await opened.commit(async (tx) => {
 		const index = await tx.doc(SessionIndexToken);
 		for (const key of Object.keys(index.rows)) {
 			const id = Number(key) as ConversationId;
-			const row = sessionRow((await tx.doc(SessionDocToken, id)) as SessionDoc);
+			const doc = await tx.doc(SessionDocToken, id);
+			if ((doc as { place?: string }).place === undefined) (doc as Draft<RepoSessionDoc>).place = "repo";
+			const row = sessionRow(doc as SessionDoc);
 			if (JSON.stringify(index.rows[key]) !== JSON.stringify(row)) index.rows[key] = row;
 			await configure(tx, id, { maxTurns: null });
 		}
@@ -220,9 +236,10 @@ export async function startApp(options: AppOptions): Promise<App> {
 		fake: config.fake,
 		vapidPublicKey: vapid.publicKey,
 		allowedLogins: config.allowedLogins,
-		...((options.refuseOwnUser ?? !config.fake) ? { callerCheck: callerCheck() } : {}),
+		...callers(options.checkCallers ?? !config.fake, config.onPrem !== undefined),
 		agentDir: options.agentDir,
-		workspace,
+		workingDir,
+		onPrem: config.onPrem,
 		staticDir: options.staticDir ?? join(import.meta.dirname, "..", "..", "dist", "public"),
 		speech,
 		memory: memoryStatus,
@@ -233,7 +250,7 @@ export async function startApp(options: AppOptions): Promise<App> {
 	});
 	const address = server.address() as AddressInfo;
 	const url = `http://${config.host.includes(":") ? `[${config.host}]` : config.host}:${address.port}`;
-	log.info("started", { port: address.port, fake: config.fake, speech: speech !== undefined, memory: memory?.embedder.model });
+	log.info("started", { port: address.port, fake: config.fake, onPrem: config.onPrem !== undefined, speech: speech !== undefined, memory: memory?.embedder.model });
 
 	return {
 		url,
@@ -255,6 +272,16 @@ export async function startApp(options: AppOptions): Promise<App> {
 			await opened?.close(context);
 		},
 	};
+}
+
+/**
+ * The caller check, when on. OnPrem allows only picloud's own user where the kernel's socket table says who that is,
+ * on Linux; elsewhere it checks no caller, and any user of the computer can reach it (README, "PiCloud OnPrem").
+ */
+function callers(on: boolean, onPrem: boolean): { callerCheck?: ReturnType<typeof callerCheck> } {
+	if (!on) return {};
+	if (!onPrem) return { callerCheck: callerCheck("others") };
+	return process.platform === "linux" ? { callerCheck: callerCheck("own") } : {};
 }
 
 function toPi(scripted: { models: Models; model: ModelRef }): { models: Models; defaultModel: () => ModelRef } {

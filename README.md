@@ -10,6 +10,8 @@ coloured mark for its status.
 A speaker under each reply reads it aloud, with a speech model that runs on the server ([Reading aloud](#reading-aloud)).
 With an embedding key, or a local embedding model built in, Pi also remembers across sessions what no file states
 ([Long-term memory](#long-term-memory)).
+It can also run on your own computer instead, at http://localhost:2025, where a session works in any directory there
+with your full access ([PiCloud OnPrem](#picloud-onprem)).
 
 It is thin glue around [Pi Durable](https://www.npmjs.com/package/@earendil-works/pi-durable), which owns the agent
 loop, persistence, compaction and recovery. Tailscale provides access and TLS, `gh` and `git` talk to GitHub, Web
@@ -21,7 +23,8 @@ Push carries notifications, and systemd keeps it running. Why each piece is buil
 - Node.js 22.19 or newer (the server runs its TypeScript directly with Node's type stripping).
 - git, and a C compiler (`cc`) for the agent sandbox's launcher.
 - For real use: Debian 13 (recommended) or Ubuntu 24.04, on a kernel with Landlock, with Tailscale, `gh`, Pi signed
-  in and two GitHub tokens (see [Deploy](#deploy)).
+  in and two GitHub tokens (see [Deploy](#deploy)). Or, on your own Mac or Linux computer, Node.js, git and Pi signed in
+  ([PiCloud OnPrem](#picloud-onprem)).
 - For the end-to-end tests: Chromium for Playwright 1.63 (`npx playwright install chromium` if it is not installed).
 
 ## Build, run and test
@@ -53,7 +56,8 @@ What it runs:
   messages, so many sessions can run at once. A task ending in `?` gets a plain chat reply (with Markdown). Any other
   task plays the zero-shot flow: it explores (with a thinking block), asks two questions on one card, proposes a
   three-step plan, writes `src/shout.ts` and a test, marks progress, runs the tests, commits and files its report. A
-  later message makes a follow-up commit and a new report. Its tokens are priced like a mid-range model so the spend
+  later message makes a follow-up commit and a new report. In a local session (OnPrem), which has nothing to commit,
+  it lists what it wrote instead. Its tokens are priced like a mid-range model so the spend
   cap can be tried. Directives in the task steer it, mostly for tests: `[checklist]` adds a multiple-choice card,
   `[no-report]` and `[never-report]` stop without a report, `[dirty-report]` reports before committing, `[model-error]`
   fails once, `[spin]` loops until stopped, and `[long]` produces verbose output so the context compacts: picloud asks
@@ -75,6 +79,9 @@ What it runs:
   "A code block.", Markdown's markers go), and a stand-in synthesizer answers each segment with a quiet tone as long as
   its text. `[speech-fails]` in the text to read fails the rewrite.
 - `PICLOUD_FAKE_TOKENS_PER_SECOND` (only for `npm run fake`, default 60) sets how fast scripted text streams.
+- **OnPrem** combines with it: `HOME=$(mktemp -d) PICLOUD_ONPREM=on npm run fake` serves it at localhost, with local
+  sessions starting in that stand-in home. Give it a temporary `HOME`: OnPrem's commands run as you, and the scripted
+  model writes files into the directory a session chose.
 - **The sandbox** wherever this machine has Landlock and `npm run build` compiled the launcher; otherwise agent
   commands run unconfined, and the tests that need it skip. For those tests, the scripted model's `[probe]` directive
   runs the task's `$ command`, `read PATH` and `write PATH` lines one at a time.
@@ -96,28 +103,33 @@ without an embedder, as `e2e/memory.spec.ts` does to see the sidebar's notice.
 
 The end-to-end tests (`e2e/`) start `scripts/fake.ts` as a child process per test file, on a free port with temporary
 directories, and drive it with Playwright in Chromium at 390×844 (375 px for the horizontal-scroll check) with touch.
-Restart tests kill the process and start it again on the same port and data.
+Restart tests kill the process and start it again on the same port and data. `test.use({ onPrem: true })` starts it as
+OnPrem, with a temporary home, opened at localhost (`e2e/onprem.spec.ts`). Tests of OnPrem's local sessions give
+`TestServer` `PICLOUD_ONPREM=on` and a temporary `HOME` in its `env`; the installer's are dry runs only, with stand-ins
+for `uname` and the login shell, so the macOS paths run on Linux.
 
 ## Configuration
 
-Configuration is by environment variables. The installer writes them to `/etc/picloud/picloud.env`.
+Configuration is by environment variables. The installer writes them to `/etc/picloud/picloud.env`; the OnPrem
+installer writes its three into the service it installs.
 
 | Variable | Default | Meaning |
 |---|---|---|
+| `PICLOUD_ONPREM` | `off` | `on` runs picloud on your own computer, as you ([PiCloud OnPrem](#picloud-onprem)): local sessions in any directory, agent commands with your environment and credentials, no sandbox, no Tailscale, answering only to localhost. It cannot be combined with `PICLOUD_SANDBOX=on`, `PICLOUD_ALLOWED_LOGINS` or `PICLOUD_AGENT_GH_TOKEN`, each of which promises a protection OnPrem does not have: picloud exits with code 2 and says which. |
 | `PICLOUD_DATA_DIR` | required | Database, workspaces, uploads, backups, push keys (and fake mode's stand-in GitHub). |
-| `PICLOUD_HOST` | `127.0.0.1` | Bind address. Must be loopback; Tailscale serve is the only way in. |
-| `PICLOUD_PORT` | `8787` | Bind port. `0` picks a free one. |
+| `PICLOUD_HOST` | `127.0.0.1` | Bind address. Must be loopback; Tailscale serve, or in OnPrem this computer's browser, is the only way in. |
+| `PICLOUD_PORT` | `8787`; `2025` in OnPrem | Bind port. `0` picks a free one. |
 | `PICLOUD_PUSH_SUBJECT` | `mailto:picloud@localhost` | Contact (`mailto:` or `https:`) sent to push services with VAPID. Set a real one: Apple may reject a placeholder. |
-| `PICLOUD_ALLOWED_LOGINS` | empty | Comma-separated Tailscale logins allowed in, checked against the `Tailscale-User-Login` header that `tailscale serve` adds. Empty allows anyone who reaches the server. |
+| `PICLOUD_ALLOWED_LOGINS` | empty | Comma-separated Tailscale logins allowed in, checked against the `Tailscale-User-Login` header that `tailscale serve` adds. Empty allows anyone who reaches the server. Not in OnPrem. |
 | `PICLOUD_SPEND_CAP` | none | Default spend cap per session, in US dollars. The person can raise a session's cap from the phone. |
 | `PICLOUD_COMPACTION_MODEL` | each session's model | The model that writes compaction checkpoints, as `provider/modelId` the way Pi names it (for example `anthropic/claude-sonnet-4-5`). It must be one Pi has credentials for; while it is not, picloud logs a warning and uses the session's model. Its spend counts toward the session's cap. |
 | `PICLOUD_FAKE` | `0` | `1` runs fake mode. |
-| `PICLOUD_AGENT_GH_TOKEN` | required in real mode | The agent's read-only GitHub token (Contents and Metadata: read). Agent commands get it as `GH_TOKEN` and `GITHUB_TOKEN`, never picloud's own. |
-| `PICLOUD_SANDBOX` | `on` | `on` confines every agent command and file tool with Landlock; `off` runs them unconfined, for a kernel without Landlock. |
+| `PICLOUD_AGENT_GH_TOKEN` | required in real mode | The agent's read-only GitHub token (Contents and Metadata: read). Agent commands get it as `GH_TOKEN` and `GITHUB_TOKEN`, never picloud's own. Not in OnPrem, where they use your own `gh` and git credentials. |
+| `PICLOUD_SANDBOX` | `on`; off in OnPrem | `on` confines every agent command and file tool with Landlock; `off` runs them unconfined, for a kernel without Landlock. |
 | `PICLOUD_MEMORY_PROVIDER` | `lunaroute` | The Pi provider whose key signs long-term memory's embedding requests ([Long-term memory](#long-term-memory)). |
 | `PICLOUD_MEMORY_EMBED_MODEL` | `emb-qwen3` | The embedding model. Memory's search thresholds are tuned for `emb-qwen3`; changing it re-embeds every memory once. |
 | `PICLOUD_MEMORY_EMBED_URL` | the provider's | An OpenAI-compatible embeddings URL. By default, the provider's base URL in Pi's catalog plus `/embeddings`; for `lunaroute` without one there, `https://gw.lunaroute.com/v1/embeddings`. Set without a key, requests go unsigned, as to a local server. |
-| `PI_CODING_AGENT_DIR` | `~/.pi/agent` | Pi's own variable: where Pi's configuration (models, sign-in, global skills, global `AGENTS.md`) is read from. |
+| `PI_CODING_AGENT_DIR` | `~/.pi/agent` | Pi's own variable: where Pi's configuration (models, sign-in, global skills, global `AGENTS.md`) is read from. In OnPrem, yours. |
 
 Models, sign-in and the default model come from Pi's configuration; picloud's only settings of its own for them are
 which model writes compaction checkpoints (`PICLOUD_COMPACTION_MODEL`) and memory's embeddings (`PICLOUD_MEMORY_*`). In
@@ -224,8 +236,14 @@ database.
   - fine-grained tokens limited to the repositories picloud may use;
   - branch protection on those repositories' default branches;
   - a service user without sudo (the installer removes it from the `sudo` group if present).
+- **Other sites' pages are refused.** A request that changes something is refused when the browser says it comes from
+  another site: `Sec-Fetch-Site` other than `same-origin`, or an `Origin` whose host is not the one the request was
+  sent to (the `Host`, or the `X-Forwarded-Host` a proxy adds). Without this, any page the phone opened could send a
+  simple `text/plain` POST, which needs no preflight, and picloud would act on it. Requests with neither header come
+  from programs, not from a page; the caller check and the login check still apply to them.
 - Logs carry identifiers, counts, durations and fixed reasons, never message text, tool output or credentials.
 - The phone app sanitizes the agent's Markdown (DOMPurify) and is served with a restrictive Content Security Policy.
+- OnPrem's security model is different, and much weaker by design: see [PiCloud OnPrem](#picloud-onprem).
 
 ## Deploy
 
@@ -345,6 +363,117 @@ three 10 MB files.
   `npm run check`, back up the database first (stored data may migrate and rollback is not guaranteed), then re-run
   the installer.
 
+## PiCloud OnPrem
+
+picloud can run on your own computer instead of a server: a Mac or a Linux machine, as a web app at
+http://localhost:2025, with the same app. A new session starts in a directory on the computer: your home directory
+(`~`) unless you type another, any existing absolute directory, `/` included. Pi works there in place, as you, as if
+you had opened a terminal there and run `pi`. Repository sessions, on a clone and a branch of their own that picloud
+pushes when you tap, remain the other choice wherever `gh` is signed in; if listing repositories fails, the New
+session screen says why and sessions on the computer still start.
+
+### Install, update and uninstall
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/taylorsatula/picloud/main/deploy/onprem.sh | bash -s --
+# Every flag is optional; see every step first with --dry-run:
+curl -fsSL https://raw.githubusercontent.com/taylorsatula/picloud/main/deploy/onprem.sh | bash -s -- --dry-run --port 2026
+```
+
+| Flag | Default | Meaning |
+|---|---|---|
+| `--speech on\|off` | `on` | Read replies aloud with Kokoro, on this computer: about 550 MB of packages and model, 650 MB of memory while reading. |
+| `--memory-local on\|off` | `off` | Embed long-term memory on this computer with LEAF: about 135 MB of models. |
+| `--port N` | `2025` | The localhost port. |
+| `--ref REF` | `main` | The branch, tag or commit of picloud to install. |
+| `--dry-run` | | Show every step and the service it would write; change nothing. |
+| `--uninstall` | | Stop and remove the service and the app; the data stays. |
+| `-h`, `--help` | | Show the help. |
+
+- **Run it as yourself**, never with sudo. Nothing outside your home directory changes.
+- **It needs** Node.js 22.19 or newer, which it does not install (Homebrew: `brew install node@22`; or nvm:
+  `nvm install 22`), and git. No C compiler is needed: OnPrem has no sandbox, and the build skips its launcher without
+  one. `gh` is optional: repository sessions need it signed in (`gh auth login`).
+- **Pi must be signed in**, as you: run `~/.picloud/app/node_modules/.bin/pi` (or your own `pi`), type `/login`, then
+  `/model`. The installer checks with picloud's own check and stops with these instructions until it passes; your Pi
+  configuration (`~/.pi/agent`) is the one picloud uses.
+- **What it does,** step by step:
+  1. checks the computer;
+  2. clones picloud at `--ref` into `~/.picloud/app`, or updates it there, refusing to overwrite changes made in it;
+     piped from curl, it fetches the code first and runs the installer of the version it installs;
+  3. installs the exact dependencies and builds, keeping or pruning the optional speech packages exactly as the
+     server installer does;
+  4. fetches the chosen local models with `deploy/models.sh`;
+  5. checks Pi's sign-in;
+  6. writes a service of your own user: on macOS the LaunchAgent
+     `~/Library/LaunchAgents/com.github.taylorsatula.picloud.plist` (started at login and kept alive, logs in
+     `~/.picloud/logs/picloud.log`); on Linux the systemd user unit `~/.config/systemd/user/picloud.service` (logs:
+     `journalctl --user -u picloud`). It sets `PICLOUD_ONPREM=on`, `PICLOUD_DATA_DIR=~/.picloud/data`,
+     `PICLOUD_PORT`, and the PATH your login shell builds, captured now, because launchd and systemd start services
+     with almost none and the agent's commands should find Homebrew, nvm and the rest;
+  7. starts it, waits for it to answer, prints the URL and opens it.
+- **Update** by running the one-liner again: it updates the app in place, rebuilds, captures your PATH again and
+  restarts. **Uninstall** with `--uninstall`: the service and `~/.picloud/app` go, and your sessions and backups stay
+  in `~/.picloud/data` until you remove `~/.picloud`.
+- **On Linux,** a user service runs while you are logged in. To keep it running after you log out:
+  `loginctl enable-linger $USER`.
+
+### What OnPrem de-restricts, and what that means
+
+- **The agent has your full access, and nothing it does is confined.** No sandbox: agent commands and file tools run
+  as you, anywhere on the filesystem, with your environment (minus picloud's own `PICLOUD_*` settings), your home
+  and `TMPDIR`, and every credential your tools find there: SSH keys, cloud command lines, your `gh` and git logins.
+  They reach every service on your computer and your network. `@` references reach any file, by absolute path or
+  `~/…`.
+- **It can push, publish and send with your credentials.** No separate, read-only token stands between the agent and
+  GitHub. In a repository session it is still told never to push, and picloud pushes only when you tap; in a local
+  session it is told to ask, on a card, before anything destructive or irreversible the task did not name: deleting
+  or overwriting files, pushing, publishing or sending anything, installing system-wide, changing system settings.
+  These are instructions, not protection. A file or web page Pi reads can try to talk it into acting as you.
+- **Sessions share the computer.** Two sessions in the same directory, or you and a session, can change the same
+  files.
+- **picloud itself never removes or rewrites anything in a directory you chose.** Its daily cleanup removes only its
+  own directories of an old archived session (`~/.picloud/data/workspaces/<id>`, where attachments are kept, and
+  never one a session chose to work in).
+- Delivery and the diff belong to repository sessions; a local session's report card offers neither.
+
+### Security on localhost
+
+- **Loopback only.** picloud listens on 127.0.0.1 and nothing else; no Tailscale is involved, `PICLOUD_ALLOWED_LOGINS`
+  is refused, and Tailscale's identity header means nothing.
+- **Host check.** It answers only requests addressed to `localhost`, `127.0.0.1` or `[::1]` at its own port. A web
+  page on a name pointed at 127.0.0.1 (DNS rebinding) is refused, so it can neither read picloud nor drive it.
+- **Page-origin gate.** A request that changes something is refused when the browser says it comes from another site
+  (see [Security model](#security-model)), so a page you visit cannot start a session or answer a card, which on this
+  computer would mean running commands as you.
+- **Own user only, on Linux.** picloud answers only connections opened by your own user, found in the kernel's socket
+  table; other users of a shared machine are refused. On macOS there is no such table, so picloud checks no caller:
+  **any user account on the Mac can reach it on localhost and use it as you.** On a Mac shared with other accounts, do
+  not install it.
+- **No login of its own.** Any program running as you can use it, which already has your access.
+
+### macOS privacy permissions
+
+macOS keeps programs out of Documents, Desktop and Downloads (and iCloud Drive, removable volumes and the like) until
+you allow them. A LaunchAgent's program has no window to ask from, so commands touching those folders fail with
+"Operation not permitted". To let picloud's sessions in, if you choose to: System Settings, Privacy & Security, Full
+Disk Access, then add the `node` binary the installer printed (Homebrew's `/opt/homebrew/bin/node` is a link: add the
+file `realpath "$(command -v node)"` names), and run the one-liner again to restart it. That gives everything this
+`node` runs that access, picloud's sessions included. It is your choice; without it, keep the work outside those
+folders.
+
+### What is unverified
+
+- **macOS has not been run.** picloud OnPrem was built and tested on Linux. On macOS only the installer's dry run has
+  been exercised (with stand-ins for `uname` and the login shell): the LaunchAgent it writes, `launchctl bootstrap` and
+  `bootout`, the zsh login shell's PATH, `open`, the Full Disk Access advice, the app and its optional speech packages
+  (onnxruntime's macOS binaries) under `npm ci`, and the server itself on macOS's filesystem. `deploy/models.sh`'s
+  `shasum` fallback was tested on Linux with a PATH that has no `sha256sum`.
+- **On Linux,** the systemd user unit has been checked only as the dry run writes it, not started; nor has a real
+  install fetched, built and started picloud.
+- **`tailscale serve` and the origin gate** (server mode): the gate accepts the browser's host in `Host` or in
+  `X-Forwarded-Host`. Which of them `tailscale serve` passes on has not been tried on a real tailnet.
+
 ## Layout
 
 ```
@@ -359,7 +488,7 @@ src/client/     the phone app (Preact), bundled by scripts/build.ts
 src/sw/         the service worker
 test/           automated tests (node:test)
 e2e/            end-to-end tests (Playwright)
-deploy/         the installer, the local models' download, and the serve config for the Docker setup (Dockerfile and
-                compose.yaml are at the root)
+deploy/         the installers (install.sh for a server, onprem.sh for your own computer), the local models' download,
+                and the serve config for the Docker setup (Dockerfile and compose.yaml are at the root)
 models/         the local models, once deploy/models.sh has fetched them (not in git)
 ```

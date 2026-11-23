@@ -39,7 +39,8 @@ type Sheddable = { lines: string[]; label: string };
  */
 export function renderCheckpoint(input: {
 	doc: Readonly<SessionDoc>;
-	ground: Ground;
+	/** A repository session's clone; undefined for a local session, which has none. */
+	ground: Ground | undefined;
 	files: FilesTouched;
 	number: number;
 	at: number;
@@ -54,8 +55,8 @@ export function renderCheckpoint(input: {
 	const { ground } = input;
 	const readList: Sheddable = { lines: [...input.files.read], label: "files read" };
 	const modifiedList: Sheddable = { lines: [...input.files.modified], label: "files modified" };
-	const fileList: Sheddable = { lines: ground.files.map(fileLine), label: "changed files" };
-	const commitList: Sheddable = { lines: ground.commits.map(commitLine), label: "commits" };
+	const fileList: Sheddable = { lines: (ground?.files ?? []).map(fileLine), label: "changed files" };
+	const commitList: Sheddable = { lines: (ground?.commits ?? []).map(commitLine), label: "commits" };
 	const shedOrder = [readList, modifiedList, fileList, commitList];
 	const omitted = new Map<Sheddable, number>();
 	const listed = (part: Sheddable, empty: string): string[] => {
@@ -70,12 +71,25 @@ export function renderCheckpoint(input: {
 		input.body ?? "No working state has been written yet. Work from the plan progress, the repository state and the messages after this checkpoint.",
 	].join("\n");
 
+	const place = (): string[] =>
+		ground === undefined
+			? ["## Where you work", `In ${input.doc.place === "local" ? input.doc.dir : "your working directory"}, on the person's own computer, in place: no branch, and no commits of this session's.`]
+			: [
+					"## Repository, computed at compaction",
+					...repositoryLines(ground),
+					`Commits in this session (${ground.commitTotal}; \`git log\` shows them all):`,
+					...listed(commitList, "- none yet"),
+					`Files changed in this session (${ground.files.length}; \`git diff --stat\` shows them):`,
+					...listed(fileList, "- none yet"),
+				];
 	const facts = (): string =>
 		[
 			`${CHECKPOINT_HEADER} picloud compacted this session's earlier context into checkpoint ${input.number}, at ${new Date(input.at).toISOString()}. The files on disk and the messages after this checkpoint are newer than it: where they disagree with it, they win.`,
 			"",
 			"## Before you act",
-			"1. Re-establish ground truth: run `git status` and `git log --oneline -10`, and compare them with the plan progress below.",
+			ground === undefined
+				? "1. Re-establish ground truth: look again at what the plan changes, and compare it with the plan progress below."
+				: "1. Re-establish ground truth: run `git status` and `git log --oneline -10`, and compare them with the plan progress below.",
 			"2. Re-read any file before you edit it: this checkpoint describes files, it does not hold them.",
 			"3. Do not redo plan steps marked done or commits already made, and do not ask again what the person already answered below.",
 			`4. Anything missing here is still in the full history: use ${RECALL} with a query (a file name, an error, a number) or an entry number.`,
@@ -89,12 +103,7 @@ export function renderCheckpoint(input: {
 			"## Session",
 			...sessionLines(input.doc),
 			"",
-			"## Repository, computed at compaction",
-			...repositoryLines(ground),
-			`Commits in this session (${ground.commitTotal}; \`git log\` shows them all):`,
-			...listed(commitList, "- none yet"),
-			`Files changed in this session (${ground.files.length}; \`git diff --stat\` shows them):`,
-			...listed(fileList, "- none yet"),
+			...place(),
 			"",
 			"## Files you read and modified with your file tools",
 			`Read: ${listed(readList, "none").join(", ")}`,
@@ -174,9 +183,8 @@ export async function writeCheckpoint(
 	const start = previous !== undefined && isCheckpoint(input.view.head) ? 1 : 0;
 	const earliest = spans[bounds.earliest]?.entry.id;
 	if (earliest === undefined) throw new Error("The compaction's bounds are outside its context.");
-	const workspace = services.workspace(doc.id);
-	const ground = await groundTruth(workspace, doc);
-	const files = await filesTouched(api, earliest, workspace, context);
+	const ground = doc.place === "repo" ? await groundTruth(services.workspace(doc.id), doc) : undefined;
+	const files = await filesTouched(api, earliest, services.workingDir(doc), context);
 	const summarizer = await summarizerModel(services, api, input.limits.model);
 	const prompt = summarizerPrompt({
 		previous,

@@ -450,6 +450,7 @@ describe("cuts and checkpoint text", () => {
 	const doc = {
 		id: 1,
 		title: "t",
+		place: "repo",
 		repo: "demo/greeter",
 		start: { kind: "new", base: "main" },
 		branch: "pi/t-1",

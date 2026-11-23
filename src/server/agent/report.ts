@@ -1,10 +1,11 @@
-// The report tool: the end of a piece of work. It checks the workspace itself instead of trusting the model, refusing
-// uncommitted changes and a branch behind its base, then files the report, updates repo memory and notifies. With
-// long-term memory on, it also records and grades memory, in the same commit.
+// The report tool: the end of a piece of work. In a repository session it checks the clone itself instead of trusting
+// the model, refusing uncommitted changes and a branch behind its base; a local session works in place, with nothing
+// to deliver, so nothing is checked. Then it files the report, updates repo memory and notifies. With long-term memory
+// on, it also records and grades memory, in the same commit.
 import { defineTool, type ToolExecutionResult } from "@earendil-works/pi-durable";
 import { arr, bool, obj, oneOf, type Static, str, unsafe } from "@earendil-works/pi-schema";
-import { type Report, reportOf } from "../../shared/session.ts";
-import { editSession, MemoryToken, RepoMemoryToken } from "../docs.ts";
+import { type Report, reportOf, type RepoSessionDoc } from "../../shared/session.ts";
+import { editSession, MemoryToken, RepoMemoryToken, repoMemoryKey } from "../docs.ts";
 import { fetchBranch, head, isAncestor, refExists, uncommitted } from "../git.ts";
 import { applyChanges } from "../memory/store.ts";
 import { sessionOf } from "./cards.ts";
@@ -63,7 +64,7 @@ const reportParts = {
 	learned: str({
 		maxLength: 4000,
 		description:
-			"Everything a later session needs to build and test this repository on this machine: commands, setup, pitfalls. Include what you were told under repo memory that is still true; this replaces it.",
+			"Everything a later session needs to build and test this repository on this machine (in a session on this computer, to work on it): commands, setup, pitfalls. Include what you were told under repo memory that is still true; this replaces it.",
 	}),
 };
 
@@ -79,7 +80,7 @@ export function reportTool(services: AgentServices) {
 	return defineTool({
 		name: FILE_REPORT,
 		description:
-			"File a report after any change to the repository: when the work is done, or when you cannot go further. The person reviews it beside the plan: each end-state condition with its evidence, the changes by file, the checks you ran, and where you departed from the plan. Write each item as one short line. It ends your turn, and it becomes the pull request's description if the person opens one. Refused while there are uncommitted changes or the branch is behind its base.",
+			"File a report after any change you make: when the work is done, or when you cannot go further. The person reviews it beside the plan: each end-state condition with its evidence, the changes by file, the checks you ran, and where you departed from the plan. Write each item as one short line. It ends your turn, and it becomes the pull request's description if the person opens one. In a repository session, refused while there are uncommitted changes or the branch is behind its base.",
 		parameters: unsafe<ReportArgs>(services.memory === undefined ? ReportParameters : MemoryReportParameters),
 		replay: "safe",
 		async execute(args, api, context): Promise<ToolExecutionResult> {
@@ -87,23 +88,10 @@ export function reportTool(services: AgentServices) {
 			const key = `report:${api.callId}`;
 			// A rerun of this call after a crash, once the report is filed: return it as it was filed, checking nothing again.
 			if (session.notified.includes(key) && session.report !== undefined) return filed(reportOf(session.report));
-			const workspace = services.workspace(session.id);
-			const dirty = await uncommitted(workspace);
-			if (dirty.length > 0) {
-				const listed = dirty.slice(0, 20).map((path) => `- ${path}`).join("\n");
-				return refuse(
-					`Report refused: ${dirty.length} uncommitted change${dirty.length === 1 ? "" : "s"}:\n${listed}\nCommit what belongs in the work, remove what does not, then file the report again.`,
-				);
-			}
-			const fetchError = await fetchBranch(workspace, session.base);
-			const baseRef = `refs/remotes/origin/${session.base}`;
-			if ((await refExists(workspace, baseRef)) && !(await isAncestor(workspace, baseRef, "HEAD"))) {
-				return refuse(
-					`Report refused: ${session.branch} is behind origin/${session.base}. Merge it (git merge origin/${session.base}), resolve any conflicts, run the tests again, commit, then file the report.`,
-				);
-			}
+			const checked = session.place === "repo" ? await checkClone(services.workspace(session.id), session) : { notes: [] };
+			if ("refused" in checked) return refuse(checked.refused);
 			const { memory: memoryPart, ...parts } = args;
-			const notes = fetchError === undefined ? [...parts.notes] : [...parts.notes, `Could not fetch origin/${session.base} to check the branch is up to date.`];
+			const notes = [...parts.notes, ...checked.notes];
 			const shown = session.memoryShown ?? [];
 			let remembering: MemoryOutcome | undefined;
 			if (services.memory !== undefined) {
@@ -111,8 +99,7 @@ export function reportTool(services: AgentServices) {
 				if (remembering.kind === "refused") return refuse(remembering.text);
 				if (remembering.kind === "failed") notes.push(remembering.note);
 			}
-			const commit = await head(workspace);
-			const report: Report = { ...parts, notes, commit, filedAt: services.now() };
+			const report: Report = { ...parts, notes, ...("commit" in checked ? { commit: checked.commit } : {}), filedAt: services.now() };
 			let missing: string[] = [];
 			await api.commit(async (tx) => {
 				await editSession(tx, api.conversationId, services.now(), async (doc) => {
@@ -133,7 +120,7 @@ export function reportTool(services: AgentServices) {
 					doc.outcome = { kind: "reported", at: report.filedAt };
 					doc.attentionAt = report.filedAt;
 					if (args.learned.trim() !== "") {
-						const memory = await tx.doc(RepoMemoryToken, doc.repo, null);
+						const memory = await tx.doc(RepoMemoryToken, repoMemoryKey(doc), null);
 						memory.notes = args.learned.trim();
 						memory.updatedAt = report.filedAt;
 					}
@@ -143,6 +130,28 @@ export function reportTool(services: AgentServices) {
 			return filed(report, missing);
 		},
 	});
+}
+
+/**
+ * What a repository's clone must show before its report is filed: everything committed, and the branch not behind its
+ * base. Its HEAD, and a note when the base could not be fetched to check.
+ */
+async function checkClone(workspace: string, session: Readonly<RepoSessionDoc>): Promise<{ refused: string } | { commit: string; notes: string[] }> {
+	const dirty = await uncommitted(workspace);
+	if (dirty.length > 0) {
+		const listed = dirty.slice(0, 20).map((path) => `- ${path}`).join("\n");
+		return {
+			refused: `Report refused: ${dirty.length} uncommitted change${dirty.length === 1 ? "" : "s"}:\n${listed}\nCommit what belongs in the work, remove what does not, then file the report again.`,
+		};
+	}
+	const fetchError = await fetchBranch(workspace, session.base);
+	const baseRef = `refs/remotes/origin/${session.base}`;
+	if ((await refExists(workspace, baseRef)) && !(await isAncestor(workspace, baseRef, "HEAD"))) {
+		return {
+			refused: `Report refused: ${session.branch} is behind origin/${session.base}. Merge it (git merge origin/${session.base}), resolve any conflicts, run the tests again, commit, then file the report.`,
+		};
+	}
+	return { commit: await head(workspace), notes: fetchError === undefined ? [] : [`Could not fetch origin/${session.base} to check the branch is up to date.`] };
 }
 
 function filed(report: Report, missing: string[] = []): ToolExecutionResult {

@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { after, before, describe, test } from "node:test";
 import type { DeliveryResult, SessionDiff } from "../src/shared/api.ts";
 import { git } from "../src/server/git.ts";
-import { ApiFailure, TestServer } from "./helpers.ts";
+import { ApiFailure, repoDoc, TestServer } from "./helpers.ts";
 
 /** Commit a file to a branch of the stand-in's bare repository, as someone else pushing to GitHub would. */
 async function pushElsewhere(server: TestServer, repo: string, branch: string, path: string, content: string): Promise<void> {
@@ -39,7 +39,7 @@ describe("delivery", () => {
 		const existing = await server.github.createPullRequest("demo/greeter", { head: "feature/farewell", base: "main", title: "Farewell", body: "" });
 		const id = await server.createSession("Add shout", { kind: "continue", branch: "feature/farewell" });
 		await server.approveThrough(id);
-		const done = await server.settled(id);
+		const done = repoDoc(await server.settled(id));
 		assert.equal(done.branch, "feature/farewell");
 		assert.equal(done.base, "main");
 		assert.deepEqual(done.delivery.pr, existing, "the open PR is known from the start");
@@ -68,7 +68,7 @@ describe("delivery", () => {
 		});
 		await server.answer(id, waiting.card!.id, { kind: "text", text: "Use your recommendations." });
 		await server.answer(id, (await server.until(id, (doc) => doc.card?.kind === "plan", "plan")).card!.id, { kind: "approve" });
-		const done = await server.settled(id);
+		const done = repoDoc(await server.settled(id));
 
 		const pushed = await server.post<DeliveryResult>(`/api/sessions/${id}/deliver`, { action: "push" });
 		assert.equal(pushed.pr, undefined);
@@ -89,7 +89,7 @@ describe("delivery", () => {
 			assert.match(error.body.hint ?? "", /merge/i);
 			return true;
 		});
-		assert.match((await server.session(id))?.delivery.error?.message ?? "", /refused/);
+		assert.match(repoDoc(await server.session(id)).delivery.error?.message ?? "", /refused/);
 	});
 
 	test("the diff shows only the session's changes when the base moves on", async () => {

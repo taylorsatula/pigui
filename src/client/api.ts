@@ -19,6 +19,7 @@ import type {
 	UploadedAttachment,
 } from "../shared/api.ts";
 import type { CardAnswer } from "../shared/session.ts";
+import { store } from "./store.ts";
 
 export class RequestFailed extends Error {
 	readonly status: number;
@@ -39,7 +40,11 @@ export function newRequestId(): string {
 
 const RETRIES = 3;
 
-const UNREACHABLE: ApiError = { error: "picloud cannot be reached.", hint: "Check that Tailscale is connected." };
+/** What to say when picloud does not answer: on a server it is reached through Tailscale, in OnPrem on this computer. */
+function unreachable(): ApiError {
+	const onPrem = store.get().bootstrap?.onPrem !== undefined;
+	return { error: "picloud cannot be reached.", hint: onPrem ? "Check that picloud is running on this computer." : "Check that Tailscale is connected." };
+}
 
 async function call<T>(method: "GET" | "POST", path: string, body?: unknown): Promise<T> {
 	let lastError: unknown;
@@ -59,7 +64,7 @@ async function call<T>(method: "GET" | "POST", path: string, body?: unknown): Pr
 		if (!response.ok) throw new RequestFailed(response.status, json);
 		return json;
 	}
-	throw new RequestFailed(0, lastError instanceof Error ? UNREACHABLE : ({ error: UNREACHABLE.error } as ApiError));
+	throw new RequestFailed(0, lastError instanceof Error ? unreachable() : { error: unreachable().error });
 }
 
 /** A POST the person can stop with `signal`, for reading aloud; nothing is retried, since a tap starts it again. */
@@ -69,7 +74,7 @@ async function stoppable(path: string, body: unknown, signal: AbortSignal): Prom
 		response = await fetch(path, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body), signal });
 	} catch (error) {
 		if (signal.aborted) throw error;
-		throw new RequestFailed(0, UNREACHABLE);
+		throw new RequestFailed(0, unreachable());
 	}
 	if (!response.ok) throw new RequestFailed(response.status, (await response.json().catch(() => ({ error: `The server answered ${response.status}.` }))) as ApiError);
 	return response;
@@ -100,6 +105,8 @@ export const api = {
 	branches: (repo: string) => call<BranchList>("GET", `/api/repos/${repo}/branches`),
 	repoFiles: (repo: string, ref: string) => call<FileList>("GET", `/api/repos/${repo}/files?ref=${encodeURIComponent(ref)}`),
 	repoSkills: (repo: string, ref: string) => call<SkillSummary[]>("GET", `/api/repos/${repo}/skills?ref=${encodeURIComponent(ref)}`),
+	localFiles: (dir: string) => call<FileList>("GET", `/api/local/files?dir=${encodeURIComponent(dir)}`),
+	localSkills: (dir: string) => call<SkillSummary[]>("GET", `/api/local/skills?dir=${encodeURIComponent(dir)}`),
 	sessionFiles: (id: number) => call<FileList>("GET", `/api/sessions/${id}/files`),
 	sessionSkills: (id: number) => call<SkillSummary[]>("GET", `/api/sessions/${id}/skills`),
 	create: (body: CreateSessionBody) => call<CreatedSession>("POST", "/api/sessions", body),

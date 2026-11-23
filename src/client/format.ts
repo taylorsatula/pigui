@@ -77,3 +77,10 @@ export function dayHeading(at: number): string {
 export function sameDay(a: number, b: number): boolean {
 	return new Date(a).toDateString() === new Date(b).toDateString();
 }
+
+/** A directory as the person reads it: the home directory, and anything under it, starting with `~`. */
+export function shortDir(dir: string, home: string | undefined): string {
+	if (home === undefined || home === "/") return dir;
+	if (dir === home) return "~";
+	return dir.startsWith(`${home}/`) ? `~${dir.slice(home.length)}` : dir;
+}

@@ -404,8 +404,10 @@ const CHECK_ICON = { passed: "check", failed: "close", "not run": "minus" } as c
 export function ReportCard(props: { report: Report; latest: boolean; session?: SessionDoc; running: boolean; actions: DeliveryActions }): JSX.Element {
 	const { report, session } = props;
 	const [busy, setBusy] = useState<"push" | "pr" | undefined>(undefined);
-	const delivery = session?.delivery;
-	const pushed = delivery?.pushed?.commit === report.commit;
+	// A local session works in place: nothing to push, no pull request and no diff, so the card offers none.
+	const local = session?.place === "local";
+	const delivery = session?.place === "repo" ? session.delivery : undefined;
+	const pushed = report.commit !== undefined && delivery?.pushed?.commit === report.commit;
 	const run = async (action: "push" | "pr") => {
 		setBusy(action);
 		try {
@@ -418,10 +420,10 @@ export function ReportCard(props: { report: Report; latest: boolean; session?: S
 		<section class="card report" aria-label="Report">
 			<header class="card-title">
 				<span>Report</span>
-				<span class="commit">{report.commit.slice(0, 7)}</span>
+				{report.commit === undefined ? null : <span class="commit">{report.commit.slice(0, 7)}</span>}
 				<span class={`verdict ${OUTCOME[report.outcome].tone}`}>{OUTCOME[report.outcome].label}</span>
 				{pushed ? <span class="verdict good">Pushed</span> : null}
-				{session === undefined ? null : <Speak id={`report:${report.commit}:${report.filedAt}`} session={session.id} markdown={reportProse(report)} />}
+				{session === undefined ? null : <Speak id={`report:${report.commit ?? "local"}:${report.filedAt}`} session={session.id} markdown={reportProse(report)} />}
 			</header>
 			<p class="lede">
 				<Inline text={report.headline} />
@@ -480,12 +482,18 @@ export function ReportCard(props: { report: Report; latest: boolean; session?: S
 				<details class="part more">
 					<summary>
 						<Icon name="chevron" size={14} />
-						What Pi learned about this repository
+						{local ? "What Pi learned about this computer" : "What Pi learned about this repository"}
 					</summary>
 					<Markdown text={report.learned} />
 				</details>
 			)}
-			{props.latest && session !== undefined ? (
+			{props.latest && local ? (
+				<div class="card-actions">
+					<button type="button" class="link wide" onClick={() => props.actions.focusComposer()}>
+						Keep working
+					</button>
+				</div>
+			) : props.latest && session !== undefined ? (
 				// One prominent action, the quieter ones beside each other under it, and a way back to the conversation.
 				<div class="card-actions">
 					{delivery?.pr === undefined ? (

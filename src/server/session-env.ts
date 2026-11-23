@@ -1,7 +1,9 @@
 // Where a session's agent works: Durable's Node environment, with commands run in an environment picloud chooses
-// rather than its own, inside the sandbox when it is on, and the file tools confined to the same grants.
+// rather than its own, inside the sandbox when it is on, and the file tools confined to the same grants. In picloud
+// OnPrem the agent works as the person instead: their environment, home and credentials, with nothing confined.
 import { existsSync } from "node:fs";
 import { mkdir, mkdtemp } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { Context } from "@earendil-works/chord/context";
@@ -24,6 +26,7 @@ import {
 	type WatchTarget,
 } from "@earendil-works/pi-durable/env";
 import { NodeExecutionEnv } from "@earendil-works/pi-durable/env/node";
+import type { OnPrem } from "./config.ts";
 import { NO_PROMPT_ENV } from "./git.ts";
 import { type Access, Grants, type Sandbox } from "./sandbox.ts";
 
@@ -59,9 +62,25 @@ function agentEnvironment(scratch: string, gitHubToken: string | undefined): Rec
 	return env;
 }
 
+/**
+ * OnPrem's environment for commands: the person's own, as picloud was started with it, without picloud's `PICLOUD_*`
+ * settings, and with their home. Their tools, credentials and TMPDIR come with it. Nobody can answer a prompt, so git's
+ * are still turned off.
+ */
+function personEnvironment(home: string): Record<string, string> {
+	const env: Record<string, string> = {};
+	for (const [name, value] of Object.entries(process.env)) {
+		if (value !== undefined && !name.startsWith("PICLOUD_")) env[name] = value;
+	}
+	return Object.assign(env, NO_PROMPT_ENV, { HOME: home });
+}
+
 type SessionEnvOptions = {
 	cwd: string;
-	scratch: string;
+	/** What `~` is for the file tools, as it is in commands: the session's own home, or in OnPrem the person's. */
+	home: string;
+	/** Where the agent's temporary directories go. */
+	tmp: string;
 	environment: Record<string, string>;
 	/** Undefined when the sandbox is off: commands and file tools are then unconfined. */
 	sandbox?: { launcher: string; grants: Grants };
@@ -75,13 +94,13 @@ class SessionEnv extends NodeExecutionEnv {
 
 	constructor(options: SessionEnvOptions) {
 		super({ cwd: options.cwd });
-		this.#home = join(options.scratch, "home");
-		this.#tmp = join(options.scratch, "tmp");
+		this.#home = options.home;
+		this.#tmp = options.tmp;
 		this.#environment = options.environment;
 		this.#sandbox = options.sandbox;
 	}
 
-	/** A path as Durable resolves it, except that `~` is the session's home, as it is in its commands. */
+	/** A path as Durable resolves it, except that `~` is the home the session's commands have. */
 	#resolve(path: string): string {
 		if (path === "~") return this.#home;
 		if (path.startsWith("~/")) return join(this.#home, path.slice(2));
@@ -193,7 +212,7 @@ class SessionEnv extends NodeExecutionEnv {
 		return super.watch(resolved, onChange, context);
 	}
 
-	/** In the session's own tmp, where its commands can read what lands there, such as a long command's full output. */
+	/** In the tmp its commands have, so they can read what lands there, such as a long command's full output. */
 	override async createTempDir(prefix: string | undefined, context: Context): Promise<Result<string, FileError>> {
 		if (context.abortSignal?.aborted) return err(new FileError("aborted", "aborted"));
 		try {
@@ -212,18 +231,28 @@ export type SessionEnvsOptions = {
 	sandbox: Sandbox | undefined;
 	/** What every session may read besides its own directories. */
 	readable: readonly string[];
+	/** OnPrem: commands run as the person, with their home, and none of the above applies. */
+	onPrem: OnPrem | undefined;
 };
 
-/** Durable's `env` option: each session's environment, built at each use. */
+/**
+ * Durable's `env` option: each session's environment, built at each use. Commands start in the conversation's cwd:
+ * a repository session's clone, or a local session's chosen directory.
+ */
 export function sessionEnvs(options: SessionEnvsOptions): (target: EnvTarget) => Promise<ExecutionEnv> {
 	return async ({ conversationId, cwd }) => {
 		const { workspace, scratch } = options.dirs(conversationId as number);
+		if (options.onPrem !== undefined) {
+			const { home } = options.onPrem;
+			return new SessionEnv({ cwd: cwd ?? workspace, home, tmp: tmpdir(), environment: personEnvironment(home) });
+		}
 		// Made here rather than at setup, so a session from before the sandbox gets them on its next command.
 		for (const dir of SCRATCH) await mkdir(join(scratch, dir), { recursive: true });
 		const sandbox = options.sandbox;
 		return new SessionEnv({
 			cwd: cwd ?? workspace,
-			scratch,
+			home: join(scratch, "home"),
+			tmp: join(scratch, "tmp"),
 			environment: agentEnvironment(scratch, options.gitHubToken),
 			...(sandbox === undefined
 				? {}

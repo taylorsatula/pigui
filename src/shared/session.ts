@@ -180,8 +180,8 @@ export type Report = {
 	learned: string;
 	/** Absent when long-term memory was off, or the report changed and rated nothing in it. */
 	memory?: ReportMemory;
-	/** HEAD when the report was filed. */
-	commit: string;
+	/** HEAD when the report was filed; absent in a local session, whose directory need not be a repository. */
+	commit?: string;
 	filedAt: number;
 };
 
@@ -308,9 +308,9 @@ export type CheckpointEntryData = {
 /** Before compacting, picloud asks the agent for a handoff note; after, it tells the agent to resume. */
 export type CompactionNoteData = { note: "handoff-request" | "resume" };
 
-export type SessionDoc = {
-	id: number;
-	title: string;
+/** A clone of a GitHub repository on a branch of its own, which picloud pushes when the person taps. */
+export type RepoPlace = {
+	place: "repo";
 	repo: string;
 	start: SessionStart;
 	/** The session's working branch. */
@@ -319,12 +319,34 @@ export type SessionDoc = {
 	base: string;
 	/** HEAD once the workspace was ready. */
 	startCommit?: string;
+	delivery: Delivery;
+};
+
+/**
+ * A directory on the person's own computer (picloud OnPrem), worked in place: nothing is cloned, pushed or diffed, and
+ * nothing picloud does ever removes or rewrites anything in it.
+ */
+export type LocalPlace = {
+	place: "local";
+	/** The absolute directory the agent starts in, as chosen when the session was created; not a boundary. */
+	dir: string;
+};
+
+/** Where a session works. Sessions stored before local sessions existed are repository sessions (see app.ts). */
+export type SessionPlace = RepoPlace | LocalPlace;
+
+export type SessionDoc = SessionCommon & SessionPlace;
+export type RepoSessionDoc = SessionCommon & RepoPlace;
+
+/** What every session holds, wherever it works. */
+type SessionCommon = {
+	id: number;
+	title: string;
 	setup: SetupState;
 	workflow: Workflow;
 	plan?: PlanState;
 	card?: PendingCard;
 	report?: StoredReport;
-	delivery: Delivery;
 	/** Spend cap in US dollars; absent means no cap. */
 	cap?: number;
 	/**
@@ -362,7 +384,10 @@ export type SessionDoc = {
 	/** The first message, kept until setup submits it, so a failed setup can be retried. */
 	pendingTask?: { text: string; attachments: string[] };
 	archived: boolean;
-	/** When maintenance removed the workspace of this archived session, after checking nothing in it was unpushed. */
+	/**
+	 * When maintenance removed picloud's own directories of this archived session: a repository session's clone, after
+	 * checking nothing in it was unpushed; a local session's attachments, never its directory.
+	 */
 	cleanedAt?: number;
 	createdAt: number;
 	updatedAt: number;
@@ -380,12 +405,13 @@ export type SessionGroup = "attention" | "working" | "done";
  */
 export type StatusTone = "working" | "attention" | "warn" | "error" | "done" | "idle";
 
+/** Where a drawer row's session works: the repository and branch, or the directory on this computer. */
+export type RowPlace = Pick<RepoPlace, "place" | "repo" | "branch"> | LocalPlace;
+
 /** One drawer row: a projection of a SessionDoc, recomputed whenever the document changes and when picloud starts. */
-export type SessionRow = {
+export type SessionRow = RowPlace & {
 	id: number;
 	title: string;
-	repo: string;
-	branch: string;
 	group: SessionGroup;
 	label: string;
 	tone: StatusTone;
@@ -411,8 +437,7 @@ export function sessionRow(doc: SessionDoc): SessionRow {
 		id: doc.id,
 		// The plan's title once there is one: a few words, where the session's own title is the first line of its task.
 		title: doc.plan === undefined ? doc.title : doc.plan.title,
-		repo: doc.repo,
-		branch: doc.branch,
+		...(doc.place === "local" ? { place: "local", dir: doc.dir } : { place: "repo", repo: doc.repo, branch: doc.branch }),
 		group,
 		label,
 		tone,
@@ -434,7 +459,8 @@ function describe(doc: SessionDoc): { group: SessionGroup; label: string; tone: 
 		const progress = doc.plan?.approved === true ? ` · ${doc.plan.done.length}/${doc.plan.steps.length}` : "";
 		return { group: "working", label: `Working${progress}`, tone: "working" };
 	}
-	const delivered = doc.delivery.pr !== undefined ? "PR open" : doc.delivery.pushed !== undefined ? "Pushed" : undefined;
+	const delivery = doc.place === "repo" ? doc.delivery : {};
+	const delivered = delivery.pr !== undefined ? "PR open" : delivery.pushed !== undefined ? "Pushed" : undefined;
 	switch (doc.outcome?.kind) {
 		case "failed":
 			return { group: "attention", label: "Run failed", tone: "error" };

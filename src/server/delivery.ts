@@ -4,7 +4,7 @@ import type { Context } from "@earendil-works/chord/context";
 import type { Draft } from "@earendil-works/chord/delta";
 import { type ConversationId, type Harness, LiveDoc } from "@earendil-works/pi-durable";
 import type { DeliveryResult, SessionDiff } from "../shared/api.ts";
-import { type Report, reportOf, type SessionDoc } from "../shared/session.ts";
+import { type Report, reportOf, type RepoSessionDoc } from "../shared/session.ts";
 import { editSession, SessionDocToken } from "./docs.ts";
 import { HttpError, notFound } from "./errors.ts";
 import { comparisonPoint, diffFiles, head, push, PushRejected, uncommitted } from "./git.ts";
@@ -20,7 +20,7 @@ export type DeliveryDeps = {
 const OUTCOME: Record<Report["outcome"], string> = { complete: "Complete", partial: "Partly done", blocked: "Blocked" };
 
 /** The report as a pull request's description: the same parts as its card, in GitHub's Markdown. */
-function prBody(doc: Readonly<SessionDoc>, report: Report | undefined): string {
+function prBody(doc: Readonly<RepoSessionDoc>, report: Report | undefined): string {
 	if (report === undefined) return `Work from the picloud session "${doc.title}".`;
 	const files = (paths: string[]) => (paths.length === 0 ? "" : ` (${paths.map((path) => `\`${path}\``).join(", ")})`);
 	const list = (title: string, lines: string[]) => (lines.length === 0 ? [] : [`## ${title}\n${lines.join("\n")}`]);
@@ -58,9 +58,16 @@ export class Delivery {
 		this.#deps = deps;
 	}
 
-	async #session(id: number, context: Context): Promise<Readonly<SessionDoc>> {
+	async #session(id: number, context: Context): Promise<Readonly<RepoSessionDoc>> {
 		const doc = await this.#deps.harness().snapshot(SessionDocToken, id as ConversationId, context);
 		if (doc?.id === undefined) throw notFound("The session");
+		if (doc.place === "local") {
+			throw new HttpError(
+				409,
+				"This session works in a directory on this computer, in place: there is no branch to push and no diff to show.",
+				"Its changes are already where they belong. Ask Pi what it changed, or push from that directory yourself.",
+			);
+		}
 		if (doc.setup.status !== "ready" || doc.startCommit === undefined) throw new HttpError(409, "The session has no workspace yet.");
 		return doc;
 	}
@@ -115,8 +122,14 @@ export class Delivery {
 		return pr === undefined ? { pushed } : { pushed, pr };
 	}
 
-	async #record(id: number, context: Context, change: (doc: Draft<SessionDoc>) => void): Promise<void> {
-		await this.#deps.harness().commit((tx) => editSession(tx, id, this.#deps.now(), change), context);
+	async #record(id: number, context: Context, change: (doc: Draft<RepoSessionDoc>) => void): Promise<void> {
+		await this.#deps.harness().commit(
+			(tx) =>
+				editSession(tx, id, this.#deps.now(), (doc) => {
+					if (doc.place === "repo") change(doc);
+				}),
+			context,
+		);
 	}
 
 	/** The session's committed changes, file by file, measured from where the session's own work began. */

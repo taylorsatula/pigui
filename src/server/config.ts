@@ -1,4 +1,5 @@
 import { isIP } from "node:net";
+import { homedir } from "node:os";
 import { resolve } from "node:path";
 import type { ModelRef } from "@earendil-works/pi-durable";
 
@@ -11,14 +12,22 @@ export type MemoryConfig = {
 	embedUrl: string | undefined;
 };
 
+/**
+ * picloud OnPrem (`PICLOUD_ONPREM=on`): it runs on the person's own computer, as them, with their home directory. Agent
+ * commands get their environment and credentials, unconfined; local sessions work in any directory.
+ */
+export type OnPrem = { home: string };
+
 export type Config = {
+	/** Undefined on a server. */
+	onPrem: OnPrem | undefined;
 	/** Database, workspaces, uploads, push keys and (in fake mode) the local GitHub stand-in. */
 	dataDir: string;
 	host: string;
 	port: number;
 	/** VAPID subject sent to push services: a `mailto:` or `https:` URL that identifies the operator. */
 	pushSubject: string;
-	/** Tailscale logins allowed in; empty allows everyone who can reach the server through the tailnet. */
+	/** Tailscale logins allowed in; empty allows everyone who can reach the server through the tailnet. Never in OnPrem. */
 	allowedLogins: string[];
 	/** Default per-session spend cap in US dollars; undefined means no cap. */
 	spendCap: number | undefined;
@@ -26,9 +35,9 @@ export type Config = {
 	compactionModel: ModelRef | undefined;
 	/** Scripted model and a local GitHub stand-in: the whole product without credentials. */
 	fake: boolean;
-	/** The read-only GitHub token agent commands get as GH_TOKEN, never picloud's own; required in real mode. */
+	/** The read-only GitHub token agent commands get as GH_TOKEN, never picloud's own; required in real mode, never in OnPrem. */
 	agentGitHubToken: string | undefined;
-	/** Landlock around every agent command and file tool (`PICLOUD_SANDBOX`, on unless `off`). */
+	/** Landlock around every agent command and file tool (`PICLOUD_SANDBOX`, on unless `off`; always off in OnPrem). */
 	sandbox: boolean;
 	memory: MemoryConfig;
 };
@@ -38,6 +47,8 @@ export class ConfigError extends Error {}
 /** Read the configuration from environment variables; every variable is documented in README.md. */
 export function readConfig(env: NodeJS.ProcessEnv): Config {
 	const fake = flag(env.PICLOUD_FAKE, "PICLOUD_FAKE");
+	const onPrem = onOff(env.PICLOUD_ONPREM, "PICLOUD_ONPREM", false);
+	if (onPrem) refuseWithOnPrem(env);
 	const dataDir = env.PICLOUD_DATA_DIR;
 	if (dataDir === undefined || dataDir.trim() === "") {
 		throw new ConfigError("PICLOUD_DATA_DIR is not set. Set it to the directory picloud keeps its database and workspaces in.");
@@ -45,13 +56,14 @@ export function readConfig(env: NodeJS.ProcessEnv): Config {
 	const host = env.PICLOUD_HOST ?? "127.0.0.1";
 	if (!isLoopback(host)) {
 		throw new ConfigError(
-			`PICLOUD_HOST is ${host}, which is not a loopback address. picloud listens on loopback only; Tailscale serve is the way in.`,
+			`PICLOUD_HOST is ${host}, which is not a loopback address. picloud listens on loopback only; Tailscale serve, or in OnPrem this computer's browser, is the way in.`,
 		);
 	}
 	return {
+		onPrem: onPrem ? { home: resolve(env.HOME?.trim() || homedir()) } : undefined,
 		dataDir: resolve(dataDir),
 		host,
-		port: integer(env.PICLOUD_PORT, "PICLOUD_PORT", 8787, 0, 65535),
+		port: integer(env.PICLOUD_PORT, "PICLOUD_PORT", onPrem ? 2025 : 8787, 0, 65535),
 		pushSubject: pushSubject(env.PICLOUD_PUSH_SUBJECT),
 		allowedLogins: (env.PICLOUD_ALLOWED_LOGINS ?? "")
 			.split(",")
@@ -60,8 +72,8 @@ export function readConfig(env: NodeJS.ProcessEnv): Config {
 		spendCap: dollars(env.PICLOUD_SPEND_CAP),
 		compactionModel: modelRef(env.PICLOUD_COMPACTION_MODEL),
 		fake,
-		agentGitHubToken: agentToken(env.PICLOUD_AGENT_GH_TOKEN, fake),
-		sandbox: onOff(env.PICLOUD_SANDBOX, "PICLOUD_SANDBOX"),
+		agentGitHubToken: onPrem ? undefined : agentToken(env.PICLOUD_AGENT_GH_TOKEN, fake),
+		sandbox: !onPrem && onOff(env.PICLOUD_SANDBOX, "PICLOUD_SANDBOX", true),
 		memory: {
 			provider: env.PICLOUD_MEMORY_PROVIDER?.trim() || "lunaroute",
 			embedModel: env.PICLOUD_MEMORY_EMBED_MODEL?.trim() || "emb-qwen3",
@@ -121,10 +133,33 @@ function agentToken(value: string | undefined, fake: boolean): string | undefine
 	);
 }
 
-function onOff(value: string | undefined, name: string): boolean {
-	if (value === undefined || value === "" || value === "on") return true;
+function onOff(value: string | undefined, name: string, fallback: boolean): boolean {
+	if (value === undefined || value === "") return fallback;
+	if (value === "on") return true;
 	if (value === "off") return false;
 	throw new ConfigError(`${name} must be on or off, not ${JSON.stringify(value)}.`);
+}
+
+/**
+ * OnPrem gives the agent the person's own access, so the settings that confine it or decide who gets in mean nothing
+ * there. Given anyway, they say the operator expects a protection that is not in place, so picloud refuses to start.
+ */
+function refuseWithOnPrem(env: NodeJS.ProcessEnv): void {
+	if (env.PICLOUD_SANDBOX === "on") {
+		throw new ConfigError(
+			"PICLOUD_SANDBOX=on cannot be combined with PICLOUD_ONPREM=on: OnPrem runs agent commands as you, with your full access, so there is no sandbox. Remove PICLOUD_SANDBOX, or turn OnPrem off.",
+		);
+	}
+	if ((env.PICLOUD_ALLOWED_LOGINS ?? "").trim() !== "") {
+		throw new ConfigError(
+			"PICLOUD_ALLOWED_LOGINS cannot be combined with PICLOUD_ONPREM=on: OnPrem is reached on this computer's localhost, never through Tailscale, so there is no login to check. Remove PICLOUD_ALLOWED_LOGINS, or turn OnPrem off.",
+		);
+	}
+	if ((env.PICLOUD_AGENT_GH_TOKEN ?? "").trim() !== "") {
+		throw new ConfigError(
+			"PICLOUD_AGENT_GH_TOKEN cannot be combined with PICLOUD_ONPREM=on: OnPrem's agent uses your own gh and git credentials. Remove PICLOUD_AGENT_GH_TOKEN, or turn OnPrem off.",
+		);
+	}
 }
 
 function httpUrl(value: string | undefined, name: string): string | undefined {

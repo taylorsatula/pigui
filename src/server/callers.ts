@@ -1,7 +1,9 @@
-// Who opened a connection. picloud listens on loopback so that only `tailscale serve` reaches it, and trusts the
-// Tailscale identity header it adds. The agent's commands share that loopback and could send the same header, so a
-// connection opened by a process running as picloud's own user, as the agent's commands do, is refused. Tailscale
-// runs as another user (root) in both deployments. The kernel's socket table says which user owns the other end.
+// Who opened a connection. On a server, picloud listens on loopback so that only `tailscale serve` reaches it, and
+// trusts the Tailscale identity header it adds. The agent's commands share that loopback and could send the same
+// header, so a connection opened by a process running as picloud's own user, as the agent's commands do, is refused.
+// Tailscale runs as another user (root) in both deployments. picloud OnPrem turns this around: the person's browser
+// runs as picloud's own user, so only that user gets in, and other users of a shared computer are refused. The
+// kernel's socket table says which user owns the other end; it is Linux's, so elsewhere OnPrem checks no caller.
 import { readFile } from "node:fs/promises";
 import { isIPv4 } from "node:net";
 import { endianness } from "node:os";
@@ -55,10 +57,11 @@ export function clientOwner(table: string, client: Endpoint, server: Endpoint): 
 }
 
 /**
- * Whether a connection may use picloud: refused when its other end belongs to picloud's own user, or cannot be told,
- * since a caller that cannot be identified cannot be trusted with the identity header either.
+ * Whether a connection may use picloud: on a server (`others`), refused when its other end belongs to picloud's own
+ * user; in OnPrem (`own`), refused unless it does. Refused either way when the owner cannot be told, since a caller
+ * that cannot be identified cannot be trusted.
  */
-export function callerCheck(): (socket: Socket) => Promise<boolean> {
+export function callerCheck(allow: "others" | "own"): (socket: Socket) => Promise<boolean> {
 	const verdicts = new WeakMap<Socket, Promise<boolean>>();
 	const own = process.getuid?.();
 	const decide = async (socket: Socket): Promise<boolean> => {
@@ -67,7 +70,7 @@ export function callerCheck(): (socket: Socket) => Promise<boolean> {
 		const file = isIPv4(remoteAddress) ? "/proc/net/tcp" : "/proc/net/tcp6";
 		const table = await readFile(file, "utf8").catch(() => "");
 		const owner = clientOwner(table, { address: remoteAddress, port: remotePort }, { address: localAddress, port: localPort });
-		return owner !== undefined && owner !== own;
+		return owner !== undefined && (allow === "own" ? owner === own : owner !== own);
 	};
 	return (socket) => {
 		let verdict = verdicts.get(socket);

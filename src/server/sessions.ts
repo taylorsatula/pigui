@@ -1,6 +1,7 @@
 // A session's life: creating it, preparing its workspace in a Durable task, and every way the person acts on it. Each
 // action is one commit that checks the current state and changes it, so a retried request or a crash midway never
-// acts twice.
+// acts twice. A repository session clones into its workspace; a local session (picloud OnPrem) works in a directory of
+// the person's in place, and its workspace holds only picloud's own files for it.
 import type { Context } from "@earendil-works/chord/context";
 import type { Draft } from "@earendil-works/chord/delta";
 import {
@@ -21,7 +22,7 @@ import type { ImageProcessor } from "@earendil-works/pi-durable/tools";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { AnswerCardBody, CreateSessionBody, MessageRoute, SendMessageBody } from "../shared/api.ts";
-import { type CardAnswer, MESSAGE_ENTRY, type PendingCard, type SessionDoc, type SessionStart, type SetupStep } from "../shared/session.ts";
+import { type CardAnswer, MESSAGE_ENTRY, type PendingCard, type SessionDoc, type SessionPlace, type SessionStart, type SetupStep } from "../shared/session.ts";
 import { formatDollars, spentOf } from "../shared/spend.ts";
 import { ANSWER_KEY, CardAnswerSignal } from "./agent/cards.ts";
 import { compactionFor } from "./agent/compaction.ts";
@@ -30,10 +31,12 @@ import { describeAnswer } from "./agent/questions.ts";
 import { skillsAt } from "./agent/resources.ts";
 import type { AgentServices } from "./agent/services.ts";
 import { editSession, handledRequest, readSession, rememberRequest, SessionDocToken, SessionIndexToken } from "./docs.ts";
+import type { OnPrem } from "./config.ts";
 import { HttpError, notFound } from "./errors.ts";
 import { branchExists, cloneInto, currentBranch, git, head, isRepository } from "./git.ts";
 import type { RepoHost } from "./host.ts";
-import { attach, composeContent, expandReferences, type PreparedInput, type Uploads } from "./input.ts";
+import { attach, composeContent, expandReferences, type PreparedInput, type ReferenceRoot, type Uploads } from "./input.ts";
+import { localDirectory } from "./local.ts";
 import { errorKind, type Logger } from "./log.ts";
 
 export type SessionsDeps = {
@@ -47,6 +50,8 @@ export type SessionsDeps = {
 	/** The model a new session runs with: Pi's default model, read when the session is created. */
 	defaultModel: () => ModelRef;
 	spendCap: number | undefined;
+	/** picloud OnPrem: local sessions may be created, and `~` is this home. */
+	onPrem: OnPrem | undefined;
 };
 
 type SetupCheckpoint = { phase: SetupStep };
@@ -120,6 +125,12 @@ export class Sessions {
 	async #clone(runtime: SetupRuntime, context: Context): Promise<void> {
 		const doc = await this.#session(runtime, context);
 		const workspace = this.#workspace(doc.id);
+		if (doc.place === "local") {
+			// Nothing to clone or branch: the agent works in the person's directory. Only picloud's own directory is made.
+			await mkdir(join(workspace, ATTACHMENTS_DIR), { recursive: true });
+			await this.#advance(runtime, "start", context);
+			return;
+		}
 		if (!(await isRepository(workspace))) {
 			await mkdir(join(workspace, ".."), { recursive: true });
 			const ref = doc.start.kind === "new" ? doc.start.base : doc.start.branch;
@@ -130,6 +141,7 @@ export class Sessions {
 
 	async #branch(runtime: SetupRuntime, context: Context): Promise<void> {
 		const doc = await this.#session(runtime, context);
+		if (doc.place === "local") throw new Error("A local session has no branch.");
 		const workspace = this.#workspace(doc.id);
 		if ((await currentBranch(workspace)) !== doc.branch) {
 			if (await branchExists(workspace, doc.branch)) await git(workspace, ["switch", "--quiet", doc.branch]);
@@ -147,7 +159,7 @@ export class Sessions {
 		await mkdir(join(workspace, ATTACHMENTS_DIR), { recursive: true });
 		const startCommit = await head(workspace);
 		await this.#advance(runtime, "start", context, (draft) => {
-			draft.startCommit = startCommit;
+			if (draft.place === "repo") draft.startCommit = startCommit;
 		});
 	}
 
@@ -191,26 +203,61 @@ export class Sessions {
 		}, context);
 	}
 
-	/** The message the agent receives for `text` and `attachments` in this session's workspace. */
+	/**
+	 * The message the agent receives for `text` and `attachments`: references read where the agent works, attachments
+	 * saved in picloud's workspace of the session.
+	 */
 	async prepare(doc: Readonly<SessionDoc>, text: string, attachments: readonly string[], context: Context): Promise<PreparedInput> {
-		const workspace = this.#workspace(doc.id);
+		const dir = this.#deps.agent.workingDir(doc);
 		const agent = await this.#deps.harness().conversation(doc.id as ConversationId, context);
 		const ref = (await agent?.agent(context))?.model;
 		const model = ref === undefined ? undefined : this.#deps.agent.model(ref.provider, ref.modelId);
-		const expansion = await expandReferences(text, workspace, skillsAt(workspace, this.#deps.agent.agentDir));
-		const attached = await attach(attachments, this.#deps.uploads, workspace, model, this.#deps.images);
+		const root: ReferenceRoot = doc.place === "local" ? { place: "local", dir, home: this.#home() } : { place: "repo", dir };
+		const expansion = await expandReferences(text, root, skillsAt(dir, this.#deps.agent.agentDir));
+		const shown = doc.place === "local" ? "absolute" : "relative";
+		const attached = await attach(attachments, this.#deps.uploads, this.#workspace(doc.id), shown, model, this.#deps.images);
 		return {
 			content: composeContent(text, expansion, attached.notes, attached.images),
 			data: { text, references: expansion.references, attachments: attached.attachments },
 		};
 	}
 
+	/** The home a local session's `~` means; only OnPrem has local sessions. */
+	#home(): string {
+		if (this.#deps.onPrem === undefined) throw new Error("Local sessions exist only in picloud OnPrem.");
+		return this.#deps.onPrem.home;
+	}
+
+	/** Where a new session works, checked before anything is created: its repository and branches, or its directory. */
+	async #placeFor(body: CreateSessionBody): Promise<(id: number, title: string) => SessionPlace> {
+		if (body.place === "local") {
+			if (this.#deps.onPrem === undefined) {
+				throw new HttpError(
+					403,
+					"Sessions in a directory on this computer are for picloud OnPrem, where the agent has your full access.",
+					"This server confines every session to a clone of a repository: choose a repository instead.",
+				);
+			}
+			const dir = await localDirectory(body.dir, this.#deps.onPrem.home);
+			return () => ({ place: "local", dir });
+		}
+		const start: SessionStart = body.start;
+		const { base, pr } = await this.#baseFor(body.repo, start);
+		return (id, title) => ({
+			place: "repo",
+			repo: body.repo,
+			start,
+			branch: start.kind === "new" ? branchFor(title, id) : start.branch,
+			base,
+			delivery: pr === undefined ? {} : { pr },
+		});
+	}
+
 	async create(body: CreateSessionBody, context: Context): Promise<number> {
 		const harness = this.#deps.harness();
 		const prior = (await harness.snapshot(SessionIndexToken, context))?.created.find((entry) => entry.id === body.requestId);
 		if (prior !== undefined) return prior.session;
-		const start: SessionStart = body.start;
-		const { base, pr } = await this.#baseFor(body.repo, start);
+		const place = await this.#placeFor(body);
 		const model = this.#deps.defaultModel();
 		const window = this.#deps.agent.model(model.provider, model.modelId)?.contextWindow ?? 128_000;
 		const title = titleOf(body.text);
@@ -221,36 +268,32 @@ export class Sessions {
 			if (again !== undefined) return again.session;
 			const conversation = await tx.createConversation({ ownership: { kind: "ownerless" } });
 			const id = conversation.id;
+			const fresh: SessionDoc = {
+				id,
+				title,
+				...place(id, title),
+				setup: { status: "preparing", step: body.place === "local" ? "start" : "clone" },
+				workflow: "open",
+				continuations: 0,
+				words: [],
+				notified: [],
+				requests: [],
+				archived: false,
+				createdAt: now,
+				updatedAt: now,
+				seenAt: now,
+				pendingTask: { text: body.text, attachments: [...body.attachments] },
+			};
+			if (this.#deps.spendCap !== undefined) fresh.cap = this.#deps.spendCap;
 			await configure(tx, id, {
 				model,
-				cwd: this.#workspace(id),
+				cwd: this.#deps.agent.workingDir(fresh),
 				compaction: compactionFor(window),
 			});
 			await editSession(tx, id, now, (doc) => {
-				const fresh: SessionDoc = {
-					id,
-					title,
-					repo: body.repo,
-					start,
-					branch: start.kind === "new" ? branchFor(title, id) : start.branch,
-					base,
-					setup: { status: "preparing", step: "clone" },
-					workflow: "open",
-					delivery: pr === undefined ? {} : { pr },
-					continuations: 0,
-					words: [],
-					notified: [],
-					requests: [],
-					archived: false,
-					createdAt: now,
-					updatedAt: now,
-					seenAt: now,
-					pendingTask: { text: body.text, attachments: [...body.attachments] },
-				};
-				if (this.#deps.spendCap !== undefined) fresh.cap = this.#deps.spendCap;
 				Object.assign(doc, fresh);
 			});
-			index.lastRepo = body.repo;
+			if (body.place === "repo") index.lastRepo = body.repo;
 			index.created.push({ id: body.requestId, at: now, session: id });
 			if (index.created.length > CREATED_MEMORY) index.created.splice(0, index.created.length - CREATED_MEMORY);
 			await tx.createTask(this.setupTask, null, { ownership: { kind: "conversation" }, conversationId: id, background: true });
@@ -284,8 +327,15 @@ export class Sessions {
 		if (doc?.id === undefined) throw notFound("The session");
 		if (doc.setup.status === "preparing") throw new HttpError(409, "The session is still being set up.", "Wait a moment and send again.");
 		if (doc.setup.status === "failed") throw new HttpError(409, "The session's setup failed.", "Tap Retry setup.");
+		if (doc.place === "local" && this.#deps.onPrem === undefined) {
+			throw new HttpError(409, "This session works in a directory on this computer, which only picloud OnPrem runs.", "Turn PICLOUD_ONPREM back on to continue it.");
+		}
 		if (doc.cleanedAt !== undefined) {
-			throw new HttpError(409, "This session's workspace was cleaned up after it was archived.", "Start a new session to continue its branch.");
+			throw new HttpError(
+				409,
+				"This session's workspace was cleaned up after it was archived.",
+				doc.place === "local" ? "Start a new session in the same directory to go on." : "Start a new session to continue its branch.",
+			);
 		}
 		return doc;
 	}

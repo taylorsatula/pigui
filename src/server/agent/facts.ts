@@ -2,7 +2,7 @@
 // agent read and changed with its file tools, and picloud's own records of the person's words, the plan and the session.
 import type { Context } from "@earendil-works/chord/context";
 import type { Cursor, EntryId, HookApi } from "@earendil-works/pi-durable";
-import { planOf, reportOf, type SessionDoc } from "../../shared/session.ts";
+import { planOf, reportOf, type RepoSessionDoc, type SessionDoc } from "../../shared/session.ts";
 import { aheadBehind, changedFiles, commits, comparisonPoint, currentBranch, head, refExists, uncommitted } from "../git.ts";
 import { describeEndState, describePlan } from "./plan.ts";
 
@@ -20,8 +20,8 @@ export type Ground = {
 	error?: string;
 };
 
-/** The repository as it is now, read from the workspace. */
-export async function groundTruth(workspace: string, doc: Readonly<SessionDoc>): Promise<Ground> {
+/** A repository session's clone as it is now. A local session has none: it works in place, with no branch of its own. */
+export async function groundTruth(workspace: string, doc: Readonly<RepoSessionDoc>): Promise<Ground> {
 	const ground: Ground = { branch: doc.branch, head: "", base: doc.base, baseKnown: false, ahead: 0, behind: 0, uncommitted: [], commits: [], commitTotal: 0, files: [] };
 	try {
 		ground.branch = await currentBranch(workspace);
@@ -102,7 +102,7 @@ export function sessionLines(doc: Readonly<SessionDoc>): string[] {
 	const workflow = doc.workflow === "implementing" ? "implementing the approved plan; no report filed yet" : doc.workflow === "reported" ? "report filed" : "open (no approved plan)";
 	return [
 		`Workflow: ${workflow}.`,
-		`Repository ${doc.repo}; your branch ${doc.branch}; base ${doc.base}.`,
+		doc.place === "local" ? `Working directory ${doc.dir}, on the person's own computer, worked in place.` : `Repository ${doc.repo}; your branch ${doc.branch}; base ${doc.base}.`,
 		...(doc.report === undefined ? [] : [`Last report (${new Date(doc.report.filedAt).toISOString()}): ${reportOf(doc.report).headline}`]),
 	];
 }
@@ -123,7 +123,19 @@ export const fileLine = (file: Ground["files"][number]) => `- ${file.path} (${fi
 const pathList = (paths: readonly string[]) => (paths.length === 0 ? "none" : paths.join(", "));
 
 /** The facts the summarizer is given, in full; the checkpoint carries the same ones, shed to fit if need be. */
-export function promptFacts(doc: Readonly<SessionDoc>, ground: Ground, files: { compacted: FilesTouched; kept: FilesTouched }): string {
+export function promptFacts(doc: Readonly<SessionDoc>, ground: Ground | undefined, files: { compacted: FilesTouched; kept: FilesTouched }): string {
+	const repository =
+		ground === undefined
+			? []
+			: [
+					"Repository:",
+					...repositoryLines(ground),
+					`Commits in this session (${ground.commitTotal}):`,
+					...(ground.commits.length === 0 ? ["- none yet"] : ground.commits.map(commitLine)),
+					`Files changed in this session (${ground.files.length}):`,
+					...(ground.files.length === 0 ? ["- none yet"] : ground.files.map(fileLine)),
+					"",
+				];
 	return [
 		"The person's words, verbatim, oldest first:",
 		...wordLines(doc),
@@ -134,13 +146,7 @@ export function promptFacts(doc: Readonly<SessionDoc>, ground: Ground, files: { 
 		"Session:",
 		...sessionLines(doc),
 		"",
-		"Repository:",
-		...repositoryLines(ground),
-		`Commits in this session (${ground.commitTotal}):`,
-		...(ground.commits.length === 0 ? ["- none yet"] : ground.commits.map(commitLine)),
-		`Files changed in this session (${ground.files.length}):`,
-		...(ground.files.length === 0 ? ["- none yet"] : ground.files.map(fileLine)),
-		"",
+		...repository,
 		`Files read, compacted range: ${pathList(files.compacted.read)}`,
 		`Files modified, compacted range: ${pathList(files.compacted.modified)}`,
 		`Files read, kept range: ${pathList(files.kept.read)}`,

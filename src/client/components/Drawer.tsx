@@ -7,7 +7,7 @@ import { useEffect, useRef, useState } from "preact/hooks";
 import { needsAttention, type SessionRow } from "../../shared/session.ts";
 import { describeFailure } from "../api.ts";
 import { FingerSpeed, projected } from "../motion.ts";
-import { timeAgo } from "../format.ts";
+import { shortDir, timeAgo } from "../format.ts";
 import { enableNotifications, pushSupported } from "../push.ts";
 import { navigate, setSidebarHidden, showToast, store, useStore } from "../store.ts";
 import { Icon } from "./Icons.tsx";
@@ -22,13 +22,14 @@ function active(row: SessionRow, now: number): boolean {
 
 function Row(props: { row: SessionRow; current: boolean }): JSX.Element {
 	const { row } = props;
+	const home = useStore((state) => state.bootstrap?.onPrem?.home);
 	return (
 		<li>
 			<a
 				href={`#/s/${row.id}`}
 				class={`row ${props.current ? "current" : ""} ${needsAttention(row) ? "unseen" : ""}`}
 				aria-current={props.current ? "page" : undefined}
-				title={`${row.label} · ${row.repo}`}
+				title={`${row.label} · ${row.place === "local" ? shortDir(row.dir, home) : row.repo}`}
 				onClick={() => store.set({ drawerOpen: false })}
 			>
 				<span class={`indicator ${row.tone}`} aria-hidden="true" />

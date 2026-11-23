@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
-import { mkdtemp, readdir } from "node:fs/promises";
+import { mkdtemp, readdir, rm } from "node:fs/promises";
+import { request as httpRequest } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, test } from "node:test";
@@ -8,6 +9,29 @@ import type { ApiError } from "../src/shared/api.ts";
 import { clientOwner } from "../src/server/callers.ts";
 import { ConfigError, readConfig } from "../src/server/config.ts";
 import { TestServer } from "./helpers.ts";
+
+/**
+ * A request with exactly these headers, Host included, which fetch would not let a test choose. Resolves with the
+ * status and the error the body carries.
+ */
+function raw(url: string, method: string, path: string, headers: Record<string, string>, body = ""): Promise<{ status: number; error?: string }> {
+	const { hostname, port } = new URL(url);
+	return new Promise((resolve, reject) => {
+		const outgoing = httpRequest({ hostname, port, method, path, headers: { ...headers, "content-length": Buffer.byteLength(body) }, setHost: false }, (response) => {
+			let text = "";
+			response.on("data", (chunk: Buffer) => (text += chunk.toString()));
+			response.on("end", () => resolve({ status: response.statusCode ?? 0, error: (JSON.parse(text || "{}") as Partial<ApiError>).error }));
+		});
+		outgoing.on("error", reject);
+		outgoing.end(body);
+	});
+}
+
+/** A push subscription the server accepts: a POST that changes something, as the app sends one. */
+const SUBSCRIPTION = JSON.stringify({
+	endpoint: "https://push.example.com/send/abc",
+	keys: { p256dh: "BCVxsr7N_eNgVRqvHtD0zTZsEc6-VV-JvLexhqUzORcxaOzi6-AYWXvTBHm4bjyPjs7Vd8pZGH6SRpkNtoIAiw4", auth: "BTBZMqHH6r4Tts7J_aSIgg" },
+});
 
 describe("access and configuration", () => {
 	test("only listed Tailscale logins get in", async () => {
@@ -38,7 +62,7 @@ describe("access and configuration", () => {
 	});
 
 	test("a caller running as picloud's own user, as the agent's commands do, is refused even with Tailscale's header", async () => {
-		const server = await TestServer.start({ refuseOwnUser: true, env: { PICLOUD_ALLOWED_LOGINS: "owner@example.com" } });
+		const server = await TestServer.start({ checkCallers: true, env: { PICLOUD_ALLOWED_LOGINS: "owner@example.com" } });
 		try {
 			const forged = await fetch(`${server.app.url}/api/bootstrap`, { headers: { "Tailscale-User-Login": "owner@example.com" } });
 			assert.equal(forged.status, 403);
@@ -107,6 +131,113 @@ describe("access and configuration", () => {
 		const off = readConfig({ PICLOUD_DATA_DIR: "/tmp/x", PICLOUD_FAKE: "1", PICLOUD_SANDBOX: "off" });
 		assert.equal(off.sandbox, false);
 		assert.throws(() => readConfig({ PICLOUD_DATA_DIR: "/tmp/x", PICLOUD_FAKE: "1", PICLOUD_SANDBOX: "0" }), /PICLOUD_SANDBOX must be on or off/);
+	});
+
+	test("OnPrem is off unless turned on, listens on 2025 by default, and refuses the settings that would not apply", () => {
+		const base = { PICLOUD_DATA_DIR: "/tmp/x" };
+		assert.equal(readConfig({ ...base, PICLOUD_AGENT_GH_TOKEN: "agent-token" }).onPrem, undefined);
+		assert.throws(() => readConfig({ ...base, PICLOUD_ONPREM: "1" }), /PICLOUD_ONPREM must be on or off/);
+		// No agent token is needed, the sandbox is off, and Pi's real configuration is the person's own.
+		const onPrem = readConfig({ ...base, PICLOUD_ONPREM: "on", HOME: "/home/someone" });
+		assert.deepEqual(onPrem.onPrem, { home: "/home/someone" });
+		assert.equal(onPrem.port, 2025);
+		assert.equal(onPrem.host, "127.0.0.1", "still loopback only");
+		assert.equal(onPrem.sandbox, false);
+		assert.equal(onPrem.agentGitHubToken, undefined);
+		assert.equal(onPrem.fake, false);
+		assert.equal(readConfig({ ...base, PICLOUD_ONPREM: "on", PICLOUD_PORT: "4100" }).port, 4100);
+		assert.equal(readConfig({ ...base, PICLOUD_ONPREM: "on", PICLOUD_SANDBOX: "off" }).sandbox, false);
+		assert.equal(readConfig({ ...base, PICLOUD_ONPREM: "on", PICLOUD_FAKE: "1" }).fake, true, "fake mode combines with it");
+		assert.throws(() => readConfig({ ...base, PICLOUD_ONPREM: "on", PICLOUD_SANDBOX: "on" }), /PICLOUD_SANDBOX=on cannot be combined with PICLOUD_ONPREM=on/);
+		assert.throws(() => readConfig({ ...base, PICLOUD_ONPREM: "on", PICLOUD_ALLOWED_LOGINS: "a@b.c" }), /PICLOUD_ALLOWED_LOGINS cannot be combined/);
+		assert.throws(() => readConfig({ ...base, PICLOUD_ONPREM: "on", PICLOUD_AGENT_GH_TOKEN: "t" }), /PICLOUD_AGENT_GH_TOKEN cannot be combined/);
+		assert.throws(() => readConfig({ ...base, PICLOUD_ONPREM: "on", PICLOUD_HOST: "0.0.0.0" }), /not a loopback address/);
+	});
+
+	test("a request that changes something is refused from another site's page, on a server and in OnPrem", async () => {
+		const home = await mkdtemp(join(tmpdir(), "picloud-home-"));
+		const servers = [await TestServer.start(), await TestServer.start({ env: { PICLOUD_ONPREM: "on", HOME: home } })];
+		try {
+			for (const server of servers) {
+				const { host } = new URL(server.app.url);
+				const post = (headers: Record<string, string>, type = "application/json") =>
+					raw(server.app.url, "POST", "/api/push/subscribe", { host, "content-type": type, ...headers }, SUBSCRIPTION);
+				// A cross-site page's simple POST: text/plain needs no preflight, and the body is JSON all the same.
+				const forged = await post({ "sec-fetch-site": "cross-site", origin: "https://evil.example" }, "text/plain");
+				assert.equal(forged.status, 403);
+				assert.match(forged.error ?? "", /another site/);
+				assert.equal((await post({ "sec-fetch-site": "same-site" })).status, 403, "another port of localhost is same-site, not same-origin");
+				assert.equal((await post({ origin: "https://evil.example" })).status, 403, "a browser without Sec-Fetch-Site still sends Origin");
+				assert.equal((await post({ origin: "null" })).status, 403, "a sandboxed frame or a file: page");
+				// The app's own requests, as its page and service worker send them, and a client that is not a browser.
+				assert.equal((await post({ "sec-fetch-site": "same-origin", origin: server.app.url })).status, 200);
+				assert.equal((await post({})).status, 200);
+				assert.equal((await raw(server.app.url, "GET", "/api/bootstrap", { host, "sec-fetch-site": "cross-site" })).status, 200, "reading is not gated");
+			}
+		} finally {
+			for (const server of servers) await server.close();
+			await rm(home, { recursive: true, force: true });
+		}
+	});
+
+	test("on a server, the Origin's host may be the one Tailscale forwards when the proxy names another", async () => {
+		const server = await TestServer.start();
+		try {
+			const headers = { host: "127.0.0.1:8787", "x-forwarded-host": "picloud.tailnet.ts.net", "content-type": "application/json", "sec-fetch-site": "same-origin" };
+			assert.equal((await raw(server.app.url, "POST", "/api/push/subscribe", { ...headers, origin: "https://picloud.tailnet.ts.net" }, SUBSCRIPTION)).status, 200);
+			assert.equal((await raw(server.app.url, "POST", "/api/push/subscribe", { ...headers, origin: "https://evil.example" }, SUBSCRIPTION)).status, 403);
+		} finally {
+			await server.close();
+		}
+	});
+
+	test("OnPrem answers only to localhost at its own port, so a rebound name cannot reach it", async () => {
+		const home = await mkdtemp(join(tmpdir(), "picloud-home-"));
+		const server = await TestServer.start({ env: { PICLOUD_ONPREM: "on", HOME: home } });
+		try {
+			const { port } = new URL(server.app.url);
+			const get = (host: string) => raw(server.app.url, "GET", "/api/bootstrap", { host });
+			for (const host of [`localhost:${port}`, `127.0.0.1:${port}`, `[::1]:${port}`, `LOCALHOST:${port}`]) assert.equal((await get(host)).status, 200, host);
+			const rebound = await get(`evil.example:${port}`);
+			assert.equal(rebound.status, 403);
+			assert.match(rebound.error ?? "", /answers only to localhost/);
+			assert.equal((await get(`localhost:${Number(port) + 1}`)).status, 403, "another port");
+			assert.equal((await get("localhost")).status, 403);
+			assert.equal((await raw(server.app.url, "GET", "/", { host: `evil.example:${port}` })).status, 403, "the app shell too");
+			// A server is reached through Tailscale under its own name, so it checks no host.
+			const behind = await TestServer.start();
+			try {
+				assert.equal((await raw(behind.app.url, "GET", "/api/bootstrap", { host: "picloud.tailnet.ts.net" })).status, 200);
+			} finally {
+				await behind.close();
+			}
+		} finally {
+			await server.close();
+			await rm(home, { recursive: true, force: true });
+		}
+	});
+
+	test("OnPrem on Linux lets in only its own user, whose browser it serves, and never trusts a Tailscale header", async () => {
+		const home = await mkdtemp(join(tmpdir(), "picloud-home-"));
+		const server = await TestServer.start({ checkCallers: true, env: { PICLOUD_ONPREM: "on", HOME: home } });
+		try {
+			assert.equal((await fetch(`${server.app.url}/api/bootstrap`)).status, 200, "picloud's own user, as the person's browser is");
+			// Another user of the computer is refused. Only root can open a connection as someone else.
+			if (process.getuid?.() === 0) {
+				const script = `fetch(${JSON.stringify(`${server.app.url}/api/bootstrap`)}, { headers: { "Tailscale-User-Login": "owner@example.com" } }).then(async (r) => process.stdout.write(r.status + " " + (await r.json()).error))`;
+				const answer = await new Promise<string>((resolve, reject) => {
+					const child = spawn(process.execPath, ["-e", script], { uid: 65534, gid: 65534 });
+					let out = "";
+					child.stdout.on("data", (chunk: Buffer) => (out += chunk.toString()));
+					child.on("error", reject);
+					child.on("exit", () => resolve(out));
+				});
+				assert.match(answer, /^403 This connection comes from another user of this computer/);
+			}
+		} finally {
+			await server.close();
+			await rm(home, { recursive: true, force: true });
+		}
 	});
 
 	test("real mode without a Pi sign-in exits with instructions before touching the data directory", async () => {

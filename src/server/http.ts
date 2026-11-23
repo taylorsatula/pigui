@@ -1,5 +1,7 @@
 // The HTTP boundary: every request is checked here (access, size, shape) before it reaches the session logic, and
-// every failure leaves as JSON the phone can show with a next step.
+// every failure leaves as JSON the phone can show with a next step. Access is checked in layers: in OnPrem the host
+// the request names, then who opened the connection, then on a server the Tailscale login, and for anything that
+// changes something, that the request comes from picloud's own page.
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import type { Socket } from "node:net";
 import { readFile, stat } from "node:fs/promises";
@@ -24,13 +26,16 @@ import {
 	SpeechBody,
 	SpeechScriptBody,
 } from "../shared/api.ts";
+import type { SessionDoc } from "../shared/session.ts";
 import { skillsAt } from "./agent/resources.ts";
 import { PushSubscriptionsToken, SessionDocToken, SessionIndexToken } from "./docs.ts";
+import type { OnPrem } from "./config.ts";
 import type { Delivery } from "./delivery.ts";
 import { HttpError, notFound } from "./errors.ts";
 import { trackedFiles } from "./git.ts";
 import type { RepoHost } from "./host.ts";
 import { MAX_UPLOAD_BYTES, type Uploads } from "./input.ts";
+import { listDirectory, localDirectory } from "./local.ts";
 import { openLines, serveLive } from "./live.ts";
 import { errorKind, type Logger } from "./log.ts";
 import type { Presence } from "./presence.ts";
@@ -51,13 +56,19 @@ export type HttpDeps = {
 	vapidPublicKey: string;
 	allowedLogins: readonly string[];
 	agentDir: string;
-	workspace: (id: number) => string;
+	/** Where a session's agent works (see AgentServices). */
+	workingDir: (doc: Readonly<SessionDoc>) => string;
+	/** picloud OnPrem: reached on this computer's loopback names only, with local sessions and their listings. */
+	onPrem: OnPrem | undefined;
 	staticDir: string;
 	/** Undefined when this server does not read aloud. */
 	speech: Speech | undefined;
 	/** Long-term memory's state, shown in the sidebar while it is off. */
 	memory: MemoryStatus;
-	/** Real mode: refuses connections opened by picloud's own user, as the agent's commands are (see callers.ts). */
+	/**
+	 * Who may open a connection (see callers.ts): on a server, anyone but picloud's own user, as the agent's commands
+	 * are; in OnPrem on Linux, picloud's own user only. Absent: no check, as in fake mode and OnPrem elsewhere.
+	 */
 	callerCheck?: (socket: Socket) => Promise<boolean>;
 };
 
@@ -141,6 +152,43 @@ function abortOnClose(response: ServerResponse): AbortSignal {
 	return controller.signal;
 }
 
+/**
+ * OnPrem answers only to its loopback names at its own port. A page elsewhere whose name was pointed at 127.0.0.1 (DNS
+ * rebinding) would otherwise be same-origin with picloud as far as the browser knew, and could read and drive it.
+ */
+function localHostName(request: IncomingMessage): boolean {
+	const port = request.socket.localPort;
+	const names = ["localhost", "127.0.0.1", "[::1]"];
+	const allowed = names.map((name) => `${name}:${port}`);
+	if (port === 80) allowed.push(...names);
+	return allowed.includes((request.headers.host ?? "").toLowerCase());
+}
+
+/**
+ * Whether a request that changes something comes from picloud's own page. Every browser request says where it comes
+ * from, in Sec-Fetch-Site and, on a POST, in Origin. Both are checked, because a page on any other site can send a
+ * simple POST (text/plain, no preflight) that would otherwise be acted on: on a server that is any page the phone
+ * opens; in OnPrem, commands on the person's computer. A request with neither header comes from a program, not from a
+ * page; the caller and login checks still apply to it.
+ */
+function fromOwnPage(request: IncomingMessage): boolean {
+	const site = request.headers["sec-fetch-site"];
+	if (site !== undefined && site !== "same-origin") return false;
+	const origin = request.headers.origin;
+	if (origin === undefined) return true;
+	let host: string;
+	try {
+		host = new URL(origin).host;
+	} catch {
+		// "null", from a sandboxed frame or a file: page.
+		return false;
+	}
+	// The host the browser asked for. tailscale serve passes it on as Host, and as X-Forwarded-Host should a proxy
+	// rewrite Host; a cross-site page cannot set either header without a preflight, which picloud never allows.
+	const asked = [request.headers.host, request.headers["x-forwarded-host"]].map((value) => String(value ?? "").toLowerCase());
+	return asked.includes(host);
+}
+
 function repoName(owner: string | undefined, name: string | undefined): string {
 	const repo = `${owner ?? ""}/${name ?? ""}`;
 	if (!/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(repo)) throw notFound("The repository");
@@ -196,6 +244,16 @@ export function createHttpServer(deps: HttpDeps): Server {
 		return skillsAt(join(deps.agentDir, "skills"), deps.agentDir).map(({ name, description }) => ({ name, description }));
 	}
 
+	/** Pi's skills as an agent working in `dir` finds them: its project's and the global ones. */
+	function skillsIn(dir: string): SkillSummary[] {
+		return skillsAt(dir, deps.agentDir).map(({ name, description }) => ({ name, description }));
+	}
+
+	function home(): string {
+		if (deps.onPrem === undefined) throw new HttpError(404, "Directories on this computer are offered only by picloud OnPrem.");
+		return deps.onPrem.home;
+	}
+
 	async function route(request: IncomingMessage, response: ServerResponse, url: URL): Promise<void> {
 		const method = request.method ?? "GET";
 		const parts = url.pathname.split("/").filter((part) => part !== "").map(decodeURIComponent);
@@ -211,6 +269,7 @@ export function createHttpServer(deps: HttpDeps): Server {
 			const index = await harness.snapshot(SessionIndexToken, context);
 			const body: Bootstrap = { fake: deps.fake, vapidPublicKey: deps.vapidPublicKey, speech: deps.speech !== undefined, memory: deps.memory };
 			if (index?.lastRepo !== undefined) body.lastRepo = index.lastRepo;
+			if (deps.onPrem !== undefined) body.onPrem = { home: deps.onPrem.home };
 			return send(response, 200, body);
 		}
 		if (is("GET", "live") && parts.length === 2) {
@@ -254,6 +313,12 @@ export function createHttpServer(deps: HttpDeps): Server {
 			const type = String(request.headers["content-type"] ?? "application/octet-stream").split(";")[0]?.trim() ?? "application/octet-stream";
 			return send(response, 200, await deps.uploads.save(bytes, name, type));
 		}
+		if (area === "local" && method === "GET" && parts.length === 3) {
+			// What a local session's first message can refer to, before the session exists: the chosen directory's files and skills.
+			const dir = await localDirectory(url.searchParams.get("dir") ?? "~", home());
+			if (a === "files") return send(response, 200, await listDirectory(dir));
+			if (a === "skills") return send(response, 200, skillsIn(dir));
+		}
 		if (area === "repos") {
 			if (is("GET", "repos") && parts.length === 2) return send(response, 200, await deps.host.listRepos());
 			const repo = repoName(a, b);
@@ -273,15 +338,16 @@ export function createHttpServer(deps: HttpDeps): Server {
 			if (method === "GET") {
 				const doc = await harness.snapshot(SessionDocToken, id as ConversationId, context);
 				if (doc?.id === undefined) throw notFound("The session");
-				const workspace = deps.workspace(id);
+				const dir = deps.workingDir(doc);
 				if (action === "files") {
+					// A local session's directory is there from the start; a clone only once setup made it.
+					if (doc.place === "local") return send(response, 200, await listDirectory(dir));
 					if (doc.setup.status !== "ready") return send(response, 200, await deps.host.files(doc.repo, doc.start.kind === "new" ? doc.start.base : doc.start.branch));
-					const files = await trackedFiles(workspace);
-					return send(response, 200, { files, truncated: false });
+					return send(response, 200, { files: await trackedFiles(dir), truncated: false });
 				}
 				if (action === "skills") {
-					if (doc.setup.status !== "ready") return send(response, 200, globalSkills());
-					return send(response, 200, skillsAt(workspace, deps.agentDir).map(({ name, description }) => ({ name, description })));
+					if (doc.place === "repo" && doc.setup.status !== "ready") return send(response, 200, globalSkills());
+					return send(response, 200, skillsIn(dir));
 				}
 				if (action === "diff") return send(response, 200, await deps.delivery.diff(id, context));
 				if (action === "entries") {
@@ -356,6 +422,11 @@ export function createHttpServer(deps: HttpDeps): Server {
 			});
 	}
 
+	const callerRefused: ApiError =
+		deps.onPrem === undefined
+			? { error: "This connection comes from picloud's own user, as the agent's commands do. picloud is reached through Tailscale." }
+			: { error: "This connection comes from another user of this computer. picloud OnPrem answers only the user it runs as." };
+
 	return createServer((request, response) => {
 		const started = Date.now();
 		const url = new URL(request.url ?? "/", "http://picloud.local");
@@ -363,23 +434,26 @@ export function createHttpServer(deps: HttpDeps): Server {
 			// Paths and status only: no query strings, bodies or headers, which can carry content.
 			if (!url.pathname.startsWith("/api/live")) deps.log.info("http", { method: request.method, path: url.pathname, status, ms: Date.now() - started });
 		};
+		const refuse = (event: string, body: ApiError) => {
+			deps.log.warn(event, { path: url.pathname });
+			send(response, 403, body);
+		};
+		if (deps.onPrem !== undefined && !localHostName(request)) {
+			const port = request.socket.localPort;
+			refuse("http.host", { error: "picloud OnPrem answers only to localhost.", hint: `Open http://localhost:${port} on this computer.` });
+			return;
+		}
 		const caller = deps.callerCheck === undefined ? Promise.resolve(true) : deps.callerCheck(request.socket);
-		caller
-			.then((allowed) => {
-				if (allowed) return true;
-				deps.log.warn("http.local_caller", { path: url.pathname });
-				send(response, 403, { error: "This connection comes from picloud's own user, as the agent's commands do. picloud is reached through Tailscale." } satisfies ApiError);
-				return false;
-			})
-			.then((allowed) => {
-				if (!allowed) return;
-				const login = String(request.headers["tailscale-user-login"] ?? "").toLowerCase();
-				if (deps.allowedLogins.length > 0 && !deps.allowedLogins.includes(login)) {
-					deps.log.warn("http.forbidden", { path: url.pathname });
-					send(response, 403, { error: "This Tailscale login is not allowed to use picloud." } satisfies ApiError);
-					return;
-				}
-				handle(request, response, url, done);
-			});
+		void caller.then((allowed) => {
+			if (!allowed) return refuse("http.local_caller", callerRefused);
+			const login = String(request.headers["tailscale-user-login"] ?? "").toLowerCase();
+			if (deps.allowedLogins.length > 0 && !deps.allowedLogins.includes(login)) {
+				return refuse("http.forbidden", { error: "This Tailscale login is not allowed to use picloud." });
+			}
+			if (request.method !== "GET" && request.method !== "HEAD" && !fromOwnPage(request)) {
+				return refuse("http.cross_site", { error: "This request comes from another site, so picloud refuses it.", hint: "Use picloud from its own page." });
+			}
+			handle(request, response, url, done);
+		});
 	});
 }

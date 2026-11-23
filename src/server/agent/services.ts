@@ -1,6 +1,7 @@
 import type { Context } from "@earendil-works/chord/context";
 import type { Api, Model, Models } from "@earendil-works/pi-ai";
 import type { Harness, ModelRef } from "@earendil-works/pi-durable";
+import type { SessionDoc } from "../../shared/session.ts";
 import type { Logger } from "../log.ts";
 import type { Memory } from "../memory/store.ts";
 import type { Notifications } from "../notify.ts";
@@ -29,7 +30,17 @@ export type AgentServices = {
 	compactionModel: ModelRef | undefined;
 	/** Pi's configuration directory, read by Pi's loaders for global context files and skills. */
 	agentDir: string;
+	/** picloud's own directory for a session: a repository session's clone, and every session's attachments. */
 	workspace(session: number): string;
+	/**
+	 * Where the agent works: its clone for a repository session, the chosen directory for a local one. Everything the
+	 * agent is shown or resolves against (its cwd, the prompt, project context, skills, references) goes through here.
+	 */
+	workingDir(doc: Readonly<SessionDoc>): string;
+	/** Runs on the person's own computer (picloud OnPrem), whose commands run as them, with their credentials. */
+	onPrem: boolean;
+	/** Agent commands and file tools run in the Landlock sandbox. */
+	sandboxed: boolean;
 	/** Long-term memory; undefined when it is off, and then no tool, report part or prompt text mentions it. */
 	memory: Memory | undefined;
 	faults: Faults;

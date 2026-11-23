@@ -1,11 +1,12 @@
-// Daily upkeep, as one Durable task that sleeps a day between rounds: back up the database, remove workspaces of old
-// archived sessions, and drop stale uploads. A sleeping task holds no process and survives restarts, so there is no
-// timer or scheduler of picloud's own.
+// Daily upkeep, as one Durable task that sleeps a day between rounds: back up the database, remove picloud's own
+// directories of old archived sessions, and drop stale uploads. A sleeping task holds no process and survives restarts,
+// so there is no timer or scheduler of picloud's own. Nothing here ever touches a local session's chosen directory.
 import { DatabaseSync, backup } from "node:sqlite";
-import { mkdir, readdir, rm, stat } from "node:fs/promises";
-import { join } from "node:path";
+import { mkdir, readdir, realpath, rm, stat } from "node:fs/promises";
+import { join, resolve, sep } from "node:path";
 import type { Context } from "@earendil-works/chord/context";
 import { type ConversationId, defineTask, type Harness, ROOT_CONVERSATION_ID } from "@earendil-works/pi-durable";
+import type { RepoSessionDoc, SessionDoc } from "../shared/session.ts";
 import { editSession, SessionDocToken, SessionIndexToken } from "./docs.ts";
 import { isAncestor, isRepository, refExists, uncommitted, unpushedCount } from "./git.ts";
 import { errorKind, type Logger } from "./log.ts";
@@ -27,6 +28,21 @@ export type MaintenanceDeps = {
 	/** A session's scratch directory (its commands' home and tmp), removed with its workspace. */
 	scratch: (id: number) => string;
 };
+
+/** A path with its symlinks resolved where it exists, so two spellings of one directory compare equal. */
+async function real(path: string): Promise<string> {
+	return realpath(path).catch(() => resolve(path));
+}
+
+/** Whether removing `target` would remove any of `dirs`: one of them is it, or lies inside it. */
+async function holdsAny(target: string, dirs: readonly string[]): Promise<boolean> {
+	const root = await real(target);
+	for (const dir of dirs) {
+		const candidate = await real(dir);
+		if (candidate === root || candidate.startsWith(root.endsWith(sep) ? root : root + sep)) return true;
+	}
+	return false;
+}
 
 export type SweepResult = { backup?: string; cleaned: number[]; kept: number[] };
 
@@ -72,11 +88,14 @@ export class Maintenance {
 		}
 		await this.#pruneUploads();
 		const index = await this.#deps.harness().snapshot(SessionIndexToken, context);
-		for (const row of Object.values(index?.rows ?? {})) {
+		const rows = Object.values(index?.rows ?? {});
+		// Every local session's directory, archived or not: the person's own, which picloud never removes.
+		const chosen = rows.flatMap((row) => (row.place === "local" ? [row.dir] : []));
+		for (const row of rows) {
 			if (!row.archived || this.#deps.now() - row.updatedAt < CLEANUP_AFTER_MS) continue;
 			const doc = await this.#deps.harness().snapshot(SessionDocToken, row.id as ConversationId, context);
 			if (doc === undefined || doc.cleanedAt !== undefined) continue;
-			if (await this.#clean(row.id, doc.branch, doc.base, context)) result.cleaned.push(row.id);
+			if (await this.#clean(doc, chosen, context)) result.cleaned.push(row.id);
 			else result.kept.push(row.id);
 		}
 		this.#deps.log.info("maintenance.swept", { cleaned: result.cleaned.length, kept: result.kept.length });
@@ -84,33 +103,43 @@ export class Maintenance {
 	}
 
 	/**
-	 * Remove a workspace only when git shows nothing in it that GitHub does not have: no uncommitted changes, HEAD on
-	 * the session's branch at origin (or already in its base, for a session that changed nothing), and no other local
-	 * branch with commits origin lacks.
+	 * Remove a session's own directories, its workspace and scratch, and only those. A local session's workspace holds
+	 * only its attachments, so it goes as it is. A repository session's clone goes only when git shows nothing in it
+	 * that GitHub does not have. Neither goes while it holds a directory a local session chose, which nothing stops the
+	 * person from choosing.
 	 */
-	async #clean(id: number, branch: string, base: string, context: Context): Promise<boolean> {
+	async #clean(doc: Readonly<SessionDoc>, chosen: readonly string[], context: Context): Promise<boolean> {
+		const { id } = doc;
 		const workspace = this.#deps.workspace(id);
-		if (await isRepository(workspace)) {
-			try {
-				if ((await uncommitted(workspace)).length > 0 || (await unpushedCount(workspace)) > 0) return false;
-				const delivered = await this.#contains(workspace, `refs/remotes/origin/${branch}`);
-				if (!delivered && !(await this.#contains(workspace, `refs/remotes/origin/${base}`))) return false;
-			} catch (error) {
-				this.#deps.log.warn("maintenance.check_failed", { session: id, error: errorKind(error) });
-				return false;
-			}
-		} else if ((await stat(workspace).catch(() => undefined)) !== undefined) {
-			// A directory that is not a repository cannot be checked, so it is never removed.
-			return false;
-		}
+		const scratch = this.#deps.scratch(id);
+		if ((await holdsAny(workspace, chosen)) || (await holdsAny(scratch, chosen))) return false;
+		if (doc.place === "repo" && !(await this.#pushed(workspace, doc))) return false;
 		await rm(workspace, { recursive: true, force: true });
-		await rm(this.#deps.scratch(id), { recursive: true, force: true });
+		await rm(scratch, { recursive: true, force: true });
 		await this.#deps.harness().commit(async (tx) => {
 			await editSession(tx, id, this.#deps.now(), (doc) => {
 				doc.cleanedAt = this.#deps.now();
 			});
 		}, context);
 		return true;
+	}
+
+	/**
+	 * Whether a clone holds nothing GitHub lacks: no uncommitted changes, HEAD on the session's branch at origin (or
+	 * already in its base, for a session that changed nothing), and no other local branch with commits origin lacks.
+	 */
+	async #pushed(workspace: string, doc: Readonly<RepoSessionDoc>): Promise<boolean> {
+		if (await isRepository(workspace)) {
+			try {
+				if ((await uncommitted(workspace)).length > 0 || (await unpushedCount(workspace)) > 0) return false;
+				return (await this.#contains(workspace, `refs/remotes/origin/${doc.branch}`)) || (await this.#contains(workspace, `refs/remotes/origin/${doc.base}`));
+			} catch (error) {
+				this.#deps.log.warn("maintenance.check_failed", { session: doc.id, error: errorKind(error) });
+				return false;
+			}
+		}
+		// A directory that is not a repository cannot be checked, so it is never removed.
+		return (await stat(workspace).catch(() => undefined)) === undefined;
 	}
 
 	async #contains(workspace: string, ref: string): Promise<boolean> {

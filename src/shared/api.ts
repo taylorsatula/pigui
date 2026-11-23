@@ -8,13 +8,22 @@ const BranchName = str({ minLength: 1, maxLength: 250, pattern: "^[^\\s~^:?*\\[\
 const MessageText = str({ maxLength: 100_000 });
 const AttachmentIds = arr(str({ pattern: "^[a-f0-9]{32}$" }), { maxItems: 20 });
 
-export const CreateSessionBody = obj({
-	requestId: RequestId,
-	repo: Repo,
-	start: union([obj({ kind: lit("new"), base: BranchName }), obj({ kind: lit("continue"), branch: BranchName })]),
-	text: str({ minLength: 1, maxLength: 100_000 }),
-	attachments: AttachmentIds,
-});
+/** A directory on this computer as the person typed it: absolute, or starting with `~`. */
+const LocalDir = str({ minLength: 1, maxLength: 4096 });
+
+/** What starts any session: the first message. */
+const Opening = { requestId: RequestId, text: str({ minLength: 1, maxLength: 100_000 }), attachments: AttachmentIds };
+
+/** A repository session, on a new or continued branch; or, in picloud OnPrem only, a local session in a directory. */
+export const CreateSessionBody = union([
+	obj({
+		...Opening,
+		place: lit("repo"),
+		repo: Repo,
+		start: union([obj({ kind: lit("new"), base: BranchName }), obj({ kind: lit("continue"), branch: BranchName })]),
+	}),
+	obj({ ...Opening, place: lit("local"), dir: LocalDir }),
+]);
 export type CreateSessionBody = Static<typeof CreateSessionBody>;
 
 export const SendMessageBody = obj({
@@ -97,6 +106,11 @@ export type Bootstrap = {
 	/** Whether this server reads replies aloud: built with speech and its model in place, or in fake mode. */
 	speech: boolean;
 	memory: MemoryStatus;
+	/**
+	 * Present when picloud runs on the person's own computer (PICLOUD_ONPREM): their home directory, where a local
+	 * session starts unless another directory is chosen, and which the app shows as `~`.
+	 */
+	onPrem?: { home: string };
 };
 
 export type RepoSummary = {

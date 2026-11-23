@@ -4,7 +4,7 @@ import type { DeliveryResult, SessionDiff } from "../src/shared/api.ts";
 import { MESSAGE_ENTRY, reportOf } from "../src/shared/session.ts";
 import { git } from "../src/server/git.ts";
 import type { ConversationId } from "@earendil-works/pi-durable";
-import { context, TestServer } from "./helpers.ts";
+import { context, repoDoc, TestServer } from "./helpers.ts";
 
 describe("the zero-shot lifecycle", () => {
 	let server: TestServer;
@@ -20,7 +20,7 @@ describe("the zero-shot lifecycle", () => {
 	test("goes from a task through questions, plan, implementation and report to a pull request", async () => {
 		const id = await server.createSession("Add a shout() function with a test");
 
-		const questions = await server.until(id, (doc) => doc.card?.kind === "questions", "questions");
+		const questions = repoDoc(await server.until(id, (doc) => doc.card?.kind === "questions", "questions"));
 		assert.equal(questions.setup.status, "ready");
 		assert.equal(questions.branch.startsWith("pi/add-a-shout-function"), true);
 		assert.equal(questions.words[0]?.text, "Add a shout() function with a test");
@@ -42,7 +42,7 @@ describe("the zero-shot lifecycle", () => {
 		assert.equal(planned.workflow, "open");
 		await server.answer(id, planned.card!.id, { kind: "approve" });
 
-		const done = await server.settled(id, "report");
+		const done = repoDoc(await server.settled(id, "report"));
 		assert.equal(done.workflow, "reported");
 		assert.equal(done.outcome?.kind, "reported");
 		assert.deepEqual(done.plan?.done, ["1", "2", "3"]);
@@ -80,8 +80,8 @@ describe("the zero-shot lifecycle", () => {
 		assert.match(pulls[0]?.body ?? "", /## Done when\n- \[x\] `shout\("Ada"\)` returns `"HELLO, ADA!"`: Asserted in/);
 		assert.match(pulls[0]?.body ?? "", /## Changes\n- Added `shout\(name\)`, built on `greet\(\)` \(`src\/shout\.ts`\)/);
 		assert.match(pulls[0]?.body ?? "", /## Checks\n- passed: `node --test test\/\*\.test\.ts`: 2 tests, 0 failures/);
-		const final = await server.session(id);
-		assert.deepEqual(final?.delivery.pr, { number: delivered.pr?.number, url: delivered.pr?.url });
+		const final = repoDoc(await server.session(id));
+		assert.deepEqual(final.delivery.pr, { number: delivered.pr?.number, url: delivered.pr?.url });
 
 		// One notification each for the question, the plan and the report.
 		const titles = server.push.sent.map((sent) => (JSON.parse(sent.payload) as { title: string }).title);

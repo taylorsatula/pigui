@@ -2,7 +2,8 @@
 // zero-shot flow (explore, questions, plan, edits, commits, progress, report) the same way in every conversation at
 // once. The step a request is at is read from the ID of the newest scripted tool call, which survives compaction because
 // the scripted summarizer always keeps it. Directives in the task, such as [no-report], steer the scenario for tests.
-// With long-term memory on, every report states its memory part; [memory] also searches memory after exploring.
+// With long-term memory on, every report states its memory part; [memory] also searches memory after exploring. In
+// a local session, which works in place with nothing to deliver, it lists what it wrote where it would commit.
 import {
 	type AssistantMessage,
 	type AssistantMessageEventStream,
@@ -25,6 +26,7 @@ import type { ModelRef } from "@earendil-works/pi-durable";
 import { CHECKPOINT_HEADER } from "../agent/checkpoint.ts";
 import { HANDOFF_REQUEST, WRITE_HANDOFF } from "../agent/handoff.ts";
 import { SUBMIT_PLAN, UPDATE_PROGRESS } from "../agent/plan.ts";
+import { LOCAL_RULES } from "../agent/prompt.ts";
 import { ASK_MULTIPLE, ASK_SINGLE } from "../agent/questions.ts";
 import { RECALL } from "../agent/recall.ts";
 import { FILE_REPORT } from "../agent/report.ts";
@@ -199,7 +201,7 @@ function respond(context: TranscriptContext, options: SimpleStreamOptions | unde
 	if (directives.includes("[condense]") && pointer !== undefined && !recalled) {
 		return tools(call("recall", RECALL, { entry: Number(pointer) }));
 	}
-	return next(previous, messages, directives, nudged, memoryOffered(system));
+	return next(previous, messages, directives, nudged, memoryOffered(system), system.includes(LOCAL_RULES));
 }
 
 /** Whether the request offers surface_memories, and so whether a report must state its memory part. */
@@ -249,7 +251,7 @@ function probe(directives: string, messages: readonly Message[]): AssistantMessa
 	return next === undefined ? fauxAssistantMessage("Probed.") : tools(call("probe", ...next));
 }
 
-function next(previous: StepResult, messages: readonly Message[], directives: string, nudged: boolean, memory: boolean): AssistantMessage {
+function next(previous: StepResult, messages: readonly Message[], directives: string, nudged: boolean, memory: boolean, local: boolean): AssistantMessage {
 	const long = directives.includes("[long]");
 	const build = (step: "build-1" | "build-2" | "build-3") => {
 		const bulk = step === "build-2" && directives.includes("[backstop]") ? FLOOD : BULK;
@@ -307,6 +309,7 @@ function next(previous: StepResult, messages: readonly Message[], directives: st
 			if (long) return build("build-2");
 			return tools(call("progress-2", UPDATE_PROGRESS, { completed: [2] }));
 		case "progress-2":
+			if (local) return tools(call("commit", "bash", { command: "pwd && ls src test" }));
 			if (directives.includes("[dirty-report]")) return tools(call("commit", "bash", { command: "node --test test/*.test.ts" }));
 			return tools(call("commit", "bash", { command: 'node --test test/*.test.ts && git add -A && git commit -q -m "Add shout()" && git log --oneline -1' }));
 		case "commit":
@@ -322,6 +325,7 @@ function next(previous: StepResult, messages: readonly Message[], directives: st
 		case "fix-commit":
 			return report(messages, directives, memory);
 		case "follow-edit":
+			if (local) return tools(call("follow-commit", "bash", { command: "ls docs" }));
 			return tools(call("follow-commit", "bash", { command: 'git add -A && git commit -q -m "Follow-up" && git log --oneline -1' }));
 		case "follow-commit":
 			return tools(

@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { existsSync } from "node:fs";
-import { writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, test } from "node:test";
 import { DatabaseSync } from "node:sqlite";
@@ -44,6 +45,40 @@ describe("maintenance", () => {
 			assert.equal(typeof (await server.session(delivered))?.cleanedAt, "number");
 		} finally {
 			await server.close();
+		}
+	});
+
+	test("never touches a local session's directory, only picloud's own directories of it", async () => {
+		let offset = 0;
+		const home = await mkdtemp(join(tmpdir(), "picloud-home-"));
+		await mkdir(join(home, "project"));
+		await writeFile(join(home, "project", "keep.txt"), "the person's own file\n");
+		const server = await TestServer.start({ now: () => Date.now() + offset, env: { PICLOUD_ONPREM: "on", HOME: home } });
+		try {
+			const local = await server.createLocalSession("What is in this directory?", "~/project");
+			await server.settled(local);
+			assert.equal(existsSync(server.workspace(local)), true, "picloud keeps its own directory for the session's attachments");
+
+			// A repository session whose clone would go, but which a local session chose to work in.
+			const delivered = await server.createSession("Add shout");
+			await server.approveThrough(delivered);
+			await server.settled(delivered);
+			await server.post(`/api/sessions/${delivered}/deliver`, { action: "push" });
+			const inside = await server.createLocalSession("What is in this clone?", server.workspace(delivered));
+			await server.settled(inside);
+
+			for (const id of [local, delivered, inside]) await server.post(`/api/sessions/${id}/archive`, { archived: true });
+			offset = CLEANUP_AFTER_MS + 60_000;
+			const result = await server.app.maintenance.sweep(context);
+			assert.deepEqual(result.cleaned.sort(), [local, inside].sort());
+			assert.deepEqual(result.kept, [delivered], "a clone a local session works in is never removed");
+			assert.equal(await readFile(join(home, "project", "keep.txt"), "utf8"), "the person's own file\n");
+			assert.equal(existsSync(server.workspace(local)), false, "picloud's own directory of it goes");
+			assert.equal(existsSync(join(server.workspace(delivered), "src", "shout.ts")), true);
+			assert.equal(existsSync(home), true);
+		} finally {
+			await server.close();
+			await rm(home, { recursive: true, force: true });
 		}
 	});
 

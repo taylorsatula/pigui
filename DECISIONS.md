@@ -7,8 +7,8 @@ next; when a decision changes, change its entry.
 
 **One process, one Harness, one SQLite storage; a session is a Durable conversation.** `startApp()` opens a single Pi
 Durable Harness over `picloud.sqlite` and serves HTTP from the same process. Each session is an ownerless conversation
-with its own working directory (`workspaces/<id>`), model and compaction settings in its `pi.agent`
-document; the root conversation is never used for chat and owns the daily maintenance task. *Alternatives:* a Harness
+with its own working directory (`workspaces/<id>`, or in OnPrem a directory the person chose), model and compaction
+settings in its `pi.agent` document; the root conversation is never used for chat and owns the daily maintenance task. *Alternatives:* a Harness
 (and storage) per session would isolate sessions but break "one writable process per storage" as soon as anything
 looked across them (the drawer, notifications, maintenance), and would multiply open SQLite files; a separate worker
 process per run would rebuild what Durable already does (scheduling, recovery, live state). One Harness gives one
@@ -30,13 +30,15 @@ through small typed interfaces (`AgentServices`, `SessionsDeps`, `RepoHost`, `Pu
 
 **Everything picloud remembers is a Durable document, changed in the same commits as the agent's own state.**
 
-- `picloud.session` (conversation scope): the repository, branches, setup state, workflow, plan and progress, the
-  pending card, the report, delivery state, spend cap, the run under way (`activeRun`), how the last run ended
+- `picloud.session` (conversation scope): where the session works (`place`: a repository with its branches and
+  delivery state, or a local directory), setup state, workflow, plan and progress, the pending card, the report, spend
+  cap, the run under way (`activeRun`), how the last run ended
   (`outcome`), the person's words, notification keys already used, recent request IDs, and what the next compaction
   needs (the summarizer's latest working state, the checkpoint count, a pending handoff request).
 - `picloud.index` (session scope, one per Harness): one drawer row per session, plus the last repository and recent
   session-creation request IDs.
-- `picloud.repo-memory` (session-scoped family keyed by repository): what reports learned about building and testing.
+- `picloud.repo-memory` (session-scoped family keyed by repository, and one member, `this computer`, for every local
+  session): what reports learned about building and testing.
 - `picloud.memory` (session scope): long-term memory, when it is on (see "Long-term memory").
 - `picloud.push-subscriptions` (session scope).
 
@@ -82,9 +84,9 @@ memory"):
 - `submit_plan`: a structured plan (below); waits for approval or feedback. Approval moves the workflow to
   `implementing`; feedback comes back verbatim and the model revises.
 - `update_progress`: step numbers done.
-- `file_report`: a structured report (below), and `learned` (which replaces the repository's memory). It checks the
-  workspace itself: refused with uncommitted changes, refused when the branch is behind `origin/<base>` after
-  a fetch. A successful report ends the run (`terminate`), so no tokens are spent on a sign-off. While long-term memory
+- `file_report`: a structured report (below), and `learned` (which replaces the repository's memory). In a
+  repository session it checks the clone itself: refused with uncommitted changes, refused when the branch is behind
+  `origin/<base>` after a fetch; a local session, with nothing to deliver, is not checked. A successful report ends the run (`terminate`), so no tokens are spent on a sign-off. While long-term memory
   is on, it also takes a required `memory` part.
 - `recall_history`: search or read the full history, including what compaction removed from view.
 - `write_handoff`: a short first-person note, only when picloud asks for one before it compacts the context (see
@@ -396,7 +398,8 @@ replace the first on the phone. A session the person is viewing is not notified.
 One Durable task in the root conversation sleeps a day between rounds: it backs up the database with SQLite's online
 backup (`node:sqlite` `backup()`, 14 kept), removes stale uploads, and removes the workspace of a session archived more
 than seven days ago only when git shows nothing uncommitted, HEAD on the session's branch at origin (or already in its
-base), and no other local branch with commits origin lacks. *Alternatives:* systemd timers would need a second process
+base), and no other local branch with commits origin lacks. It removes only picloud's own directories of a session,
+its workspace and scratch, never a local session's chosen directory, and never a directory that holds one. *Alternatives:* systemd timers would need a second process
 opening the database and a `sqlite3` package; a sleeping Durable task costs nothing while it waits, survives restarts,
 and is covered by the same tests.
 
@@ -580,7 +583,8 @@ memoized) until the Harness closes; this is deterministic where killing a proces
 
 ## The installer
 
-A bash script, because it has to run on a machine that does not have Node yet. Every change goes through two helpers
+A bash script, because it has to run on a machine that does not have Node yet. (OnPrem's own installer is described
+under "PiCloud OnPrem".) Every change goes through two helpers
 (`run`, `write_file`) that print instead of acting in `--dry-run`, every step checks before it changes anything, and
 the configuration file keeps existing values unless an option replaces them, so re-running upgrades in place. It ends
 by listing the steps only a person can do. The systemd unit uses `RestartPreventExitStatus=78` so a missing Pi
@@ -647,6 +651,8 @@ dry-run helpers, through `deploy/lib.sh`.
   for the agent's test runs: a spike past memory slows them down instead of getting them killed.
 
 ## Session isolation
+
+(All of this is for a server. PiCloud OnPrem deliberately has none of it; see "PiCloud OnPrem".)
 
 **Each session's agent is isolated from picloud and from other sessions, in three layers.** This departs from the
 runbook's A7, where the agent shared the service user's credentials, at the owner's request.
@@ -861,6 +867,79 @@ run them, and render their inner menus in the web app; each would need its own a
 prompt templates: markdown files with a description and an argument hint, loaded and expanded by Pi's own functions.
 They could appear in the composer the way skills do with `#`, but they have no inner menus, so they were left for a
 decision of their own.
+
+## PiCloud OnPrem
+
+**Native install, not a container.** OnPrem exists to give a session the person's full access to their own computer:
+their directories, toolchains, credentials and local services. A container cannot: on macOS it is a Linux VM that
+cannot run the person's macOS toolchain or reach their keychain, and on Linux it still sees only the image's tools and
+whatever is mounted into it, which is a sandbox by another name. So picloud runs as the person, from a checkout in
+`~/.picloud/app`, under a service of their own user. *Alternative:* the Docker setup with the home directory mounted
+in, which gives files without tools, and tools of the wrong system.
+
+**One switch, `PICLOUD_ONPREM`, rather than separate de-restriction flags.** Each protection on a server exists
+because the server is shared with an agent the person does not watch: the sandbox, the read-only agent token with its
+scratch home, Tailscale's login check, and the caller check that refuses picloud's own user. On the person's own
+computer each of them is wrong in the same way at the same moment, so one switch changes all of them, and a setting
+that would promise one of them back (`PICLOUD_SANDBOX=on`, `PICLOUD_ALLOWED_LOGINS`, `PICLOUD_AGENT_GH_TOKEN`) is a
+configuration error naming why, rather than silently ignored. It defaults to off, and its port to 2025, so nothing
+changes for a server. *Alternative:* a flag per protection, which multiplies the combinations to test and document,
+most of them meaningless (a sandbox without a scratch home, Tailscale logins on localhost).
+
+**Local sessions beside repository sessions, and the working directory split from picloud's workspace.** A session's
+`place` is a discriminant in the shared shapes: `repo` (repository, start, branch, base, start commit, delivery) or
+`local` (an absolute directory), in `SessionDoc`, its drawer row, the create body and nothing else; sessions stored
+before it are marked `repo` once, at startup, in the commit that already recomputes the drawer. The directory is
+resolved when the session is created (`~` expanded, which must exist and be a directory), and becomes the Durable
+conversation's `cwd`. `workspace(id)` stays picloud's own: a repository session's clone, and for every session the
+attachments, which a local session's agent is given by absolute path. Every agent-facing use (the cwd, the prompt's
+session section, project context, skills, `@` references and the `@` listing) goes through one function,
+`workingDir(doc)`; everything picloud owns (clone, attachments, scratch, maintenance) through `workspace(id)` and
+`scratch(id)`. Setup skips the clone and the branch; delivery and the diff answer 409; the report checks no git
+state and records no commit; the compaction checkpoint states the directory instead of a repository; long-term repo
+memory has one key for the computer. A local session has its own prompt rules instead of the git ones: the person's
+full access to the whole filesystem from that directory, other sessions on the same computer, and asking with a card
+before anything destructive or irreversible the task did not name. A local session is only OnPrem's; a server refuses
+one with 403, since it would bypass every protection there. The `@` listing is a breadth-first walk bounded by entries
+and time, skipping dot-entries, dependencies, macOS's `Library`, the kernel's and devices' trees and network mounts
+(Linux's from its mount table), so `/` stays fast. *Alternatives:* faking a repository name for the home directory,
+which every repository code path would then have to recognise; `workspace(id)` pointing at the chosen directory, which
+would hand maintenance's `rm -rf` the person's own directory.
+
+**The request gate refuses other sites' pages, in both modes.** `json()` parsed any body whatever its content type,
+so a page on any site could send a `text/plain` POST, which needs no CORS preflight, and picloud acted on it: on a
+server, any page the phone opened could answer a card or start a run; in OnPrem it would run commands on the person's
+computer. Every request that is not GET or HEAD is now refused when `Sec-Fetch-Site` is present and not `same-origin`
+(`same-site` is refused too: another port on localhost is the same site), or when `Origin` is present and its host is
+neither the request's `Host` nor the `X-Forwarded-Host` a proxy adds; a cross-site page can set neither of those two
+without a preflight picloud never allows. Requests with neither header come from programs, not browsers; the caller
+check, or in OnPrem the person's own access, already covers those. *Alternatives:* requiring `application/json`, which
+a no-cors request cannot send, but which a future upload or form would silently reopen; a CSRF token, which needs a
+session or cookie picloud does not have.
+
+**In OnPrem, the Host is checked and the caller check is turned around.** Bound to loopback, OnPrem is still reachable
+by DNS rebinding: a page whose name resolves to 127.0.0.1 is same-origin with picloud as far as the browser knows, and
+could read it and pass the origin gate. So OnPrem answers only requests whose `Host` is `localhost`, `127.0.0.1` or
+`[::1]` at its own port. On a server the caller check refuses picloud's own user, because the agent runs as that user
+and shares loopback; in OnPrem the person's browser is that user, so on Linux the same socket-table lookup
+(`clientOwner`) allows only picloud's own user and refuses other users of a shared machine. macOS has no such table, so
+OnPrem there checks no caller, and the README says any user of the Mac can reach it. Tailscale's identity header is
+never consulted, since `PICLOUD_ALLOWED_LOGINS` cannot be set. *Alternative:* a login or token for OnPrem, which the
+person would have to carry into every browser and which guards nothing against programs that already run as them.
+
+**The OnPrem installer: a user service with the login shell's PATH, from a checkout it fetches itself.** Piped from
+curl, the script has no directory of its own, so it first clones picloud (or finds the installed copy) and runs the
+installer of the version it is installing, which fetches `--ref` and refuses to overwrite local changes in the app. It
+shares `deploy/lib.sh`'s dry-run helpers (now portable to macOS's `stat`), the model switches and pruning of the
+server installer, and `deploy/models.sh` (now with `shasum` where there is no `sha256sum`). The service is the user's
+own, so nothing needs sudo: a LaunchAgent (RunAtLoad, KeepAlive, logs in `~/.picloud/logs`) on macOS, a systemd user
+unit on Linux, which keeps the server unit's `RestartPreventExitStatus=78 2`. launchd and systemd start services with
+almost no environment, so the PATH the person's login shell builds is captured at install time and written into the
+service, behind the directory of the `node` that installs it, which then runs it by absolute path; re-running
+captures both again. Pi's sign-in is checked with picloud's own `loadPiModels`, run from the installed app, rather than
+by reading Pi's files. *Alternatives:* a wrapper that sources the login shell at every start, which would run the
+person's shell profile, prompts and all, under launchd; Homebrew services or a `.app`, each one more thing to package
+for one platform only.
 
 ## Dependencies
 

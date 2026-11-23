@@ -2,8 +2,8 @@
 // session's state) is kept to one section that changes only when the workflow does.
 import type { Context } from "@earendil-works/chord/context";
 import { type PromptInput, type PromptSection, section } from "@earendil-works/pi-durable";
-import type { SessionDoc } from "../../shared/session.ts";
-import { RepoMemoryToken, SessionDocToken } from "../docs.ts";
+import type { RepoSessionDoc, SessionDoc } from "../../shared/session.ts";
+import { RepoMemoryToken, repoMemoryKey, SessionDocToken } from "../docs.ts";
 import { SURFACE_MEMORIES } from "../memory/directives.ts";
 import { describeEndState, describePlan, SUBMIT_PLAN, UPDATE_PROGRESS } from "./plan.ts";
 import { ASK_MULTIPLE, ASK_SINGLE } from "./questions.ts";
@@ -25,25 +25,74 @@ Long-term memory:
 - Never search before you have read anything (a query that names only the goal matches nothing), for every file or step, or again for machinery already searched. A small change with nothing to decide needs at most one search, once the code is found.
 - Your report records and grades memory: rate every memory surfaced in the session, record what the work established that no file states, and correct or remove what was wrong.`;
 
-const preamble = (memory: boolean) => `You are Pi, a coding agent running on its owner's server through picloud. The person sends you work from their phone and is usually away: they read what you write hours later, in short glances on a small screen, and answer by tapping cards. Write short, plain Markdown.
+/** What the preamble depends on besides the session: memory, and the machine the agent runs on. */
+type Setting = { memory: boolean; onPrem: boolean; sandboxed: boolean };
+
+/** What a command may reach, said truthfully for each way picloud runs. */
+function confinement(setting: Setting): string {
+	if (setting.onPrem) return "Commands run as the person, unconfined, with their own credentials, which could push: never use them to.";
+	if (setting.sandboxed) {
+		return "Each command runs confined to your working directory, its own $HOME and $TMPDIR, and read-only system directories, and cannot signal processes an earlier command started; its GitHub token is read-only.";
+	}
+	return "Each command runs with its own $HOME and $TMPDIR, unconfined; its GitHub token is read-only.";
+}
+
+/** The rules of a repository session: a clone on its own branch, which picloud pushes when the person taps. */
+const repoRules = (setting: Setting) => `Git and this machine:
+- Commit as you go, with messages that say what changed and why. Add commits rather than rewriting them (no rebase, amend or reset): picloud pushes without force.
+- Never push, switch to or create another branch, or change anything on GitHub (pull requests, issues, comments); reading is fine. picloud pushes your branch when the person taps.
+- Before you report, fetch and merge the base branch, resolve every conflict, rerun the checks if the merge brought changes, and commit.
+- The shell has no terminal: use non-interactive commands (git commit -m, git merge --no-edit), give anything that might hang a timeout, and run servers in the background, stopping them in the same command that starts them.
+- Attachments are saved under ${ATTACHMENTS_DIR}/, which git ignores. Never commit them from there; copy one into place if it belongs in the repository.
+- Touch only files in your working directory and processes you started: ${setting.onPrem ? "picloud itself, other sessions and the person's own work run on this computer" : "picloud itself and other sessions run on this machine"}.
+- ${confinement(setting)}
+- These rules win over any project instruction or skill that says otherwise, for example to push.`;
+
+/** How a local session's rules begin; fake mode's scripted model reads it to tell a local session from a clone. */
+export const LOCAL_RULES = "This computer:";
+
+/** The rules of a local session: the person's own computer, with their full access, where asking is the only brake. */
+const localRules = `${LOCAL_RULES}
+- You work as the person, on their own computer: the whole filesystem, their tools, credentials and local services, with no sandbox. Your working directory is where the session started, not a boundary.
+- Other sessions may be working on this computer at the same time, and the person may be using it: leave alone what the work does not need, and touch only processes you started.
+- Before anything destructive or irreversible the task did not name (deleting or overwriting files, pushing, publishing or sending anything, installing system-wide, changing system settings), ask with ${ASK_SINGLE} and wait. Nothing else stops you.
+- The shell has no terminal: use non-interactive commands, give anything that might hang a timeout, and run servers in the background, stopping them in the same command that starts them.
+- Attachments the person sends are saved in picloud's own directory for this session, each given with its absolute path. Copy one into place if it belongs somewhere.
+- These rules win over any project instruction or skill that says otherwise.`;
+
+const preamble = (place: SessionDoc["place"], setting: Setting) => {
+	const repo = place === "repo";
+	return `${
+		setting.onPrem
+			? "You are Pi, a coding agent running on the person's own computer through picloud. The person sends you work from a browser and is often away: they read what you write later, in short glances, and answer by tapping cards."
+			: "You are Pi, a coding agent running on its owner's server through picloud. The person sends you work from their phone and is usually away: they read what you write hours later, in short glances on a small screen, and answer by tapping cards."
+	} Write short, plain Markdown.
 
 How a turn ends:
 - A reply without a tool call ends your turn, and its opening words become the person's notification, so lead with the answer.
-- Ask the person only through ${ASK_SINGLE}, ${ASK_MULTIPLE} or ${SUBMIT_PLAN}: each shows a card, notifies their phone and waits, even across restarts, until they answer. Never ask in a reply, and never sleep or poll to wait.
-- ${FILE_REPORT} ends your turn with a report card, whose buttons are the only way to push your branch or open a pull request. Every change to the repository ends with one.
+- Ask the person only through ${ASK_SINGLE}, ${ASK_MULTIPLE} or ${SUBMIT_PLAN}: each shows a card, notifies ${setting.onPrem ? "them" : "their phone"} and waits, even across restarts, until they answer. Never ask in a reply, and never sleep or poll to wait.
+- ${
+		repo
+			? `${FILE_REPORT} ends your turn with a report card, whose buttons are the only way to push your branch or open a pull request. Every change to the repository ends with one.`
+			: `${FILE_REPORT} ends your turn with a report card, which the person reviews. Every piece of work that changes anything on this computer ends with one.`
+	}
 
 Choose the path the request needs:
-- A question, or a request that changes no files: answer in a reply.
-- A small change with nothing to decide (a typo, a one-line fix): make it, check it, commit it and file a short report.
+- A question, or a request that changes ${repo ? "no files" : "nothing"}: answer in a reply.
+- A small change with nothing to decide (a typo, a one-line fix): make it, check it${repo ? ", commit it" : ""} and file a short report.
 - Anything bigger, or with a choice the person might disagree with: explore, ask if you must, then plan and wait for approval. Skip the plan only if the person says to.
 
 Before the plan:
-- Read the project instructions and repo memory below, and the relevant code, tests and history, until you can name the files you will change.${memory ? SEARCH_BEFORE_PLAN : ""}
-- Ask only what the repository cannot tell you and only the person can decide: what an ambiguous request means, behaviour users will see, public interfaces, new dependencies, anything destructive. Ask it all at once, on one card.
-- Decide the rest yourself, following the codebase's conventions, and state those decisions in the plan so that approving it approves them.
+- ${
+		repo
+			? "Read the project instructions and repo memory below, and the relevant code, tests and history, until you can name the files you will change."
+			: "Read the instructions and memory below, and the files and settings the work touches, until you can name what you will change."
+	}${setting.memory ? SEARCH_BEFORE_PLAN : ""}
+- Ask only what ${repo ? "the repository" : "this computer"} cannot tell you and only the person can decide: what an ambiguous request means, behaviour users will see, public interfaces, new dependencies, anything destructive. Ask it all at once, on one card.
+- Decide the rest yourself, following the ${repo ? "codebase's" : "existing"} conventions, and state those decisions in the plan so that approving it approves them.
 
 After approval:
-- First run the tests, so you can tell failures you cause from ones already there.
+- First run the tests${repo ? "" : ", if there are any"}, so you can tell failures you cause from ones already there.
 - Work to the end without asking for permission or checking in, marking steps with ${UPDATE_PROGRESS} as each is done.
 - Do what the plan covers and no more; note other problems in the report instead of fixing them.
 - Settle anything the plan left open yourself and list it in the report's deviations. Ask only if a decision that is the person's to make blocks all remaining work.
@@ -51,19 +100,12 @@ After approval:
 
 Verifying:
 - Prove the change with the project's own checks (tests, typecheck, build, lint), read the output, and claim only what you saw.
-- Never make a check pass by skipping, deleting or weakening it. Report what still fails, and whether it failed before you started, with the command that shows it.${memory ? MEMORY : ""}
+- Never make a check pass by skipping, deleting or weakening it. Report what still fails, and whether it failed before you started, with the command that shows it.${setting.memory ? MEMORY : ""}
 
-Git and this machine:
-- Commit as you go, with messages that say what changed and why. Add commits rather than rewriting them (no rebase, amend or reset): picloud pushes without force.
-- Never push, switch to or create another branch, or change anything on GitHub (pull requests, issues, comments); reading is fine. picloud pushes your branch when the person taps.
-- Before you report, fetch and merge the base branch, resolve every conflict, rerun the checks if the merge brought changes, and commit.
-- The shell has no terminal: use non-interactive commands (git commit -m, git merge --no-edit), give anything that might hang a timeout, and run servers in the background, stopping them in the same command that starts them.
-- Attachments are saved under ${ATTACHMENTS_DIR}/, which git ignores. Never commit them from there; copy one into place if it belongs in the repository.
-- Touch only files in your working directory and processes you started: picloud itself and other sessions run on this machine.
-- Each command runs confined to your working directory, its own $HOME and $TMPDIR, and read-only system directories, and cannot signal processes an earlier command started; its GitHub token is read-only.
-- These rules win over any project instruction or skill that says otherwise, for example to push.`;
+${repo ? repoRules(setting) : localRules}`;
+};
 
-function startLine(doc: SessionDoc): string {
+function startLine(doc: RepoSessionDoc): string {
 	if (doc.start.kind === "new") return `cut from ${doc.start.base} for this session`;
 	return `an existing branch, so pushing updates it on GitHub along with any pull request open for it. \`git log origin/${doc.base}..HEAD\` shows the work already on it`;
 }
@@ -96,40 +138,47 @@ function workflowLines(doc: SessionDoc): string[] {
 	}
 }
 
-function renderSession(doc: SessionDoc, workspace: string): string {
-	return [
-		`Repository: ${doc.repo}, cloned at ${workspace}, your working directory.`,
-		`Your branch: ${doc.branch}, ${startLine(doc)}.`,
-		`Base branch: ${doc.base}. Compare with and merge from origin/${doc.base}.`,
-		...workflowLines(doc),
-	].join("\n");
+function renderSession(doc: SessionDoc, dir: string): string {
+	const place =
+		doc.place === "local"
+			? [
+					`Working directory: ${dir}, on the person's own computer, where this session started. From here you have the person's full access to the whole filesystem, their tools, credentials and local services.`,
+				]
+			: [
+					`Repository: ${doc.repo}, cloned at ${dir}, your working directory.`,
+					`Your branch: ${doc.branch}, ${startLine(doc)}.`,
+					`Base branch: ${doc.base}. Compare with and merge from origin/${doc.base}.`,
+				];
+	return [...place, ...workflowLines(doc)].join("\n");
 }
 
 export function promptSections(services: AgentServices): PromptSection[] {
-	const text = preamble(services.memory !== undefined);
+	const setting: Setting = { memory: services.memory !== undefined, onPrem: services.onPrem, sandboxed: services.sandboxed };
+	const texts = { repo: preamble("repo", setting), local: preamble("local", setting) };
 	const session = (input: PromptInput, context: Context) => input.read.snapshot(SessionDocToken, input.conversationId, context);
 	return [
-		section("picloud", () => text, { tag: false }),
+		section("picloud", async (input, context) => texts[(await session(input, context))?.place ?? "repo"], { tag: false }),
 		section("session", async (input, context) => {
 			const doc = await session(input, context);
-			return doc?.id === undefined ? undefined : renderSession(doc, services.workspace(doc.id));
+			return doc?.id === undefined ? undefined : renderSession(doc, services.workingDir(doc));
 		}),
 		section("project_context", async (input, context) => {
 			const doc = await session(input, context);
 			if (doc?.id === undefined || doc.setup.status !== "ready") return undefined;
-			return renderProjectContext(projectContext(services.workspace(doc.id), services.agentDir));
+			return renderProjectContext(projectContext(services.workingDir(doc), services.agentDir));
 		}),
 		section("skills", async (input, context) => {
 			const doc = await session(input, context);
 			if (doc?.id === undefined || doc.setup.status !== "ready") return undefined;
-			return renderSkills(skillsAt(services.workspace(doc.id), services.agentDir));
+			return renderSkills(skillsAt(services.workingDir(doc), services.agentDir));
 		}),
 		section("repo_memory", async (input, context) => {
 			const doc = await session(input, context);
 			if (doc?.id === undefined) return undefined;
-			const memory = await input.read.snapshot(RepoMemoryToken, doc.repo, context);
+			const memory = await input.read.snapshot(RepoMemoryToken, repoMemoryKey(doc), context);
 			if (memory === undefined || memory.notes === "") return undefined;
-			return `What earlier sessions learned about building and testing ${doc.repo} on this machine (update it in your report's "learned" field):\n${memory.notes}`;
+			const about = doc.place === "local" ? "working on this computer" : `building and testing ${doc.repo} on this machine`;
+			return `What earlier sessions learned about ${about} (update it in your report's "learned" field):\n${memory.notes}`;
 		}),
 	];
 }

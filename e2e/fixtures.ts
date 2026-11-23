@@ -1,6 +1,6 @@
 // Each test file gets its own fake-mode server, run as `npm run fake` runs it: a child process on a free port with a
 // temporary data directory and an empty Pi configuration. Restarting kills it and starts it again on the same port and
-// data, as a real restart would.
+// data, as a real restart would. An OnPrem server also gets a temporary home directory of its own.
 import { type ChildProcess, spawn } from "node:child_process";
 import { mkdtemp, rm } from "node:fs/promises";
 import { createServer } from "node:net";
@@ -19,17 +19,21 @@ async function freePort(): Promise<number> {
 	});
 }
 
-type ServerOptions = { tokensPerSecond: number; memory: "on" | "off" };
+type ServerOptions = { tokensPerSecond: number; memory: "on" | "off"; onPrem: boolean };
 
 export class FakeServer {
 	readonly url: string;
+	/** OnPrem's stand-in for the person's home directory. */
+	readonly home: string | undefined;
 	readonly #env: NodeJS.ProcessEnv;
 	readonly #dirs: string[];
 	#child: ChildProcess | undefined;
 
-	private constructor(port: number, dataDir: string, agentDir: string, options: ServerOptions) {
-		this.url = `http://127.0.0.1:${port}`;
-		this.#dirs = [dataDir, agentDir];
+	private constructor(port: number, dataDir: string, agentDir: string, home: string | undefined, options: ServerOptions) {
+		// OnPrem is opened as the installer opens it, at localhost.
+		this.url = `http://${options.onPrem ? "localhost" : "127.0.0.1"}:${port}`;
+		this.home = home;
+		this.#dirs = [dataDir, agentDir, ...(home === undefined ? [] : [home])];
 		this.#env = {
 			...process.env,
 			PICLOUD_PORT: String(port),
@@ -37,11 +41,13 @@ export class FakeServer {
 			PI_CODING_AGENT_DIR: agentDir,
 			PICLOUD_FAKE_TOKENS_PER_SECOND: String(options.tokensPerSecond),
 			PICLOUD_FAKE_MEMORY: options.memory,
+			...(home === undefined ? {} : { PICLOUD_ONPREM: "on", HOME: home }),
 		};
 	}
 
 	static async start(options: ServerOptions): Promise<FakeServer> {
-		const server = new FakeServer(await freePort(), await mkdtemp(join(tmpdir(), "picloud-e2e-")), await mkdtemp(join(tmpdir(), "picloud-pi-")), options);
+		const home = options.onPrem ? await mkdtemp(join(tmpdir(), "picloud-home-")) : undefined;
+		const server = new FakeServer(await freePort(), await mkdtemp(join(tmpdir(), "picloud-e2e-")), await mkdtemp(join(tmpdir(), "picloud-pi-")), home, options);
 		await server.#spawn();
 		return server;
 	}
@@ -81,14 +87,16 @@ export class FakeServer {
 	}
 }
 
-export const test = base.extend<{ errors: string[] }, { server: FakeServer; tokensPerSecond: number; memory: "on" | "off" }>({
+export const test = base.extend<{ errors: string[] }, { server: FakeServer; tokensPerSecond: number; memory: "on" | "off"; onPrem: boolean }>({
 	/** How fast the scripted model writes; a test file that needs to watch text arrive slows it. */
 	tokensPerSecond: [300, { scope: "worker", option: true }],
 	/** Off starts the server as one without an embedder. */
 	memory: ["on", { scope: "worker", option: true }],
+	/** On starts picloud OnPrem, as on the person's own computer. */
+	onPrem: [false, { scope: "worker", option: true }],
 	server: [
-		async ({ tokensPerSecond, memory }, use) => {
-			const server = await FakeServer.start({ tokensPerSecond, memory });
+		async ({ tokensPerSecond, memory, onPrem }, use) => {
+			const server = await FakeServer.start({ tokensPerSecond, memory, onPrem });
 			await use(server);
 			await server.dispose();
 		},

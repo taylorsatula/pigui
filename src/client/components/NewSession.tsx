@@ -1,5 +1,7 @@
-// Starting a session: a repository (the last one used), a branch choice (a new branch from the default branch unless
-// changed), then the composer. File and skill pickers read the chosen branch before anything is cloned.
+// Starting a session. On a server: a repository (the last one used), a branch choice (a new branch from the default
+// branch unless changed), then the composer. In picloud OnPrem, a directory on this computer comes first, the home
+// directory unless changed, and a repository is the other choice where gh can list them. File and skill pickers read
+// the chosen directory, or the chosen branch, before anything starts.
 import type { JSX } from "preact";
 import { useEffect, useState } from "preact/hooks";
 import type { BranchList, RepoSummary } from "../../shared/api.ts";
@@ -10,6 +12,9 @@ import { DrawerButton } from "./Drawer.tsx";
 
 export function NewSession(): JSX.Element {
 	const bootstrap = useStore((state) => state.bootstrap);
+	const onPrem = bootstrap?.onPrem !== undefined;
+	const [place, setPlace] = useState<"local" | "repo">("local");
+	const [dir, setDir] = useState("~");
 	const [repos, setRepos] = useState<RepoSummary[] | undefined>(undefined);
 	const [repo, setRepo] = useState<string | undefined>(undefined);
 	const [branches, setBranches] = useState<BranchList | undefined>(undefined);
@@ -17,6 +22,8 @@ export function NewSession(): JSX.Element {
 	const [base, setBase] = useState<string>("");
 	const [branch, setBranch] = useState<string>("");
 	const [error, setError] = useState<string | undefined>(undefined);
+	// Until the server says it is OnPrem, the screen is a server's; only OnPrem has directories to choose.
+	const local = onPrem && place === "local";
 
 	useEffect(() => {
 		api.repos().then(
@@ -43,7 +50,7 @@ export function NewSession(): JSX.Element {
 	}, [repo]);
 
 	const ref = mode === "new" ? base : branch;
-	const ready = repo !== undefined && branches !== undefined && ref !== "";
+	const ready = local ? dir.trim() !== "" : repo !== undefined && branches !== undefined && ref !== "";
 
 	return (
 		<div class="session new-session">
@@ -52,46 +59,77 @@ export function NewSession(): JSX.Element {
 				<h1 class="title">New session</h1>
 			</header>
 			<div class="setup-form">
-				<p class="intro">Choose a repository and a branch, then describe the task. Pi asks what it needs to know, writes a plan, and waits for your approval before it builds.</p>
-				{error !== undefined ? <p class="error-text" role="alert">{error}</p> : null}
-				<label class="field">
-					<span>Repository</span>
-					<select value={repo ?? ""} disabled={repos === undefined} onChange={(event) => setRepo((event.target as HTMLSelectElement).value)}>
-						{repos === undefined ? <option value="">Loading…</option> : null}
-						{(repos ?? []).map((item) => (
-							<option key={item.name} value={item.name}>
-								{item.name}
-							</option>
-						))}
-					</select>
-				</label>
-				<div class="segmented" role="radiogroup" aria-label="Branch">
-					<button type="button" role="radio" aria-checked={mode === "new"} class={mode === "new" ? "selected" : ""} onClick={() => setMode("new")}>
-						New branch
-					</button>
-					<button type="button" role="radio" aria-checked={mode === "continue"} class={mode === "continue" ? "selected" : ""} onClick={() => setMode("continue")}>
-						Continue a branch
-					</button>
-				</div>
-				<label class="field">
-					<span>{mode === "new" ? "Start from" : "Branch to continue"}</span>
-					<select
-						value={ref}
-						disabled={branches === undefined}
-						onChange={(event) => {
-							const value = (event.target as HTMLSelectElement).value;
-							if (mode === "new") setBase(value);
-							else setBranch(value);
-						}}
-					>
-						{(branches?.branches ?? []).map((name) => (
-							<option key={name} value={name}>
-								{name}
-								{name === branches?.defaultBranch ? " (default)" : ""}
-							</option>
-						))}
-					</select>
-				</label>
+				<p class="intro">
+					{onPrem
+						? "Choose where Pi works: a directory on this computer, with your full access, or a repository on a branch of its own. Then describe the task. Pi asks what it needs to know, writes a plan, and waits for your approval before it builds."
+						: "Choose a repository and a branch, then describe the task. Pi asks what it needs to know, writes a plan, and waits for your approval before it builds."}
+				</p>
+				{onPrem ? (
+					<div class="segmented" role="radiogroup" aria-label="Where Pi works">
+						<button type="button" role="radio" aria-checked={place === "local"} class={place === "local" ? "selected" : ""} onClick={() => setPlace("local")}>
+							This computer
+						</button>
+						<button type="button" role="radio" aria-checked={place === "repo"} class={place === "repo" ? "selected" : ""} onClick={() => setPlace("repo")}>
+							A repository
+						</button>
+					</div>
+				) : null}
+				{local ? (
+					<label class="field">
+						<span>Directory</span>
+						<input
+							type="text"
+							value={dir}
+							autocapitalize="off"
+							autocorrect="off"
+							spellcheck={false}
+							onInput={(event) => setDir((event.target as HTMLInputElement).value)}
+						/>
+					</label>
+				) : (
+					<>
+						{/* Listing repositories needs gh on the server; when it fails, a local session still can start. */}
+						{error !== undefined ? <p class="error-text" role="alert">{error}</p> : null}
+						<label class="field">
+							<span>Repository</span>
+							<select value={repo ?? ""} disabled={repos === undefined} onChange={(event) => setRepo((event.target as HTMLSelectElement).value)}>
+								{repos === undefined ? <option value="">Loading…</option> : null}
+								{(repos ?? []).map((item) => (
+									<option key={item.name} value={item.name}>
+										{item.name}
+									</option>
+								))}
+							</select>
+						</label>
+						<div class="segmented" role="radiogroup" aria-label="Branch">
+							<button type="button" role="radio" aria-checked={mode === "new"} class={mode === "new" ? "selected" : ""} onClick={() => setMode("new")}>
+								New branch
+							</button>
+							<button type="button" role="radio" aria-checked={mode === "continue"} class={mode === "continue" ? "selected" : ""} onClick={() => setMode("continue")}>
+								Continue a branch
+							</button>
+						</div>
+						<label class="field">
+							<span>{mode === "new" ? "Start from" : "Branch to continue"}</span>
+							<select
+								value={ref}
+								disabled={branches === undefined}
+								onChange={(event) => {
+									const value = (event.target as HTMLSelectElement).value;
+									if (mode === "new") setBase(value);
+									else setBranch(value);
+								}}
+							>
+								{(branches?.branches ?? []).map((name) => (
+									<option key={name} value={name}>
+										{name}
+										{name === branches?.defaultBranch ? " (default)" : ""}
+									</option>
+								))}
+							</select>
+						</label>
+					</>
+				)}
 			</div>
 			<ComposerDock>
 				<Composer
@@ -100,12 +138,17 @@ export function NewSession(): JSX.Element {
 					running={false}
 					disabled={!ready}
 					focusToken={0}
-					files={async () => (repo === undefined ? [] : (await api.repoFiles(repo, ref)).files)}
-					skills={() => (repo === undefined ? Promise.resolve([]) : api.repoSkills(repo, ref))}
+					files={async () => (local ? (await api.localFiles(dir)).files : repo === undefined ? [] : (await api.repoFiles(repo, ref)).files)}
+					skills={() => (local ? api.localSkills(dir) : repo === undefined ? Promise.resolve([]) : api.repoSkills(repo, ref))}
 					onSend={async (text, attachments, requestId) => {
+						if (local) {
+							const { id } = await api.create({ requestId, place: "local", dir, text, attachments });
+							navigate({ kind: "session", id });
+							return;
+						}
 						if (repo === undefined) return;
 						const start = mode === "new" ? { kind: "new" as const, base } : { kind: "continue" as const, branch };
-						const { id } = await api.create({ requestId, repo, start, text, attachments });
+						const { id } = await api.create({ requestId, place: "repo", repo, start, text, attachments });
 						navigate({ kind: "session", id });
 					}}
 				/>

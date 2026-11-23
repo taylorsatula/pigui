@@ -7,7 +7,7 @@ import { join } from "node:path";
 import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
 import { type ConversationId, type EntryRecord, LiveDoc, type LiveState } from "@earendil-works/pi-durable";
 import type { ApiError } from "../src/shared/api.ts";
-import { CHECKPOINT_ENTRY, type SessionDoc } from "../src/shared/session.ts";
+import { CHECKPOINT_ENTRY, type RepoSessionDoc, type SessionDoc } from "../src/shared/session.ts";
 import { type App, type AppOptions, startApp } from "../src/server/app.ts";
 import { readConfig } from "../src/server/config.ts";
 import { SessionDocToken } from "../src/server/docs.ts";
@@ -99,7 +99,13 @@ export class TestServer {
 	}
 
 	async createSession(text: string, start: { kind: "new"; base: string } | { kind: "continue"; branch: string } = { kind: "new", base: "main" }, repo = "demo/greeter"): Promise<number> {
-		const { id } = await this.post<{ id: number }>("/api/sessions", { requestId: requestId(), repo, start, text, attachments: [] });
+		const { id } = await this.post<{ id: number }>("/api/sessions", { requestId: requestId(), place: "repo", repo, start, text, attachments: [] });
+		return id;
+	}
+
+	/** A local session, in `dir` on this computer (picloud OnPrem only). */
+	async createLocalSession(text: string, dir: string): Promise<number> {
+		const { id } = await this.post<{ id: number }>("/api/sessions", { requestId: requestId(), place: "local", dir, text, attachments: [] });
 		return id;
 	}
 
@@ -212,6 +218,12 @@ export class TestServer {
 		const plan = await this.until(id, (doc) => doc.card?.kind === "plan", "the plan card");
 		await this.answer(id, plan.card!.id, { kind: "approve" });
 	}
+}
+
+/** A repository session's document; fails the test for anything else. */
+export function repoDoc(doc: Readonly<SessionDoc> | undefined): Readonly<RepoSessionDoc> {
+	if (doc?.place !== "repo") throw new Error(`Expected a repository session: ${JSON.stringify(doc).slice(0, 300)}`);
+	return doc;
 }
 
 /** The text a user entry gave the model. */

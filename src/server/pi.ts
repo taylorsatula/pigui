@@ -9,7 +9,9 @@ Sign in with Pi as the user picloud runs as: run pi, type /login, then /model.
   With Docker:        docker compose run --rm picloud pi
                       then: docker compose restart picloud
   With the installer: sudo -u picloud -i pi
-                      then: sudo systemctl restart picloud`;
+                      then: sudo systemctl restart picloud
+  With OnPrem:        pi, as yourself
+                      then run the OnPrem one-liner again (README, "PiCloud OnPrem")`;
 
 export class NotSignedIn extends Error {}
 

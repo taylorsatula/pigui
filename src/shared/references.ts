@@ -14,7 +14,8 @@ export type Reference = {
 };
 
 const SIGIL: Record<string, ReferenceKind> = { "@": "file", "#": "skill" };
-const FILE_CHARS = /[A-Za-z0-9._\-/+]/;
+// `~` for a local session's `@~/notes.md`, which, like an absolute path, reaches anywhere on the person's computer.
+const FILE_CHARS = /[A-Za-z0-9._\-/+~]/;
 const SKILL_CHARS = /[A-Za-z0-9_\-:.]/;
 // Punctuation that ends a sentence, not a path: "see @README.md." refers to README.md.
 const TRAILING = /[.,;:!?)\]}'"]+$/;
