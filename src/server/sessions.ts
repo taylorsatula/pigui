@@ -447,9 +447,11 @@ export class Sessions {
 	/** Stop the session's run and every agent it started, queued or running. */
 	async stop(id: number, context: Context): Promise<void> {
 		await this.#ready(id, context);
+		// The agents first: once a run is marked stopped Durable refuses its commits, so a background answer cannot land
+		// after the session's run is stopped and start another.
+		await stopAgents(this.#deps.harness(), id as ConversationId, context);
 		const conversation = await this.#deps.harness().conversation(id as ConversationId, context);
 		await conversation?.abort(context);
-		await stopAgents(this.#deps.harness(), id as ConversationId, context);
 	}
 
 	/** Stop one agent of the session, queued or running; its run records the stop and tells the session's agent. */

@@ -9,6 +9,7 @@ import { type ConversationId, type EntryRecord, UsageDoc } from "@earendil-works
 import { createCodingTools } from "@earendil-works/pi-durable/tools";
 import { AGENT_RESULT_ENTRY, AGENT_STOPPED_ENTRY, type AgentRow, type SessionDoc, sessionRow } from "../src/shared/session.ts";
 import { spentOf } from "../src/shared/spend.ts";
+import { restartCallIds } from "../src/server/fake/model.ts";
 import { readDefinitions } from "../src/server/subagents/definitions.ts";
 import { context, modelText, TestServer } from "./helpers.ts";
 
@@ -195,10 +196,13 @@ describe("the queue", () => {
 			assert.ok(rows(next)[2]!.startedAt !== undefined);
 			await server.post(`/api/sessions/${id}/stop`);
 			const stopped = await server.until(id, (doc) => statuses(doc).join() === "done,stopped,stopped,stopped", "everything stopped");
-			// The two running and the one queued each tell the parent, once.
-			await server.app.supervisor.idle();
-			assert.equal(ofKind(await server.entries(id), AGENT_STOPPED_ENTRY).length, 3);
 			assert.equal(stopped.outcome?.kind, "stopped");
+			// The two running and the one queued each tell the parent, once. Stop stops the agents before the parent's
+			// run, so a note written while that run was busy waits for the parent's next message, and is read with it.
+			await server.app.supervisor.idle();
+			await server.send(id, delegate());
+			await server.settled(id);
+			assert.equal(ofKind(await server.entries(id), AGENT_STOPPED_ENTRY).length, 3);
 		} finally {
 			await server.close();
 		}
@@ -319,6 +323,37 @@ describe("the report and the end of a turn", () => {
 			await server.post(`/api/sessions/${id}/stop`);
 			const stopped = await server.until(id, (doc) => rows(doc)[0]?.status === "stopped" && doc.outcome?.kind === "stopped", "stopped");
 			assert.equal(sessionRow(stopped as SessionDoc).label, "Stopped");
+		} finally {
+			await server.close();
+		}
+	});
+});
+
+describe("a provider whose call ids repeat", () => {
+	test("each Agent call starts its own agent, and each report is filed, keyed by Durable's tasks rather than the ids", async () => {
+		const server = await TestServer.start();
+		try {
+			await define(server, "probe", PROBE);
+			restartCallIds();
+			const id = await server.createSession(delegate("agent probe fg first"));
+			await server.settled(id);
+			restartCallIds();
+			await server.send(id, delegate("agent probe fg second"));
+			const both = await server.settled(id);
+			assert.deepEqual(statuses(both), ["done", "done"]);
+			const [one, two] = rows(both);
+			assert.notEqual(one?.id, two?.id);
+			const answers = await results(server, id, "Agent");
+			assert.equal(answers.length, 2);
+			assert.match(answers[1]!.text, new RegExp(`^Agent ${two?.id} \\(probe, "Task 1"\\) finished`));
+			restartCallIds();
+			await server.send(id, delegate("report"));
+			const first = (await server.settled(id)).report;
+			assert.ok(first !== undefined, "the first report is filed");
+			restartCallIds();
+			await server.send(id, delegate("report"));
+			const second = (await server.settled(id)).report;
+			assert.ok(second !== undefined && second.filedAt > first.filedAt, "and the second, under the same call id, is filed too");
 		} finally {
 			await server.close();
 		}

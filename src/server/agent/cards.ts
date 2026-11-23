@@ -50,7 +50,8 @@ export async function awaitCard(
 			doc.card = card;
 			doc.attentionAt = services.now();
 			prepare?.(doc);
-			await services.notifications.enqueue(tx, doc, { key: `card:${card.id}`, ...notice });
+			// By the card's task: its id is the provider's call id, which can repeat, and a new card must still notify.
+			await services.notifications.enqueue(tx, doc, { key: `card:${card.taskId}`, ...notice });
 		});
 	}, context);
 	await services.faults.afterCard?.(context);

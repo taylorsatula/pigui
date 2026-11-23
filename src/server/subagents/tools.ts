@@ -140,7 +140,7 @@ export function subagentTools(host: ToolsHost, task: AgentTask) {
 		if (args.subagent_type !== undefined && args.subagent_type !== previous.type) {
 			throw new Error(`Agent ${agent} is a ${previous.type}, not a ${args.subagent_type}. Leave subagent_type out to resume it.`);
 		}
-		const input: AgentInput = { call: api.callId, type: previous.type, description: args.description, prompt: args.prompt, background: args.background, agent };
+		const input: AgentInput = { call: String(api.taskId), type: previous.type, description: args.description, prompt: args.prompt, background: args.background, agent };
 		const ownership = args.background ? ({ ownership: { kind: "conversation" }, background: true } as const) : ({ ownership: { kind: "task", taskId: api.taskId } } as const);
 		const run = await tx.createTask(task, input, ownership);
 		doc.task = run;
@@ -171,7 +171,7 @@ export function subagentTools(host: ToolsHost, task: AgentTask) {
 			return { refused: `The agent ${found.name} cannot run: ${found.reason}. Its file is agents/${found.file}, which only the person can change.` };
 		}
 		const place = await host.place(api.conversationId, api, context);
-		const input: AgentInput = { call: api.callId, type: found.name, description: args.description, prompt: args.prompt, background };
+		const input: AgentInput = { call: String(api.taskId), type: found.name, description: args.description, prompt: args.prompt, background };
 		return { run: (tx) => start(tx, api, input, found, place) };
 	};
 
@@ -209,7 +209,7 @@ export function subagentTools(host: ToolsHost, task: AgentTask) {
 				const dispatch = await prepare(api, args, background, context);
 				if ("refused" in dispatch) return refuse(dispatch.refused);
 				// The memo is written after the commit, so a rerun cut off between the two finds its agent by its call.
-				made = await api.commit(async (tx) => (await dispatched(tx, api.conversationId, api.callId)) ?? (await dispatch.run(tx)), context);
+				made = await api.commit(async (tx) => (await dispatched(tx, api.conversationId, String(api.taskId))) ?? (await dispatch.run(tx)), context);
 				made = await api.memo("agent", made, context);
 			}
 			if (!background) return { wait: { on: [made.task as TaskId], policy: "allSettled", checkpoint: made } };
@@ -234,8 +234,8 @@ export function subagentTools(host: ToolsHost, task: AgentTask) {
 			if (queued(run)) return refuse(`Agent ${id} is queued and has not started, so there is nothing to steer yet. Its prompt reaches it when it starts.`);
 			const child = await api.conversation(id as ConversationId, context);
 			try {
-				// By this call's ID, so a rerun after a crash steers once.
-				await child?.submit({ type: "input", content: args.message, whenBusy: "steer", whenIdle: "reject", requestId: `${STEER}:${api.callId}` }, context);
+				// By this call's task, so a rerun after a crash steers once, and a later call whose provider id repeats still steers.
+				await child?.submit({ type: "input", content: args.message, whenBusy: "steer", whenIdle: "reject", requestId: `${STEER}:${api.taskId}` }, context);
 			} catch (error) {
 				if (error instanceof ConversationIdle) return refuse(ended);
 				throw error;

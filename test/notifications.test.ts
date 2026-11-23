@@ -44,7 +44,7 @@ describe("notifications", () => {
 			const after = await server.until(id, (doc) => doc.card?.id === waiting.card?.id, "the card after the rerun");
 			await new Promise((resolve) => setTimeout(resolve, 300));
 			assert.ok(reruns >= 2, "the tool ran again after the restart");
-			assert.equal(after.notified.filter((key) => key === `card:${waiting.card!.id}`).length, 1);
+			assert.equal(after.notified.filter((key) => key === `card:${waiting.card!.taskId}`).length, 1);
 			const notifyTasks = await notifications(server, id);
 			assert.equal(notifyTasks.length, 1, "one notification task for the card");
 			await server.app.harness.waitForTask(notifyTasks[0]!.id, context);

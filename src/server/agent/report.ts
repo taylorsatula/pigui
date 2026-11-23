@@ -89,7 +89,8 @@ export function reportTool(services: AgentServices) {
 		executionMode: "sequential",
 		async execute(args, api, context): Promise<ToolExecutionResult> {
 			const session = await sessionOf(api, context);
-			const key = `report:${api.callId}`;
+			// By the call's task, not the provider's call id, which can repeat: a later report must not read as this one.
+			const key = `report:${api.taskId}`;
 			// A rerun of this call after a crash, once the report is filed: return it as it was filed, checking nothing again.
 			if (session.notified.includes(key) && session.report !== undefined) return filed(reportOf(session.report));
 			// The report ends the work, so it waits for every agent's answer, read from Durable's own task records.

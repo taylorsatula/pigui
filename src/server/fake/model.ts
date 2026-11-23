@@ -79,6 +79,10 @@ const BULK = "seq 100000 102500";
 const FLOOD = 'seq -f "%032g" 1 2000';
 
 let callIds = 0;
+/** Number calls from the start again, as a provider whose ids repeat does: tests check nothing keys on them. */
+export function restartCallIds(): void {
+	callIds = 0;
+}
 /** The calls of the [agents] scenarios, which the scenario steps above never read: a session delegating, and its agents. */
 type AgentStep = "delegate" | "wait" | "agent-run";
 const call = (step: Step | AgentStep, name: string, args: Parameters<typeof fauxToolCall>[1]) => fauxToolCall(name, args, { id: `${step}:${++callIds}` });

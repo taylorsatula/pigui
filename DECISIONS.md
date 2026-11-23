@@ -1097,7 +1097,10 @@ their runs in one go, and the younger can look first: under that rule it would w
 yet, and with nothing running it would have nothing to wait on. So a run starts when it is among the oldest waiting runs
 the free places cover, and otherwise waits for any of the runs ahead of it, running or covered, to end. Order stays
 oldest first, no run waits on a younger one, so the waits never form a cycle, and nothing is counted outside Durable's
-records.
+records. One order it does not keep: a waiting run only looks again when a run it waits on ends, so if the person
+raises `maxInFlight` while a run waits, a run dispatched after that can start before it, until the next end wakes it.
+Making the waiting run look again on its own would mean polling the file. *Accepted:* it needs the limit raised while a
+run waits, and it reorders starts, losing none.
 
 **A settings file that cannot be read starts nothing, and a run with nothing to wait for ends.** The file is never
 guessed at: `Agent` returns its error, and a waiting run that looks again while it is broken waits for the runs still
@@ -1107,9 +1110,19 @@ once the file is fixed. *Alternative:* waiting for ever, which shows the person 
 why.
 
 **Dispatch happens once.** `Agent` is replay-safe. It creates its run, the agent's conversation, its configuration,
-its `picloud.agent` document and its row in one commit, then memoizes their ids. A rerun cut off between that commit
-and the memo looks for the run by the call's id in its input before creating one, so a crash never starts a second
-agent.
+its `picloud.agent` document and its row in one commit, then memoizes their ids. Before creating one, every call looks
+for a run it dispatched already, by its own Durable task id kept in the run's input, which a rerun cut off between
+that commit and the memo shares, so a crash never starts a second agent. It is the task id rather than the provider's
+call id because a provider may repeat those (pi-ai's OpenAI-compatible one writes `""` for a call that came without
+one), and a lookup by them made a later call adopt an earlier call's agent; the report's "already filed" key, a
+steer's request id and a card's notification key are kept by task id for the same reason.
+
+**Stop stops the agents first.** The session's Stop marks every agent's run before it stops the session's own run.
+Durable refuses a marked run's commits, so no background answer can land after the session's run has stopped and start
+another; stopped the other way round, an answer committing in between would reach the idle session and set it going
+again. The cost: an agent's "stopped" note is a write the model reads, which Durable holds while a run is busy, so if
+the session's run was mid-turn at Stop, its notes wait for the person's next message and are read with it, the first
+moment the model could act on them. The panel shows the agents stopped at once either way.
 
 **What an agent sees of the project is its own small extension.** `picloud-project` (the project's instructions and the
 spend-cap hook) is selected by the parent and every agent; `picloud-skills` (Pi's skills list) by the parent and by

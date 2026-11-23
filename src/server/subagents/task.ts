@@ -41,7 +41,11 @@ export const AgentDocToken = defineDoc<AgentDocState>({
 });
 
 export type AgentInput = {
-	/** The Agent call that dispatched this run, so a rerun of that call finds it rather than dispatching again. */
+	/**
+	 * The task of the Agent call that dispatched this run, so a rerun of that call finds it rather than dispatching
+	 * again. Not the provider's call id, which a provider may repeat (pi-ai's OpenAI-compatible one writes "" for a
+	 * call that came without one); Durable's task id is unique, and the same in a rerun.
+	 */
 	call: string;
 	type: string;
 	description: string;
