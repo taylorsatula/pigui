@@ -19,12 +19,12 @@ const SPEED_WINDOW = 100;
  * deceleration (0.998 per ms) adds up to. A drag settles where it would have landed, not where the finger let go,
  * so a short flick and a long slow drag are judged by one rule.
  */
-export function projected(position: number, speed: number): number {
+function projected(position: number, speed: number): number {
 	return position + (speed * 0.998) / (1 - 0.998);
 }
 
 /** Follows one axis of a finger and reports its speed in px/ms at release; a finger that came to rest has none. */
-export class FingerSpeed {
+class FingerSpeed {
 	#samples: { at: number; time: number }[] = [];
 
 	add(at: number, time: number): void {

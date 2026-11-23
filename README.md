@@ -5,8 +5,8 @@ and lets you drive it from your phone. Pick a repository, describe a task, answe
 approve its plan, and put the phone away. Pi implements, verifies and commits on its own branch; you get a
 notification and a report, and you choose whether to push the branch, open a pull request, or keep working.
 Titles, buttons and your own messages are set in a serif, the agent's replies in a sans, and what it did as one quiet
-line each, and the app follows the phone's light or dark mode. A sidebar lists the sessions under way, each with a
-coloured mark for its status.
+line each, and the app follows the phone's light or dark mode. The ☰ button opens the session picker, a listing of
+every session in columns, as a file browser lists a folder, with a coloured mark for each one's status.
 A speaker under each reply reads it aloud, with a speech model that runs on the server ([Reading aloud](#reading-aloud)).
 With an embedding key, or a local embedding model built in, Pi also remembers across sessions what no file states
 ([Long-term memory](#long-term-memory)).
@@ -99,7 +99,7 @@ message), a smaller context window (`fakeModel.contextWindow`), `speech: false` 
 `faults`, hooks that hold the code at an exact point so a test can cut it off there the way a crash would. The test that
 reads with the real speech model runs only where `deploy/models.sh models speech` has fetched it, and those that embed
 with LEAF only where `deploy/models.sh models memory` has. `PICLOUD_FAKE_MEMORY=off` starts `npm run fake` as a server
-without an embedder, as `e2e/memory.spec.ts` does to see the sidebar's notice.
+without an embedder, as `e2e/memory.spec.ts` does to see the session picker's notice.
 
 The end-to-end tests (`e2e/`) start `scripts/fake.ts` as a child process per test file, on a free port with temporary
 directories, and drive it with Playwright in Chromium at 390×844 (375 px for the horizontal-scroll check) with touch.
@@ -204,8 +204,8 @@ database.
   `models.json`. Pi's configuration is the service user's `~/.pi/agent` (with Docker, in the `home` volume). Then
   restart picloud; its `started` log line names the embedding model.
 - **Off otherwise.** With neither, picloud logs `memory.off` with the reason and runs without memory: no search tool,
-  no memory part in the report and nothing about it in the prompt. The sidebar says memory is off, why, and how to
-  turn it on, for as long as it stays off.
+  no memory part in the report and nothing about it in the prompt. The session picker's status bar says memory is
+  off, why, and how to turn it on, for as long as it stays off.
 - **When embedding fails,** a search returns the error to Pi, and a report is filed anyway, records nothing in memory
   and says why in its notes. After a model change, the first search or report re-embeds every memory.
 

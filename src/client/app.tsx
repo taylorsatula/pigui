@@ -1,7 +1,7 @@
 import type { JSX } from "preact";
 import { useEffect, useRef, useState } from "preact/hooks";
 import { api } from "./api.ts";
-import { Drawer } from "./components/Drawer.tsx";
+import { SessionPicker } from "./components/Sessions.tsx";
 import { NewSession } from "./components/NewSession.tsx";
 import { SessionView } from "./components/SessionView.tsx";
 import { live } from "./live.ts";
@@ -51,7 +51,6 @@ function Toasts(): JSX.Element | null {
 
 export function App(): JSX.Element {
 	const route = useStore((state) => state.route);
-	const sidebarHidden = useStore((state) => state.sidebarHidden);
 
 	useEffect(() => {
 		api.bootstrap().then(
@@ -59,7 +58,7 @@ export function App(): JSX.Element {
 			() => undefined,
 		);
 		void refreshSubscription().catch(() => undefined);
-		const onHash = () => store.set({ route: routeFromHash(location.hash), drawerOpen: false });
+		const onHash = () => store.set({ route: routeFromHash(location.hash), pickerOpen: false });
 		// A backgrounded app holds no stream; coming back catches up from where it was.
 		const onVisibility = () => {
 			// A toast waits for the person to come back rather than timing out unseen.
@@ -85,9 +84,9 @@ export function App(): JSX.Element {
 	}, [route.kind === "session" ? route.id : -1]);
 
 	return (
-		<div class={`app ${sidebarHidden ? "sidebar-hidden" : ""}`}>
-			<Drawer />
+		<div class="app">
 			<main class="main">{route.kind === "session" ? <SessionView key={route.id} id={route.id} /> : <NewSession />}</main>
+			<SessionPicker />
 			<Toasts />
 		</div>
 	);

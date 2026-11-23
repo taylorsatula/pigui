@@ -19,7 +19,9 @@ test.describe("picloud OnPrem", () => {
 		// It works in place: there is no branch, so no diff to view.
 		await expect(page.getByRole("button", { name: "View changes" })).toHaveCount(0);
 		await page.getByRole("button", { name: /^Sessions/ }).tap();
-		await expect(page.getByRole("navigation", { name: "Sessions" }).getByRole("link", { name: /What is in this directory\?/ })).toHaveAttribute("title", "Replied · ~");
+		const entry = page.getByRole("dialog", { name: "Sessions" }).getByRole("link", { name: /What is in this directory\?/ });
+		await expect(entry.locator(".row-where")).toHaveText("~");
+		await expect(entry.locator(".row-status")).toHaveText("Replied");
 		await expect(page.locator("body")).not.toContainText("Tailscale");
 		expect(errors).toEqual([]);
 	});

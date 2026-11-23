@@ -8,7 +8,7 @@ import type { BranchList, RepoSummary } from "../../shared/api.ts";
 import { api, describeFailure } from "../api.ts";
 import { navigate, useStore } from "../store.ts";
 import { Composer, ComposerDock } from "./Composer.tsx";
-import { DrawerButton } from "./Drawer.tsx";
+import { SessionsButton } from "./Sessions.tsx";
 
 export function NewSession(): JSX.Element {
 	const bootstrap = useStore((state) => state.bootstrap);
@@ -55,7 +55,7 @@ export function NewSession(): JSX.Element {
 	return (
 		<div class="session new-session">
 			<header class="topbar">
-				<DrawerButton />
+				<SessionsButton />
 				<h1 class="title">New session</h1>
 			</header>
 			<div class="setup-form">
