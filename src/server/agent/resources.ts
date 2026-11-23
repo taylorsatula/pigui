@@ -18,12 +18,12 @@ export function renderProjectContext(files: readonly { path: string; content: st
 }
 
 /**
- * The skills picloud ships, in Pi's layout (`<name>/SKILL.md`): offered in every session beside the project's and Pi's
+ * The skills pigui ships, in Pi's layout (`<name>/SKILL.md`): offered in every session beside the project's and Pi's
  * own, which win a name they share.
  */
 export const BUNDLED_SKILLS = join(import.meta.dirname, "..", "..", "..", "skills");
 
-/** The agent definitions picloud ships, in pi-subagents' layout (`<name>.md`); the person's and the session's win a name they share. */
+/** The agent definitions pigui ships, in pi-subagents' layout (`<name>.md`); the person's and the session's win a name they share. */
 export const BUNDLED_AGENTS = join(import.meta.dirname, "..", "..", "..", "agents");
 
 export function skillsAt(cwd: string, agentDir: string): Skill[] {
