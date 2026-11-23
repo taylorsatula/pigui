@@ -77,7 +77,7 @@ screens, larger touch targets on small ones — never capability.
 One installer decides how and where PiGUI runs:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/taylorsatula/pigui/main/install.sh | bash -s --
+curl -fsSL https://raw.githubusercontent.com/taylorsatula/pigui/claude/kind-fermat-2nkpv5/install.sh | bash -s --
 ```
 
 It asks three questions — container or not, this computer or a remote server, then the flags — and installs or updates

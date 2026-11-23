@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # pigui installer: one decision tree for every way to run pigui. Installs, and when run again updates in place.
 #
-#   curl -fsSL https://raw.githubusercontent.com/taylorsatula/pigui/main/install.sh | bash -s --
+#   curl -fsSL https://raw.githubusercontent.com/taylorsatula/pigui/claude/kind-fermat-2nkpv5/install.sh | bash -s --
 #   install.sh                       ask where and how, then install (or update) there
 #   install.sh --where local --how full --pi-config standalone
 #                                    the same, without the questions
