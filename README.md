@@ -68,6 +68,11 @@ What it runs:
   `[summarizer-garbage]` with no checkpoint; `[compaction-fails]` fails Durable's own summarizer once. With
   long-term memory on, every report states its memory part; `[memory]` searches memory after exploring, rates what it
   found and, when it found nothing, records one memory, and `[unrated]` leaves the ratings out of its first report.
+- **Agents:** `[agents]` in a message makes the scripted model run its `agent TYPE fg|bg PROMPT`, `resume ID fg|bg
+  PROMPT`, `steer ID MESSAGE` and `report` lines as one round of calls, then reply with their results; an agent's
+  answer arriving as a message gets a short reply. An agent runs its prompt's `$ command` parts with bash and answers
+  with what they printed; `[wait]` keeps it working, a short call each turn, until it is steered or stopped. Each answer
+  counts the prompts its conversation has had, so a resumed agent shows it carried on.
 - **Embeddings without a network:** long-term memory is on, with a stand-in embedder that hashes words into counts,
   so texts sharing most of their words find each other.
 - **A local stand-in for GitHub** (`src/server/fake/github.ts`): bare repositories under
@@ -208,6 +213,90 @@ database.
   off, why, and how to turn it on, for as long as it stays off.
 - **When embedding fails,** a search returns the error to Pi, and a report is filed anyway, records nothing in memory
   and says why in its notes. After a model change, the first search or report re-embeds every memory.
+
+## Agents
+
+Pi can hand work to agents you define: each a separate Pi with its own prompt, tools and model, working on one task in a
+conversation of its own. Pi starts one with its `Agent` tool when a task matches the agent's description, waits for
+its answer (the foreground, the default) or lets it run in the background while it goes on, and can send a running
+agent a message (`steer_subagent`) or continue a finished one with a new message (`Agent` with `resume`), its
+conversation carried forward.
+
+- **On the phone,** the session's bar gets an Agents button once there is an agent; its badge counts those running and
+  waiting. It opens a panel listing every agent, newest first: what each is doing now, its turns, tokens and time, and
+  Stop for those running or queued. Tapping one opens its conversation, read-only, with Stop. In the session's
+  transcript, each `Agent` call is a line of the turn's work, and a background agent's answer is a block of its own,
+  folded to its first lines.
+- **A session's agents work as it does:** in its directory, with its environment and, on a server, inside its sandbox;
+  they see the project's `AGENTS.md` and Pi's skills as Pi does. They do not get picloud's own tools (questions, plans,
+  the report) or start agents of their own.
+- **A background answer arrives as a message** to Pi, which starts its next turn. While agents work, Pi's report waits
+  for their answers, and a turn that ends with agents still at work reads "Waiting on agents", without a notification.
+- **Spend:** a session's spend, in its bar and against its cap, counts every agent's. Reaching the cap stops the
+  session's run and all its agents. Stop stops them all too; archiving a session stops its agents first.
+- **No settings in the app.** The definitions and the one setting are files you edit over SSH. Both are read when
+  used, so an edit applies to the next request with no restart.
+
+### Where the files are
+
+| How picloud runs | Agent definitions | The setting |
+|---|---|---|
+| Server installer | `/var/lib/picloud/agents/` | `/var/lib/picloud/subagent-settings.json` |
+| OnPrem | `~/.picloud/data/agents/` (as root: `/root/.picloud/data/agents/`) | `~/.picloud/data/subagent-settings.json` |
+| Docker | `/data/agents/` in the `data` volume, for example `docker compose cp reviewer.md picloud:/data/agents/` | `/data/subagent-settings.json` |
+| Fake mode, tests | `agents/` in the temporary data directory | `subagent-settings.json` beside it |
+
+At startup, when the data directory has no `agents/` folder, picloud creates it with the definitions bundled in the
+repository's `agents/` (`thought-partner`, `scout`, `implementer`, `verifier`), and writes the setting with its default
+when it is missing. After that both are yours: no update adds, changes or removes a file in the folder. The bundled
+`scout`, `implementer` and `verifier` name LunaRoute models; until Pi has those configured they are refused, which
+picloud logs, and Pi is not offered them.
+
+### Writing an agent
+
+One Markdown file per agent, in pi-subagents' format, so the same file works with the Pi CLI and here: frontmatter,
+then the body, which is the agent's whole prompt.
+
+```markdown
+---
+name: reviewer
+description: Reviews a finished change against what it was meant to do. Use after an edit you want checked.
+tools: read, bash
+thinking: high
+max_turns: 30
+---
+You review one change. ...
+```
+
+| Field | Required | Meaning |
+|---|---|---|
+| `name` | no, the file's name | The agent's type, which Pi names when it starts one. |
+| `description` | yes | What Pi reads to decide when to use the agent. |
+| `tools` | no: the coding tools (`read`, `bash`, `edit`, `write`) | Comma-separated, or a YAML list. A tool picloud does not have (`grep`, `find`, `ls`, an MCP tool) is left out and named in what Pi is told about the agent, and logged; an agent with none of its tools is refused. |
+| `model` | no, the session's | `provider/modelId`, one of Pi's configured models. |
+| `thinking` | no, the session's | `off`, `minimal`, `low`, `medium`, `high` or `xhigh`. |
+| `max_turns` | no, unlimited | Tool rounds one run takes at most. |
+| `skills` | no, `true` | `false` leaves Pi's skills list out of the agent's prompt. |
+| `prompt_mode` | no | Only `replace`: the body is always the whole prompt. |
+| `extensions` | no | Only `false`: an agent's tools come from `tools`. |
+| `color`, `display_name` | no | Accepted and ignored; they decorate the Pi CLI. |
+
+Any other field refuses the agent, with the field named: `memory`, `isolation`, `allowed_subagents`,
+`inherit_context` and pi-subagents' other fields change what an agent does in ways picloud does not support. So does a
+list for `skills` or `extensions`, `prompt_mode: append`, a missing description or body, an unknown model or a bad
+`thinking`. A refused agent is left out of what Pi is offered, its reason is logged once (`subagents.definition_refused`
+in the journal), and if Pi names it anyway, it is told why.
+
+### The setting
+
+```json
+{ "maxInFlight": 4 }
+```
+
+`maxInFlight`, from 1 to 32, is how many agents of one session run at once; the rest wait, oldest first. It is read at
+every start, so an edit applies to the next agent that starts. While the file does not parse or validate, no agent
+starts: Pi is told the file's error, the error is logged (`subagents.settings_invalid`), and agents already waiting
+stay waiting until one at work ends; one with nothing left to wait for ends with the file's error.
 
 ## Security model
 
@@ -573,6 +662,8 @@ src/server/agent/  what picloud adds to Pi: tools, prompt sections, spend cap, c
 src/server/speech/ reading aloud: the speakable script, Kokoro, and what the HTTP boundary calls
 src/server/memory/ long-term memory: what the agent is told, the embeddings, the search and the report's changes
 src/server/fake/   fake mode: scripted model, stand-in synthesizer, stand-in GitHub, fixture repositories
+src/server/subagents/ the agents Pi starts: definitions, the setting, the agent task, the Agent and steer tools
+agents/         the bundled agent definitions, copied into a data directory that has none
 src/sandbox/    the agent sandbox's launcher (C), compiled by scripts/build.ts
 src/client/     the phone app (Preact), bundled by scripts/build.ts
 src/sw/         the service worker
