@@ -25,6 +25,7 @@ import type { AnswerCardBody, CreateSessionBody, MessageRoute, SendMessageBody }
 import { type CardAnswer, MESSAGE_ENTRY, type PendingCard, type SessionDoc, type SessionPlace, type SessionStart, type SetupStep } from "../shared/session.ts";
 import { formatDollars } from "../shared/spend.ts";
 import { sessionSpend } from "./agent/budget.ts";
+import { compactionFor } from "./agent/compaction.ts";
 import { ANSWER_KEY, CardAnswerSignal } from "./agent/cards.ts";
 import { describeAnswer } from "./agent/questions.ts";
 import { ATTACHMENTS_DIR, skillsAt } from "./agent/resources.ts";
@@ -284,8 +285,16 @@ export class Sessions {
 				pendingTask: { text: body.text, attachments: [...body.attachments] },
 			};
 			if (this.#deps.spendCap !== undefined) fresh.cap = this.#deps.spendCap;
-			// The conversation carries no turn limit; its model, cwd and compaction are app wiring's to configure.
-			await configure(tx, id, { maxTurns: null });
+			const model = this.#deps.defaultModel();
+			const window = this.#deps.agent.model(model.provider, model.modelId)?.contextWindow ?? 128_000;
+			await configure(tx, id, {
+				model,
+				cwd: this.#deps.agent.workingDir(fresh),
+				// The maintenance sweep adopts sessions later; their turn limit was removed at startup. This one never had one:
+				// a run takes as many tool rounds as its work needs.
+				maxTurns: null,
+				compaction: compactionFor(window),
+			});
 			await editSession(tx, id, now, (doc) => {
 				Object.assign(doc, fresh);
 			});
