@@ -1,11 +1,12 @@
 // What agents working in a session's directory get, the session's own and those it starts alike, as two small
 // extensions. `pigui-project`: the project's instructions, rendered for the session's working directory at each
-// request; every agent selects it. `pigui-skills`: Pi's skills list, which an agent whose definition says
-// `skills: false` does not select.
+// request, and the spend cap, which counts the whole session and stops all of it; every agent selects it.
+// `pigui-skills`: Pi's skills list, which an agent whose definition says `skills: false` does not select.
 import type { Context } from "@earendil-works/chord/context";
 import { defineExtension, type Extension, type PromptInput, section } from "@earendil-works/pi-durable";
 import type { SessionDoc } from "../../shared/session.ts";
 import { sessionFor } from "../documents.ts";
+import { budget } from "./budget.ts";
 import { projectContext, renderProjectContext, renderSkills, skillsAt } from "./resources.ts";
 import type { AgentServices } from "./services.ts";
 
@@ -16,8 +17,11 @@ async function ready(input: PromptInput, context: Context): Promise<Readonly<Ses
 }
 
 export function projectExtension(services: AgentServices): Extension {
+	const cap = budget(services);
 	return defineExtension({
 		name: "pigui-project",
+		hooks: [cap.hook],
+		tasks: [cap.task],
 		sections: [
 			section("project_context", async (input, context) => {
 				const doc = await ready(input, context);

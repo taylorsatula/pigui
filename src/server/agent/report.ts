@@ -113,7 +113,7 @@ export function reportTool(services: AgentServices) {
 				if (remembering.kind === "refused") return refuse(remembering.text);
 				if (remembering.kind === "unavailable") {
 					// The work matters more than the memory: the report files, with a note saying the memory was not recorded.
-					notes.push(`Long-term memory was unavailable (${remembering.reason}), so this report did not record or grade memories.`);
+					notes.push(`Memory was not recorded: ${remembering.reason}`);
 				}
 			}
 			const report: Report = { ...parts, notes, ...("commit" in checked ? { commit: checked.commit } : {}), filedAt: services.now() };
@@ -135,7 +135,6 @@ export function reportTool(services: AgentServices) {
 					doc.report = report;
 					doc.workflow = "reported";
 					doc.outcome = { kind: "reported", at: report.filedAt };
-					doc.continuations = 0;
 					doc.attentionAt = report.filedAt;
 					if (args.learned.trim() !== "") {
 						const memory = await tx.doc(RepoMemoryToken, repoMemoryKey(doc), null);
