@@ -82,6 +82,13 @@ function validator<T>(schema: object): Validator<T> {
 	return compile(schema) as unknown as Validator<T>;
 }
 
+/** Route matcher: `is("GET", "repos", a, b, "files")` is true for GET /api/repos/:a/:b/files. */
+function matcher(method: string, parts: string[]) {
+	const [, area, a, b, c] = parts;
+	return (expected: string, ...path: (string | undefined)[]) =>
+		method === expected && path.every((part, index) => part === undefined || part === [area, a, b, c][index]);
+}
+
 const bodies = {
 	create: validator<CreateSessionBody>(CreateSessionBody),
 	send: validator<SendMessageBody>(SendMessageBody),
@@ -278,9 +285,9 @@ export function createHttpServer(deps: HttpDeps): Server {
 			if (method !== "GET" && method !== "HEAD") throw new HttpError(405, "Only GET is allowed here.");
 			return staticFile(url.pathname, response);
 		}
-		const [, area, a, b, c] = parts;
+		const [, area] = parts;
 		const harness = deps.harness();
-		const is = (expected: string, ...path: (string | undefined)[]) => method === expected && path.every((part, index) => part === undefined || part === [area, a, b, c][index]);
+		const is = matcher(method, parts);
 
 		if (is("GET", "bootstrap") && parts.length === 2) {
 			const index = await harness.snapshot(SessionIndexToken, context);
@@ -345,101 +352,120 @@ export function createHttpServer(deps: HttpDeps): Server {
 			}, context);
 			return send(response, 200, {});
 		}
-		if (area === "local" && method === "GET" && parts.length === 3) {
-			// What a local session's first message can refer to, before the session exists: the chosen directory's files and skills.
+		if (area === "local") return localRoutes(request, response, url, parts);
+		if (area === "repos") return reposRoutes(request, response, url, parts);
+		if (area === "sessions") return sessionsRoutes(request, response, url, parts, harness);
+		throw notFound("That address");
+	}
+
+	async function localRoutes(request: IncomingMessage, response: ServerResponse, url: URL, parts: string[]): Promise<void> {
+		const method = request.method ?? "GET";
+		const [, , a] = parts;
+		// What a local session's first message can refer to, before the session exists: the chosen directory's files and skills.
+		if (method === "GET" && parts.length === 3) {
 			const dir = await localDirectory(url.searchParams.get("dir") ?? "~", home());
 			if (a === "files") return send(response, 200, await listDirectory(dir));
 			if (a === "skills") return send(response, 200, skillsIn(dir));
 		}
-		if (area === "repos") {
-			if (is("GET", "repos") && parts.length === 2) return send(response, 200, await deps.host.listRepos());
-			const repo = repoName(a, b);
-			const ref = url.searchParams.get("ref") ?? "";
-			if (is("GET", "repos", a, b, "branches")) return send(response, 200, await deps.host.branches(repo));
-			if (ref === "") throw new HttpError(400, "Say which branch with ?ref=.");
-			if (is("GET", "repos", a, b, "files")) return send(response, 200, await deps.host.files(repo, ref));
-			if (is("GET", "repos", a, b, "skills")) return send(response, 200, [...globalSkills(), ...(await projectSkills(repo, ref))]);
+		throw notFound("That address");
+	}
+
+	async function reposRoutes(request: IncomingMessage, response: ServerResponse, url: URL, parts: string[]): Promise<void> {
+		const method = request.method ?? "GET";
+		const [, , a, b] = parts;
+		const is = matcher(method, parts);
+		if (is("GET", "repos") && parts.length === 2) return send(response, 200, await deps.host.listRepos());
+		const repo = repoName(a, b);
+		const ref = url.searchParams.get("ref") ?? "";
+		if (is("GET", "repos", a, b, "branches")) return send(response, 200, await deps.host.branches(repo));
+		if (ref === "") throw new HttpError(400, "Say which branch with ?ref=.");
+		if (is("GET", "repos", a, b, "files")) return send(response, 200, await deps.host.files(repo, ref));
+		if (is("GET", "repos", a, b, "skills")) return send(response, 200, [...globalSkills(), ...(await projectSkills(repo, ref))]);
+		throw notFound("That address");
+	}
+
+	async function sessionsRoutes(request: IncomingMessage, response: ServerResponse, url: URL, parts: string[], harness: Harness): Promise<void> {
+		const method = request.method ?? "GET";
+		const [, , a, b, c] = parts;
+		const is = matcher(method, parts);
+		if (is("POST", "sessions") && parts.length === 2) {
+			const body = await json(request, bodies.create);
+			return send(response, 200, { id: await deps.sessions.create(body, context) });
 		}
-		if (area === "sessions") {
-			if (is("POST", "sessions") && parts.length === 2) {
-				const body = await json(request, bodies.create);
-				return send(response, 200, { id: await deps.sessions.create(body, context) });
+		const id = sessionId(a);
+		const action = b;
+		if (method === "GET") {
+			const doc = await harness.snapshot(SessionDocToken, id as ConversationId, context);
+			if (doc?.id === undefined) throw notFound("The session");
+			const dir = deps.workingDir(doc);
+			if (action === "files") {
+				// A local session's directory is there from the start; a clone only once setup made it.
+				if (doc.place === "local") return send(response, 200, await listDirectory(dir));
+				if (doc.setup.status !== "ready") return send(response, 200, await deps.host.files(doc.repo, doc.start.kind === "new" ? doc.start.base : doc.start.branch));
+				return send(response, 200, { files: await trackedFiles(dir), truncated: false });
 			}
-			const id = sessionId(a);
-			const action = b;
-			if (method === "GET") {
-				const doc = await harness.snapshot(SessionDocToken, id as ConversationId, context);
-				if (doc?.id === undefined) throw notFound("The session");
-				const dir = deps.workingDir(doc);
-				if (action === "files") {
-					// A local session's directory is there from the start; a clone only once setup made it.
-					if (doc.place === "local") return send(response, 200, await listDirectory(dir));
-					if (doc.setup.status !== "ready") return send(response, 200, await deps.host.files(doc.repo, doc.start.kind === "new" ? doc.start.base : doc.start.branch));
-					return send(response, 200, { files: await trackedFiles(dir), truncated: false });
-				}
-				if (action === "skills") {
-					if (doc.place === "repo" && doc.setup.status !== "ready") return send(response, 200, globalSkills());
-					return send(response, 200, skillsIn(dir));
-				}
-				if (action === "diff") return send(response, 200, await deps.delivery.diff(id, context));
-				if (action === "entries") {
-					// An agent's conversation, for its viewer, or the session's own.
-					const agent = url.searchParams.get("agent");
-					const shown = agent === null ? id : await agentOf(harness, id, agent);
-					const conversation = await harness.conversation(shown as ConversationId, context);
-					if (conversation === undefined) throw notFound("The session");
-					const min = url.searchParams.get("min");
-					const max = url.searchParams.get("max");
-					const limit = Math.min(200, Math.max(1, Number(url.searchParams.get("limit") ?? 50) || 50));
-					const order = url.searchParams.get("order") === "ascending" ? "ascending" : "descending";
-					const query: { minEntryId?: EntryId; maxEntryId?: EntryId; order: "ascending" | "descending" } = { order };
-					if (min !== null) query.minEntryId = Number(min) as EntryId;
-					if (max !== null) query.maxEntryId = Number(max) as EntryId;
-					return send(response, 200, await conversation.entries(query, limit, undefined, context));
-				}
+			if (action === "skills") {
+				if (doc.place === "repo" && doc.setup.status !== "ready") return send(response, 200, globalSkills());
+				return send(response, 200, skillsIn(dir));
 			}
-			if (method === "POST") {
-				switch (action) {
-					case "speech-script": {
-						const reader = speech();
-						const { text } = await json(request, bodies.script);
-						const model = await reader.modelOf(id, context);
-						await reader.script(id, model, text, openLines<ScriptLine>(response), abortOnClose(response), context);
-						response.end();
-						return;
+			if (action === "diff") return send(response, 200, await deps.delivery.diff(id, context));
+			if (action === "entries") {
+				// An agent's conversation, for its viewer, or the session's own.
+				const agent = url.searchParams.get("agent");
+				const shown = agent === null ? id : await agentOf(harness, id, agent);
+				const conversation = await harness.conversation(shown as ConversationId, context);
+				if (conversation === undefined) throw notFound("The session");
+				const min = url.searchParams.get("min");
+				const max = url.searchParams.get("max");
+				const limit = Math.min(200, Math.max(1, Number(url.searchParams.get("limit") ?? 50) || 50));
+				const order = url.searchParams.get("order") === "ascending" ? "ascending" : "descending";
+				const query: { minEntryId?: EntryId; maxEntryId?: EntryId; order: "ascending" | "descending" } = { order };
+				if (min !== null) query.minEntryId = Number(min) as EntryId;
+				if (max !== null) query.maxEntryId = Number(max) as EntryId;
+				return send(response, 200, await conversation.entries(query, limit, undefined, context));
+			}
+		}
+		if (method === "POST") {
+			switch (action) {
+				case "speech-script": {
+					const reader = speech();
+					const { text } = await json(request, bodies.script);
+					const model = await reader.modelOf(id, context);
+					await reader.script(id, model, text, openLines<ScriptLine>(response), abortOnClose(response), context);
+					response.end();
+					return;
+				}
+				case "messages":
+					return send(response, 200, { route: await deps.sessions.send(id, await json(request, bodies.send), context) });
+				case "answer":
+					await deps.sessions.answer(id, await json(request, bodies.answer), context);
+					return send(response, 200, {});
+				case "stop":
+					await deps.sessions.stop(id, context);
+					return send(response, 200, {});
+				case "continue":
+					await deps.sessions.continue(id, context);
+					return send(response, 200, {});
+				case "budget":
+					await deps.sessions.raiseBudget(id, (await json(request, bodies.budget)).cap, context);
+					return send(response, 200, {});
+				case "deliver":
+					return send(response, 200, await deps.delivery.deliver(id, (await json(request, bodies.deliver)).action, context));
+				case "archive":
+					await deps.sessions.archive(id, (await json(request, bodies.archive)).archived, context);
+					return send(response, 200, {});
+				case "seen":
+					await deps.sessions.seen(id, context);
+					return send(response, 200, {});
+				case "retry-setup":
+					await deps.sessions.retrySetup(id, context);
+					return send(response, 200, {});
+				case "agents":
+					if (parts.length === 6 && parts[5] === "stop") {
+						await deps.sessions.stopAgent(id, await agentOf(harness, id, c), context);
+						return send(response, 200, {});
 					}
-					case "messages":
-						return send(response, 200, { route: await deps.sessions.send(id, await json(request, bodies.send), context) });
-					case "answer":
-						await deps.sessions.answer(id, await json(request, bodies.answer), context);
-						return send(response, 200, {});
-					case "stop":
-						await deps.sessions.stop(id, context);
-						return send(response, 200, {});
-					case "continue":
-						await deps.sessions.continue(id, context);
-						return send(response, 200, {});
-					case "budget":
-						await deps.sessions.raiseBudget(id, (await json(request, bodies.budget)).cap, context);
-						return send(response, 200, {});
-					case "deliver":
-						return send(response, 200, await deps.delivery.deliver(id, (await json(request, bodies.deliver)).action, context));
-					case "archive":
-						await deps.sessions.archive(id, (await json(request, bodies.archive)).archived, context);
-						return send(response, 200, {});
-					case "seen":
-						await deps.sessions.seen(id, context);
-						return send(response, 200, {});
-					case "retry-setup":
-						await deps.sessions.retrySetup(id, context);
-						return send(response, 200, {});
-					case "agents":
-						if (parts.length === 6 && parts[5] === "stop") {
-							await deps.sessions.stopAgent(id, await agentOf(harness, id, c), context);
-							return send(response, 200, {});
-						}
-						break;
-				}
+					break;
 			}
 		}
 		throw notFound("That address");

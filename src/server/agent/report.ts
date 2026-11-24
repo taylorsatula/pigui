@@ -80,12 +80,6 @@ type ReportArgs = Static<typeof ReportParameters> & { memory?: Static<typeof Mem
 
 const refuse = (text: string): ToolExecutionResult => ({ output: [{ type: "text", text }], isError: true });
 
-/** What the agent is told when it tries to file while agents it started are still working. */
-function agentsRefusal(waiting: number): string {
-	if (waiting === 1) return "1 agent is still running or queued. Its answer arrives as a message; file the report after it has.";
-	return `${waiting} agents are still running or queued. Their answers arrive as messages; file the report after they have.`;
-}
-
 export function reportTool(services: AgentServices) {
 	return defineTool({
 		name: FILE_REPORT,
@@ -105,7 +99,13 @@ export function reportTool(services: AgentServices) {
 			if (already !== undefined) return already;
 			// These agents may have answers to give; the report waits for them, read from Durable's own task records.
 			const waiting = (await api.commit((tx) => liveAgentTasks(tx, api.conversationId), context)).length;
-			if (waiting > 0) return refuse(agentsRefusal(waiting));
+			if (waiting > 0) {
+				return refuse(
+					waiting === 1
+						? "1 agent is still running or queued. Its answer arrives as a message; file the report after it has."
+						: `${waiting} agents are still running or queued. Their answers arrive as messages; file the report after they have.`,
+				);
+			}
 			const checked = session.place === "repo" ? await checkRepository(services.workspace(session.id), session) : { notes: [] };
 			if ("refused" in checked) return refuse(checked.refused);
 			const { memory: memoryPart, ...parts } = args;

@@ -18,7 +18,6 @@ export type LiveRequest = {
 	from?: number;
 };
 
-
 /**
  * Begin a newline-delimited JSON response, the framing of the live stream and of a speech script. `send` writes one
  * message while the response is open.

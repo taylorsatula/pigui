@@ -34,11 +34,6 @@ const MultipleParameters = obj({ questions: arr(multipleQuestion, { minItems: 1,
 /** A question as it arrives from the model: a recommendation, when present, as the label it recommended. */
 type RawQuestion = { question: string; options: { label: string; description?: string }[]; recommended?: string };
 
-/** The option labels the model recommended, matched against the options the way a person reads them. */
-function sameLabel(a: string, b: string): boolean {
-	return a.trim().toLowerCase() === b.trim().toLowerCase();
-}
-
 /** Turn the raw questions into cards' questions: stable IDs, and the recommendation resolved to its option. */
 function assembleQuestions(raw: readonly RawQuestion[], multiple: boolean): Question[] {
 	return raw.map((item, at) => {
@@ -49,8 +44,8 @@ function assembleQuestions(raw: readonly RawQuestion[], multiple: boolean): Ques
 		});
 		const question: Question = { id: `q${at + 1}`, prompt: item.question, options, multiple };
 		if (item.recommended === undefined) return question;
-		const wanted = item.recommended;
-		const pick = options.find((option) => sameLabel(option.label, wanted));
+		const wanted = item.recommended.trim().toLowerCase();
+		const pick = options.find((option) => option.label.trim().toLowerCase() === wanted);
 		if (pick === undefined) throw new Error(`Question ${at + 1}: "recommended" must be the label of one of its options.`);
 		question.recommended = pick.id;
 		return question;
@@ -71,37 +66,26 @@ export function describeAnswer(questions: readonly Question[], answer: CardAnswe
 			.map((option) => (option.id === question.recommended ? `${option.label} (your recommendation)` : option.label));
 		lines.push(`${at + 1}. ${question.prompt}`);
 		lines.push(`   Chose: ${chosen.length > 0 ? chosen.join(", ") : "nothing from the options"}`);
-		const wrote = given?.text?.trim();
-		if (wrote !== undefined && wrote !== "") lines.push(`   Wrote: """${given?.text}"""`);
+		const wrote = given?.text;
+		if (wrote !== undefined && wrote.trim() !== "") lines.push(`   Wrote: """${wrote}"""`);
 	});
 	return lines.join("\n");
 }
 
-type QuestionStyle = { multiple: boolean; name: string; description: string };
+const SINGLE_DESCRIPTION =
+	"Ask the person questions that each take one answer from your options (radio buttons), with the one you recommend; they can always write their own answer instead. Put every question you have on one card, since each card notifies their phone. Write each question so it makes sense on its own, read hours later, with options that cover the likely answers so one tap is enough. Waits until they answer.";
 
-const STYLES: Record<"single" | "multiple", QuestionStyle> = {
-	single: {
-		multiple: false,
-		name: ASK_SINGLE,
-		description:
-			"Ask the person questions that each take one answer from your options (radio buttons), with the one you recommend; they can always write their own answer instead. Put every question you have on one card, since each card notifies their phone. Write each question so it makes sense on its own, read hours later, with options that cover the likely answers so one tap is enough. Waits until they answer.",
-	},
-	multiple: {
-		multiple: true,
-		name: ASK_MULTIPLE,
-		description:
-			"Ask the person questions where several options may apply (checkboxes); they can always write their own answer instead. Put every question you have on one card, since each card notifies their phone: a question with a single answer can go on this card too. Write each question so it makes sense on its own, read hours later. Waits until they answer.",
-	},
-};
+const MULTIPLE_DESCRIPTION =
+	"Ask the person questions where several options may apply (checkboxes); they can always write their own answer instead. Put every question you have on one card, since each card notifies their phone: a question with a single answer can go on this card too. Write each question so it makes sense on its own, read hours later. Waits until they answer.";
 
-function questionTool(style: QuestionStyle, services: AgentServices) {
+function questionTool(name: string, multiple: boolean, description: string, services: AgentServices) {
 	return defineTool({
-		name: style.name,
-		description: style.description,
-		parameters: style.multiple ? MultipleParameters : SingleParameters,
+		name,
+		description,
+		parameters: multiple ? MultipleParameters : SingleParameters,
 		replay: "safe",
 		async execute(args, api, context): Promise<ToolExecutionResult | ToolPark> {
-			const questions = assembleQuestions(args.questions as RawQuestion[], style.multiple);
+			const questions = assembleQuestions(args.questions as RawQuestion[], multiple);
 			const createdAt = await api.memo("createdAt", services.now(), context);
 			const card: QuestionCard = { kind: "questions", id: api.callId, taskId: api.taskId, questions, createdAt };
 			const outcome = await awaitCard(
@@ -119,5 +103,8 @@ function questionTool(style: QuestionStyle, services: AgentServices) {
 }
 
 export function questionTools(services: AgentServices) {
-	return [questionTool(STYLES.single, services), questionTool(STYLES.multiple, services)];
+	return [
+		questionTool(ASK_SINGLE, false, SINGLE_DESCRIPTION, services),
+		questionTool(ASK_MULTIPLE, true, MULTIPLE_DESCRIPTION, services),
+	];
 }

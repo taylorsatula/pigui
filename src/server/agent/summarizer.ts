@@ -168,10 +168,11 @@ function keptText(spans: readonly Span[], valid: (index: number) => boolean, bud
 		}
 	}
 	const gap = tail > head ? [`[${tail - head} entries left out of the middle to fit; they are not valid cuts here]`] : [];
-	const visible = [...blocks.slice(0, head), ...blocks.slice(Math.max(head, tail))];
+	const headBlocks = blocks.slice(0, head);
+	const tailBlocks = blocks.slice(Math.max(head, tail));
 	return {
-		text: [...blocks.slice(0, head).map((block) => block.text), ...gap, ...blocks.slice(Math.max(head, tail)).map((block) => block.text)].join("\n"),
-		presented: new Set(visible.filter((block) => block.valid).map((block) => block.span.entry.id)),
+		text: [...headBlocks.map((block) => block.text), ...gap, ...tailBlocks.map((block) => block.text)].join("\n"),
+		presented: new Set([...headBlocks, ...tailBlocks].filter((block) => block.valid).map((block) => block.span.entry.id)),
 	};
 }
 

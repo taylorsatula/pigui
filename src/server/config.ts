@@ -141,7 +141,7 @@ function parseOnOff(value: string | undefined, name: string, fallback: boolean):
 
 function parseInteger(value: string | undefined, name: string, fallback: number, min: number, max: number): number {
 	if (value === undefined || value === "") return fallback;
-	const parsed = Number(value);
+	const parsed = /^[0-9]+$/.test(value.trim()) ? Number(value.trim()) : NaN;
 	if (!Number.isInteger(parsed) || parsed < min || parsed > max) {
 		throw new ConfigError(`${name} must be a whole number from ${min} to ${max}, not ${JSON.stringify(value)}. Set it to a port number in that range, or remove it to use the default ${fallback}.`);
 	}
@@ -158,7 +158,7 @@ function parseLogins(value: string | undefined): string[] {
 function parseSpendCap(value: string | undefined): number | undefined {
 	const given = value?.trim() ?? "";
 	if (given === "") return undefined;
-	const parsed = Number(given);
+	const parsed = /^[0-9]+(\.[0-9]+)?$/.test(given) ? Number(given) : NaN;
 	// A cap of zero is the way to say "no cap" without removing the variable.
 	if (parsed === 0) return undefined;
 	if (!Number.isFinite(parsed) || parsed < 0) {
@@ -194,11 +194,8 @@ function parseModelsUnload(value: string | undefined): number | undefined {
 	const given = value?.trim() ?? "";
 	if (given === "" || given === "never") return undefined;
 	// The same rule deploy/lib.sh's unload_valid applies (both installers source it): decimal digits, 1 to 1440.
-	if (!/^[0-9]+$/.test(given)) {
-		throw new ConfigError(`PIGUI_MODELS_UNLOAD must be never, or a whole number of idle minutes from 1 to 1440, not ${JSON.stringify(value)}. Set it to never to keep the models loaded, or to the minutes of idle time after which to release them.`);
-	}
-	const minutes = Number(given);
-	if (minutes < 1 || minutes > 1440) {
+	const minutes = /^[0-9]+$/.test(given) ? Number(given) : NaN;
+	if (!Number.isInteger(minutes) || minutes < 1 || minutes > 1440) {
 		throw new ConfigError(`PIGUI_MODELS_UNLOAD must be never, or a whole number of idle minutes from 1 to 1440, not ${JSON.stringify(value)}. Set it to never to keep the models loaded, or to the minutes of idle time after which to release them.`);
 	}
 	return minutes * 60_000;
