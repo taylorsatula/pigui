@@ -20,7 +20,10 @@ import { checkpoints, context, modelText, TestServer, type TestOptions } from ".
  * compacts once, after the second build; at 21.5k after each build; at 35.5k the [backstop] flood starts Durable's
  * background compaction and the next build its blocking one.
  */
-const ONE_COMPACTION = 26_500;
+// The skills list renders each skill's absolute location, so a longer checkout path eats tokens every round; 26.5k
+// was tuned at a short path and tipped this scenario's final rounds over the trigger here (/home/taylor/...). The
+// window carries the same slack the reference added when the skills list landed.
+const ONE_COMPACTION = 28_000;
 const SEVERAL_COMPACTIONS = 21_500;
 const BACKGROUND_THEN_BLOCKING = 35_500;
 

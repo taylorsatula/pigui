@@ -120,6 +120,7 @@ describe("a subagent's run", () => {
 			const refused = steers.find((result) => /is queued and has not started/.test(result.text));
 			assert.equal(refused?.isError, true);
 			assert.ok(steers.some((result) => /gets the message after its current tool round/.test(result.text) && !result.isError));
+			await server.untilEntry(id, AGENT_RESULT_ENTRY, "the steered agent's result in the transcript");
 			const answer = ofKind(await server.entries(id), AGENT_RESULT_ENTRY).at(-1);
 			assert.match(answer === undefined ? "" : modelText(answer), /finished\. Its answer:\n\nSteered: wrap up/);
 			await server.until(id, (doc) => rows(doc)[1]?.status === "running", "the second agent starting");

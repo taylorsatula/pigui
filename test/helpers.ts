@@ -174,6 +174,16 @@ export class TestServer {
 		throw new Error("The tool never parked");
 	}
 
+	/** Wait until an entry of `kind` appears in the conversation, as a bounded poll (a watch has no entry index). */
+	async untilEntry(id: number, kind: string, label: string, timeoutMs = 10_000): Promise<void> {
+		const deadline = Date.now() + timeoutMs;
+		for (;;) {
+			if ((await this.entries(id)).some((entry) => entry.kind === kind)) return;
+			if (Date.now() > deadline) throw new Error(`Timed out waiting for ${label}`);
+			await new Promise((resolve) => setTimeout(resolve, 10));
+		}
+	}
+
 	/** Wait until the session is idle with no run, after the supervisor has handled its end. */
 	async settled(id: number, label = "the run to end", timeoutMs = 20_000): Promise<Readonly<SessionDoc>> {
 		const doc = await this.until(id, (doc) => doc.setup.status !== "preparing" && doc.activeRun === undefined && doc.card === undefined, label, timeoutMs);
