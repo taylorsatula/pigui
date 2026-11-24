@@ -1,7 +1,6 @@
 // What the agent is told about long-term memory: how to search it, how to write a memory, how to grade one, and what a
-// search returns. Ported from the durable_memory Pi extension (pi-durable-memory, directive v3): the rules and the
-// examples are its text verbatim, and only wording that named its tool or its `checkpoint` op is changed. pigui folds
-// that op into the report, so recording and grading happen where the work is already finalized.
+// search returns. The rules and the examples are pigui's memory directive (directive v3); recording and grading happen
+// in the report, where the work is already finalized.
 
 export const SURFACE_MEMORIES = "surface_memories";
 
@@ -78,7 +77,7 @@ export const SURFACE_DESCRIPTION = [
 	"Memories are recorded, corrected, removed and rated in your report's `memory`, not here.",
 ].join("\n");
 
-/** The report's `memory` part, which replaces the original's `checkpoint` op and the mutation call it asked for. */
+/** The report's `memory` part: the one write path for memory, recorded and graded where the work is finalized. */
 export const MEMORY_PART_DESCRIPTION =
 	"Long-term memory, recorded and graded with this report. Every array applies, in the order delete, edit, create, " +
 	"helpful — delete first, so never delete and edit the same id. Ids are the full ids `" +
@@ -165,7 +164,7 @@ export function renderSurface(result: SurfaceResult): string {
 	lines.push("and the repository in front of you outranks it.");
 	lines.push("");
 	lines.push("If these do not cover the work, surface again with a distill naming different machinery.");
-	// The original asked for a search on every move to a new subsystem, which made the model surface on every pivot.
+	// Searching on every move to a new subsystem made the model surface on every pivot; the moments below are the ones that pay.
 	lines.push("Surface again when the work reaches machinery these do not cover, or when something fails in a way you do not understand.");
 	lines.push(reportReminder());
 	return lines.join("\n");

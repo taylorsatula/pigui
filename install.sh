@@ -175,9 +175,6 @@ done
 [[ $PI_CONFIG == "" || $PI_CONFIG == overlap || $PI_CONFIG == standalone ]] || { echo "--pi-config must be overlap or standalone." >&2; exit 2; }
 [[ $SPEECH == on || $SPEECH == off ]] || { echo "--speech must be on or off." >&2; exit 2; }
 [[ $MEMORY_LOCAL == on || $MEMORY_LOCAL == off ]] || { echo "--memory-local must be on or off." >&2; exit 2; }
-# The same rule pigui applies to PIGUI_MODELS_UNLOAD as it starts, so a bad value stops here rather than there.
-unload_valid() { [[ $1 == never ]] || { [[ $1 =~ ^[1-9][0-9]*$ ]] && (($1 <= 1440)); }; }
-unload_valid "$MODELS_UNLOAD" || { echo "--models-unload must be never, or a whole number of idle minutes from 1 to 1440." >&2; exit 2; }
 [[ $TAILSCALE == on || $TAILSCALE == off ]] || { echo "--tailscale must be on or off." >&2; exit 2; }
 [[ $PORT =~ ^[0-9]+$ ]] && ((PORT >= 1 && PORT <= 65535)) || { echo "--port must be a number from 1 to 65535." >&2; exit 2; }
 [[ $ALLOWED_LOGINS =~ ^[^[:space:]=]*$ ]] || { echo "--allowed-logins takes logins separated by commas, without spaces." >&2; exit 2; }
@@ -210,6 +207,9 @@ fi
 # Output and the dry-run boundary (step, note, run, write_file) are shared with deploy/install.sh.
 # shellcheck source=deploy/lib.sh
 . "$SOURCE_DIR/deploy/lib.sh"
+
+# The same rule the server applies to PIGUI_MODELS_UNLOAD as it starts, so a bad value stops here rather than there.
+unload_valid "$MODELS_UNLOAD" || { echo "--models-unload must be never, or a whole number of idle minutes from 1 to 1440." >&2; exit 2; }
 
 # Whether dotted version $1 is at least $2, in plain bash: macOS runs this with bash 3.2 and may have no sort -V.
 version_at_least() {

@@ -17,11 +17,11 @@ const DOCUMENT_MODEL = "Snowflake/snowflake-arctic-embed-m-v1.5";
 const QUERY_PROMPT = "Represent this sentence for searching relevant passages: ";
 
 /**
- * Measured with the original's method on a set of its own shape: 14 memories written to the create rules, each with a
- * distill sharing no content word with it, and the original's 12 off-topic queries, every text embedded alone. The
- * ranges overlap: the off-topic peak is 0.275 and the weakest on-topic matches 0.263 and 0.286 (mean 0.380). The
- * floor's job is to reject off-topic work, so it sits just above that peak: 13 of 14 targets clear it, no off-topic
- * query does, and 12 of 14 ranked first. Thin, and over a small set: re-measure with a real store.
+ * Measured on a 14-memory set written to the create rules, each with a distill sharing no content word with it, plus
+ * 12 off-topic queries, every text embedded alone. The ranges overlap: the off-topic peak is 0.275 and the weakest
+ * on-topic matches 0.263 and 0.286 (mean 0.380). The floor's job is to reject off-topic work, so it sits just above
+ * that peak: 13 of 14 targets clear it, no off-topic query does, and 12 of 14 ranked first. Thin, and over a small
+ * set: re-measure with a real store.
  */
 const LEAF_FLOOR = 0.28;
 

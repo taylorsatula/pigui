@@ -1,6 +1,5 @@
 // Long-term memory on its Durable document: keeping the stored vectors comparable with the embedding model, ranking
-// memories against a query, and applying what a report records. Searched in memory, as the original searched its
-// SQLite rows: fine up to a few thousand memories.
+// memories against a query, and applying what a report records. Searched in memory: fine up to a few thousand memories.
 import { randomBytes } from "node:crypto";
 import { BACKGROUND_CONTEXT, type Context } from "@earendil-works/chord/context";
 import type { Draft } from "@earendil-works/chord/delta";
@@ -11,8 +10,8 @@ import type { SurfaceHit, SurfaceResult } from "./directives.ts";
 import type { Embedder } from "./embedder.ts";
 
 /**
- * K=8 is the knee of the original's benchmark: recall plateaus there, precision decays beyond it. The similarity floor
- * belongs to the embedding model, so each embedder carries its own (embedder.ts).
+ * K=8 is the knee of the benchmark this ranking was tuned on: recall plateaus there, precision decays beyond it. The
+ * similarity floor belongs to the embedding model, so each embedder carries its own (embedder.ts).
  */
 const TOP_K = 8;
 

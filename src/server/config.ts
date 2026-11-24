@@ -193,8 +193,12 @@ function parseAgentToken(value: string | undefined, fake: boolean): string | und
 function parseModelsUnload(value: string | undefined): number | undefined {
 	const given = value?.trim() ?? "";
 	if (given === "" || given === "never") return undefined;
+	// The same rule deploy/lib.sh's unload_valid applies (both installers source it): decimal digits, 1 to 1440.
+	if (!/^[0-9]+$/.test(given)) {
+		throw new ConfigError(`PIGUI_MODELS_UNLOAD must be never, or a whole number of idle minutes from 1 to 1440, not ${JSON.stringify(value)}. Set it to never to keep the models loaded, or to the minutes of idle time after which to release them.`);
+	}
 	const minutes = Number(given);
-	if (!Number.isInteger(minutes) || minutes < 1 || minutes > 1440) {
+	if (minutes < 1 || minutes > 1440) {
 		throw new ConfigError(`PIGUI_MODELS_UNLOAD must be never, or a whole number of idle minutes from 1 to 1440, not ${JSON.stringify(value)}. Set it to never to keep the models loaded, or to the minutes of idle time after which to release them.`);
 	}
 	return minutes * 60_000;

@@ -27,5 +27,5 @@ export type LiveMessage =
 	/** Keeps proxies and the phone's network stack from closing an idle stream. */
 	| { t: "ping" };
 
-/** How long the server waits between keepalives; the client treats two missed pings without data as a dead stream. */
+/** How long the server waits between keepalives; the client treats 2.5 pings without data as a dead stream. */
 export const PING_INTERVAL_MS = 20_000;

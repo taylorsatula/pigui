@@ -102,8 +102,8 @@ fi
 [[ -z $PORT_OPTION || $PORT_OPTION =~ ^[0-9]+$ ]] || { echo "--port must be a number." >&2; exit 2; }
 [[ $SPEECH == on || $SPEECH == off ]] || { echo "--speech must be on or off." >&2; exit 2; }
 [[ $MEMORY_LOCAL == on || $MEMORY_LOCAL == off ]] || { echo "--memory-local must be on or off." >&2; exit 2; }
-# Empty keeps the value an earlier install wrote; otherwise the rule pigui applies to PIGUI_MODELS_UNLOAD.
-[[ -z $MODELS_UNLOAD || $MODELS_UNLOAD == never ]] || { [[ $MODELS_UNLOAD =~ ^[1-9][0-9]*$ ]] && ((MODELS_UNLOAD <= 1440)); } || {
+# Empty keeps the value an earlier install wrote; otherwise the rule pigui applies to PIGUI_MODELS_UNLOAD (deploy/lib.sh).
+[[ -z $MODELS_UNLOAD ]] || unload_valid "$MODELS_UNLOAD" || {
 	echo "--models-unload must be never, or a whole number of idle minutes from 1 to 1440." >&2
 	exit 2
 }

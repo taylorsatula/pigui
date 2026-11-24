@@ -35,7 +35,7 @@ push/PR/diff, `notify.ts`/`webpush.ts` the notifications, `maintenance.ts` the c
 boundary. The app talks through small typed interfaces (`AgentServices`, `SessionsDeps`, `RepoHost`, `PushSender`).
 
 **What changed at the seams.** `docs.ts` was split into `documents.ts` (tokens and commit helpers, one responsibility)
-and the pieces it mixed in; `sessionFor` lives in `documents.ts` and no longer imports the subagents' task module.
+and the pieces it mixed in; `sessionFor` lives in `documents.ts` and no longer imports the subagents' extension module.
 Notifications reach the rest of the server through a small port (`Notifications` in `agent/services.ts`) rather than
 the concrete class, so tools and the supervisor depend on the interface, not the pipeline. `callers.ts` parses a
 `/proc/net/tcp{,6}` row with an unparseable uid as *unidentifiable* and refuses it (the reference admitted it as a
@@ -59,7 +59,9 @@ into the stub bin, so hiding docker no longer hides bash on a merged-/usr machin
 
 - `pigui.session` (conversation): where the session works (`place`: repository or local directory), setup state,
   workflow, plan and progress, the pending card, the report, spend cap, `activeRun`, outcome, `continuations`, the
-  person's words verbatim, notification keys used, recent request IDs, and what the next compaction needs (working
+  person's words verbatim (deliberately unbounded — compaction carries them into every checkpoint and never sheds
+  them, so a very long session's checkpoint can exceed its budget; the words are the record, and `recall_history`
+  is the recovery path), notification keys used, recent request IDs, and what the next compaction needs (working
   state, count, handoff request time).
 - `pigui.index` (session): one drawer row per session, plus last repo, OnPrem's starred directories and creation
   request IDs; rows are a projection recomputed in the same commits and at startup.
@@ -153,8 +155,8 @@ touches workflow state.
 
 ## Long-term memory
 
-Rebuilt on Durable (one document, `pigui.memory`) instead of the original's own SQLite file, recorded and graded by
-`file_report` rather than a second call the model skips. Vectors stored base64, searched in memory (fine to a few
+Long-term memory lives in one Durable document (`pigui.memory`), recorded and graded by `file_report` rather than a
+second call the model skips. Vectors stored base64, searched in memory (fine to a few
 thousand rows). Embedders: LEAF on the machine (q8 mdbr-leaf-ir queries, arctic document side, floor 0.28), or an
 OpenAI-compatible `/embeddings` endpoint signed by Pi's provider key (`emb-qwen3`, floor 0.44), or a hashing fake in
 fake mode; `PIGUI_MEMORY_EMBED_URL` forces an endpoint; re-embedding a store re-makes every vector in batches of 128.
@@ -240,6 +242,12 @@ unit uses `RestartPreventExitStatus=78 2`. `deploy/install.sh` (Debian 13/Ubuntu
 (mask what a pigui-only machine never uses, add swap, cap the journal) are its parts, and they are byte-ports of the
 reference's, with the ref updated to `main` — the installer is machine tooling, not application code.
 
+**`PIGUI_MODELS_UNLOAD` is validated in one place per side, over one shared schema.** `deploy/lib.sh`'s `unload_valid`
+is the single bash definition, sourced by both installers; the server's `parseModelsUnload` mirrors it exactly (decimal
+digits, 1–1440, `never` or unset to keep the models loaded, leading zeros allowed), and the held-model test pins the
+server's acceptance set. The installers previously rejected a leading-zero value the server accepted, and the server
+accepted hex and scientific spellings the installers rejected; both now refuse anything outside the schema.
+
 ## Running in Docker
 
 Two containers: Tailscale (kernel-mode serve from the official image, its auth key used once, `NET_ADMIN`/`NET_RAW`,
@@ -301,6 +309,5 @@ an optional dependency only reached by the on-device models, and builds with `PI
 ## A build note: the Landlock launcher
 
 `src/sandbox/pigui-sandbox.c` compiles where `cc` exists (`npm run build` skips it elsewhere, where pigui falls back
-to a launcher on PATH). It was compiled and exercised on this machine at ABI 6 (write/echo confined, reads refused)
-using `ziglang` installed via pip --user, because the machine has no system C compiler and no sudo; that verification
-did not touch the system.
+to a launcher on PATH). It was compiled and exercised at ABI 8 with the system `cc` (write/echo confined, reads
+refused); an earlier pass on a machine without a system C compiler used a pip-installed `ziglang` at ABI 6.

@@ -1,7 +1,7 @@
 # AGENTS.md
 
 ## What this project is
-picloud is a small, self-hosted harness that lets one person run the Pi coding agent on their own server and drive it
+pigui is a small, self-hosted harness that lets one person run the Pi coding agent on their own server and drive it
 from a phone. Typical flow: pick a repo, answer a few questions, approve a plan, put the phone away, and come back to
 a report and a push button. It is a tool its owner uses every day, so it has to work correctly and stay easy to
 maintain.
@@ -10,10 +10,10 @@ If a runbook is present in the repository, it is the specification. This file do
 to work within it.
 
 ## Be Pi-native
-picloud is thin glue around Pi. Most of what it needs already exists, so look there before writing anything.
+pigui is thin glue around Pi. Most of what it needs already exists, so look there before writing anything.
 
 - **Pi Durable owns the agent.** That covers the loop, coding tools, persistence, retries, compaction, recovery and
-  live views. picloud configures it and extends it with tools, hooks, prompt sections and documents.
+  live views. pigui configures it and extends it with tools, hooks, prompt sections and documents.
 - **Pi owns models and credentials.** Use Pi's configured models and settings. Don't write provider code.
 - **Established tools own everything around it:** Tailscale for access and TLS, `gh`/`git` for GitHub, Web Push for
   notifications, systemd for supervision.
@@ -57,8 +57,9 @@ Small is a result, not a goal. Never drop correct behavior, error handling or a 
 - **Waiting is free and survives restarts.** Every wait for the person is durable, and every side effect around it
   (notifications, external calls) happens once, even if code reruns after a crash.
 - **Nothing reaches GitHub without the person's tap.** The agent commits; the server delivers.
-- **The interface is a simple chat:** an input pill, an attachment button and a send button. Detail is collapsed
-  until asked for. Follow Apple's Human Interface Guidelines: clarity, deference, sensible defaults, 44 pt targets,
+- **The interface is a conversation set to be read:** a text field, an attachment button and a send button. Detail is
+  collapsed until asked for, except the work of a turn under way, which shows inline until the turn ends. Keep its look (serif for titles, buttons and the person's words, sans for reading, monospace
+  for what is a record, light weights, paper and ink, one yellow for what needs the person; see DECISIONS.md) rather than drifting back to stock chat-app parts, or on into a theme. Follow Apple's Human Interface Guidelines: clarity, deference, sensible defaults, 44 pt targets,
   readable in dark mode and at large text sizes. Choose the simple control that works well over the clever one.
 
 ## Test what matters
@@ -70,8 +71,8 @@ Small is a result, not a goal. Never drop correct behavior, error handling or a 
   involved.
 
 ## Work safely on this machine
-This machine may be running a live picloud. While developing:
-- don't change system services, Tailscale, system users or `/var/lib/picloud`;
+This machine may be running a live pigui. While developing:
+- don't change system services, Tailscale, system users or `/var/lib/pigui`;
 - don't bind port 8787;
 - don't read or write the real Pi configuration (`~/.pi/agent`);
 - use temporary directories, free ports and an empty `PI_CODING_AGENT_DIR` for anything you run.

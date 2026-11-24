@@ -425,6 +425,11 @@ export type SessionCommon = {
 	outcome?: Outcome;
 	/** Automatic continuations since the plan was approved or the person last spoke. */
 	continuations: number;
+	/**
+	 * The person's words, verbatim, oldest first. Deliberately unbounded: compaction carries them into every
+	 * checkpoint and never sheds them, so a very long session's checkpoint can exceed its size budget. `recall_history`
+	 * and the transcript are the recovery paths; the words are the record.
+	 */
 	words: PersonWord[];
 	/** Keys of notifications already enqueued, so each wait notifies once. */
 	notified: string[];

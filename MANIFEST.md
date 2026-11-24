@@ -69,10 +69,10 @@ the OnPrem installer.
   `start.base` (new branch) or `start.branch` (continue). Skipped when the directory is already a repository
   (re-entrant; survives a restart mid-setup, `sessions.ts:136-148`).
 - **branch**: reuse `switch --quiet <branch>` if it exists, else `switch -c`; new branches are named
-  `pi/<slug>-<id>`; continue keeps the chosen branch (`sessions.ts:68-75, 148-151, 252`).
-- **start**: workspace gets git identity (`Pi <pi@pigui.invalid>`), `/.pigui/` appended to `.git/info/exclude`,
-  `startCommit = head()` recorded, then the first message is submitted with fixed requestId `pigui:task`
-  (`sessions.ts:152-165, 179`).
+  `pi/<slug>-<id>`; continue keeps the chosen branch. The workspace also gets git identity (`Pi <pi@pigui.invalid>`),
+  `/.pigui/` appended to `.git/info/exclude`, the attachments directory, and `startCommit = head()` recorded in the
+  same commit that advances the step to `start` (`sessions.ts:144-166`).
+- **start**: the first message is submitted with fixed requestId `pigui:task` (`sessions.ts:168-179`).
 - Setup failure records `setup: {status:"failed", step, error}` and `attentionAt`; recovery is manual via
   `POST /:id/retry-setup`, which only acts on failed setups (`sessions.ts:314-325`).
 - A shutdown during setup re-throws rather than failing the step (`sessions.ts:196`), and phases are re-entrant,
@@ -97,7 +97,8 @@ Repository place: `{place:"repo", repo, start, branch, base, startCommit?, deliv
 
 ### 3.5 Repo memory
 `pigui.repo-memory` (session-scope, keyed per repo, or `this computer` for local sessions): the `learned` note
-from each report, read into every later session's prompt on that repository (`report.ts:137-140`).
+from each report that carries one (empty `learned` preserves the prior notes), read into every later session's
+prompt on that repository (`report.ts:136-140`).
 
 ## 4. Workspaces and isolation
 
@@ -358,17 +359,17 @@ keeps the reading position by hand when earlier messages load (Safari has no scr
 - **Re-embedding:** a lazy pass compares the stored embedder name and a golden-vector cosine (≥ 0.999); a mismatch
   re-embeds in batches of 128.
 - **What the agent sees:** `renderSurface` text — id, similarity, helpfulness, provenance chain, plus a repeated `⟁`
-  banner demanding ratings and creates; the 11 create rules and 5 worked examples (`DIRECTIVE_VERSION = 3`) port
-  pi-durable-memory's directive.
+  banner demanding ratings and creates; the 11 create rules and 5 worked examples (`DIRECTIVE_VERSION = 3`).
 - **Off is said on the phone:** `Bootstrap.memory = {on:true, model} | {on:false, reason}`; the session picker's
   status bar shows the reason in warning style whenever memory is off (a standing condition, not a toast).
-- **Not ported:** encryption at rest, a read-only global store, the refinement pass, `/durable-memory` config.
+- **Not built:** encryption at rest, a read-only global store, a refinement pass, a memory configuration command.
 - **Repo memory stays apart** (§3.5): short `learned` notes, not a searched store.
 
 ## 10. Repo memory
 
-The `learned` field of every report replaces the repository's memory (`pigui.repo-memory`, session-scope, keyed by
-repository or `this computer`). It is read into every session on that repository, alongside the project's
+The `learned` field of a report replaces the repository's memory (`pigui.repo-memory`, session-scope, keyed by
+repository or `this computer`), but only when it is non-empty: a report with an empty `learned` preserves the prior
+notes. It is read into every session on that repository, alongside the project's
 instructions. Nothing else writes it.
 
 ## 11. Notifications (A4.6)
@@ -789,7 +790,7 @@ the person's own, then the session's). Bundled skills (`skills/*/SKILL.md`): `su
 Slash commands (Pi Durable has no command concept; each would need its own adapter) · prompt templates as composer
 items · theme picker (removed; dark follows the device) ·
 menu grouping under "Needs you / Working / Done" (removed; Finder-style folder now) · Terminal theme · the
-`checkpoint` op and `/durable-memory` (report replaces both) · per-run `maxTurns` (removed; only subagents carry one)
+a separate memory-writing tool and a memory configuration command (the report replaces both) · per-run `maxTurns` (removed; only subagents carry one)
 · notifications for a focused session · in-memory promises, timers or pollers for waiting — waits are parked Durable tools only.
 
 ## 23. Known limits and gaps (from the inspection)

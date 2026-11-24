@@ -8,8 +8,9 @@
 // are skipped, so a policy can name directories some machines lack (/lib32, a skills directory not created yet), and so
 // are paths this user cannot open, which stay out of reach either way. Every filesystem right the running kernel knows
 // is handled, best effort, the way the kernel's samples/landlock programs do it: each known right is probed on its own
-// with landlock_create_ruleset and the ones the kernel rejects are dropped, so a newer kernel restricts more without a
-// rebuild. From Landlock ABI 6, signals and abstract unix sockets are scoped to the command's own processes. TCP is
+// with landlock_create_ruleset and the ones the kernel does not know (EINVAL) are dropped, so a newer kernel restricts
+// more without a rebuild; a probe that fails any other way stops the run. From Landlock ABI 6, signals and abstract
+// unix sockets are scoped to the command's own processes. TCP is
 // left alone. --abi prints the kernel's Landlock ABI, for pigui's startup check.
 //
 // Exit codes follow env(1): 125 when the sandbox cannot be set up, 126 when PROGRAM cannot run, 127 when it is not
@@ -96,13 +97,18 @@ static void unavailable(void) {
 }
 
 // The subset of FS_RIGHTS the running kernel accepts, probed one right at a time as the kernel's samples do. A right
-// the kernel does not know is rejected by landlock_create_ruleset, so it is left out rather than failing the run.
+// the kernel does not know is rejected with EINVAL and left out; any other failure is a failure to set up, not a
+// narrower kernel, and is fatal rather than silently widening what the command may do.
 static __u64 supported_rights(void) {
 	__u64 supported = 0;
 	for (size_t index = 0; index < sizeof(FS_RIGHTS) / sizeof(FS_RIGHTS[0]); index++) {
 		struct ruleset_attr attr = {.handled_access_fs = FS_RIGHTS[index], .handled_access_net = 0, .scoped = 0};
 		int fd = create_ruleset(&attr, 0);
-		if (fd < 0) continue;
+		if (fd < 0) {
+			if (errno == EINVAL) continue;
+			fprintf(stderr, "pigui-sandbox: cannot probe Landlock rights: %s\n", strerror(errno));
+			exit(125);
+		}
 		close(fd);
 		supported |= FS_RIGHTS[index];
 	}

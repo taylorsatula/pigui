@@ -20,6 +20,17 @@ run() {
 	fi
 }
 
+# The one rule for PIGUI_MODELS_UNLOAD, shared by both installers and mirrored by the server's
+# parseModelsUnload (src/server/config.ts); the held-model test pins the same acceptance set on the server side.
+# never (or unset) keeps the models loaded; otherwise decimal idle minutes from 1 to 1440, leading zeros allowed.
+unload_valid() {
+	local v=$1
+	v="${v#"${v%%[![:space:]]*}"}"
+	v="${v%"${v##*[![:space:]]}"}"
+	[[ $v == never ]] && return 0
+	[[ $v =~ ^[0-9]+$ ]] && ((10#$v >= 1 && 10#$v <= 1440))
+}
+
 # A file's mode and owner as "644 user:group", with GNU stat or, on macOS, BSD stat.
 mode_owner() { stat -c '%a %U:%G' "$1" 2>/dev/null || stat -f '%Lp %Su:%Sg' "$1"; }
 

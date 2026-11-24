@@ -69,5 +69,6 @@ test("PIGUI_MODELS_UNLOAD: never by default, idle minutes when given, and anythi
 	assert.equal(config(undefined).modelsUnloadAfterMs, undefined);
 	assert.equal(config("never").modelsUnloadAfterMs, undefined);
 	assert.equal(config("5").modelsUnloadAfterMs, 5 * 60_000);
-	for (const bad of ["0", "1.5", "always", "1441"]) assert.throws(() => config(bad), /PIGUI_MODELS_UNLOAD must be never, or a whole number of idle minutes/);
+	assert.equal(config("01").modelsUnloadAfterMs, 60_000);
+	for (const bad of ["0", "1.5", "always", "1441", "0x10", "1e2", "-5"]) assert.throws(() => config(bad), /PIGUI_MODELS_UNLOAD must be never, or a whole number of idle minutes/);
 });

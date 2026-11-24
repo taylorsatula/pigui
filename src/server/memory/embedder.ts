@@ -25,14 +25,14 @@ export type Embedder = {
 
 const EMBED_TIMEOUT_MS = 30_000;
 
-/** Texts per request. The original sent every text in one request, which a re-embedding of a large store outgrows. */
+/** Texts per request. Sending every text in one request outgrows a re-embedding of a large store. */
 const BATCH = 128;
 
 /**
- * Measured on `emb-qwen3` over the original's 35-memory benchmark (queries share no content words with their targets,
+ * Measured on `emb-qwen3` over a 35-memory benchmark (queries share no content words with their targets,
  * so the numbers are semantic, not lexical). 0.44 clears the off-topic peak (0.408) and the weakest on-topic match
  * (0.477) by ~0.035; recall is flat in the floor from 0.30–0.49. Unmeasured for any other model an endpoint serves:
- * re-run the original's `bench/run.mjs` for it.
+ * re-measure on a benchmark of that shape for it.
  */
 const QWEN3_FLOOR = 0.44;
 
