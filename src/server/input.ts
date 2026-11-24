@@ -1,5 +1,6 @@
-// Turning what the person sent into what the agent receives: `@file` contents, `#skill` invocations, attachments saved
-// into pigui's workspace of the session and images fitted for the model. The text itself is kept exactly as typed for the transcript.
+// What leaves the composer and reaches the agent: the message text, the contents or pointers for what it
+// `@`-mentions, the bodies of what it `#`-invokes, and any attachments saved into the session's own workspace.
+// The person's text is kept exactly as typed for the transcript; everything added for the model goes ahead of it.
 import { createHash, randomBytes } from "node:crypto";
 import { mkdir, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { basename, extname, join, relative, resolve, sep } from "node:path";
@@ -16,36 +17,39 @@ import { expandHome } from "./local.ts";
 
 /** Larger files are pointed to instead of included; the agent reads them with its tools. */
 export const MAX_INCLUDED_FILE_BYTES = 64 * 1024;
+/** The HTTP boundary refuses uploads past this size. */
 export const MAX_UPLOAD_BYTES = 25 * 1024 * 1024;
-const IMAGE_TYPES = new Set(["image/png", "image/jpeg", "image/gif", "image/webp"]);
+const IMAGE_MIME_TYPES = new Set(["image/png", "image/jpeg", "image/gif", "image/webp"]);
 
 export type PreparedInput = {
 	content: UserMessage["content"];
 	data: MessageEntryData;
 };
 
-/** Uploaded files waiting to be sent with a message. They are removed once the message is placed. */
-export class Uploads {
-	readonly #dir: string;
+const UPLOAD_ID = /^[a-f0-9]{32}$/;
 
-	constructor(dir: string) {
-		this.#dir = dir;
+/** Uploaded files waiting to travel with a message; removed once the message is placed. */
+export class Uploads {
+	readonly #directory: string;
+
+	constructor(directory: string) {
+		this.#directory = directory;
 	}
 
 	async save(bytes: Uint8Array, name: string, mimeType: string): Promise<UploadedAttachment> {
-		await mkdir(this.#dir, { recursive: true });
+		await mkdir(this.#directory, { recursive: true });
 		const id = randomBytes(16).toString("hex");
-		const meta: UploadedAttachment = { id, name: safeName(name), mimeType, size: bytes.byteLength };
-		await writeFile(join(this.#dir, id), bytes);
-		await writeFile(join(this.#dir, `${id}.json`), JSON.stringify(meta));
+		const meta: UploadedAttachment = { id, name: attachmentFileName(name), mimeType, size: bytes.byteLength };
+		await writeFile(join(this.#directory, id), bytes);
+		await writeFile(join(this.#directory, `${id}.json`), JSON.stringify(meta));
 		return meta;
 	}
 
 	async read(id: string): Promise<{ meta: UploadedAttachment; bytes: Uint8Array } | undefined> {
-		if (!/^[a-f0-9]{32}$/.test(id)) return undefined;
+		if (!UPLOAD_ID.test(id)) return undefined;
 		try {
-			const meta = JSON.parse(await readFile(join(this.#dir, `${id}.json`), "utf8")) as UploadedAttachment;
-			return { meta, bytes: await readFile(join(this.#dir, id)) };
+			const meta = JSON.parse(await readFile(join(this.#directory, `${id}.json`), "utf8")) as UploadedAttachment;
+			return { meta, bytes: await readFile(join(this.#directory, id)) };
 		} catch {
 			return undefined;
 		}
@@ -53,26 +57,27 @@ export class Uploads {
 
 	async remove(ids: readonly string[]): Promise<void> {
 		for (const id of ids) {
-			if (!/^[a-f0-9]{32}$/.test(id)) continue;
-			await rm(join(this.#dir, id), { force: true });
-			await rm(join(this.#dir, `${id}.json`), { force: true });
+			if (!UPLOAD_ID.test(id)) continue;
+			await rm(join(this.#directory, id), { force: true });
+			await rm(join(this.#directory, `${id}.json`), { force: true });
 		}
 	}
 }
 
-function safeName(name: string): string {
+/** What an upload is called, safely: a plain file name no traversal can escape, capped at 120 characters. */
+function attachmentFileName(name: string): string {
 	const cleaned = basename(name).replace(/[^A-Za-z0-9._-]+/g, "-").replace(/^[-.]+/, "");
 	return cleaned === "" ? "attachment" : cleaned.slice(0, 120);
 }
 
 /**
- * Where `@path` references lead: a repository session's stay inside its clone, out of `.git`; a local session's reach
- * anywhere on the person's computer, as absolute, `~/` or relative paths, since nothing confines that session.
+ * What an `@path` may open. A repository session stays inside its clone and out of `.git`; a local session
+ * roams the person's computer, as absolute, `~/` or clone-relative paths, since nothing confines it there.
  */
 export type ReferenceRoot = { place: "repo"; dir: string } | { place: "local"; dir: string; home: string };
 
-/** The file a reference names, or undefined when a repository session's reference would leave its clone. */
-function referenced(root: ReferenceRoot, path: string): string | undefined {
+/** The file a reference names; undefined when a repository session's reference would step outside its clone. */
+function resolveReference(root: ReferenceRoot, path: string): string | undefined {
 	if (root.place === "local") return resolve(root.dir, expandHome(path, root.home));
 	const target = resolve(root.dir, path);
 	const rel = relative(root.dir, target);
@@ -80,16 +85,58 @@ function referenced(root: ReferenceRoot, path: string): string | undefined {
 	return target;
 }
 
-function looksBinary(bytes: Uint8Array): boolean {
-	const sample = bytes.subarray(0, 8000);
-	return sample.includes(0);
+/** A NUL byte in the first bytes is how text files are told from binary ones. */
+function looksLikeBinary(bytes: Uint8Array): boolean {
+	return bytes.subarray(0, 8000).includes(0);
 }
 
 type Expansion = { blocks: string[]; references: MessageEntryData["references"] };
+type ReferenceOutcome = { block: string; reference: MessageEntryData["references"][number] };
+
+/** The `<file>` outcome for a reference that names a file inside a repository session's clone. */
+async function expandFileReference(reference: { value: string }, root: ReferenceRoot): Promise<ReferenceOutcome | undefined> {
+	const path = resolveReference(root, reference.value);
+	if (path === undefined) return undefined;
+	const info = await stat(path).catch(() => undefined);
+	if (info === undefined) return undefined;
+	const shown = reference.value;
+	if (info.isDirectory()) {
+		return {
+			block: `<directory path="${shown}">A directory; list it with your tools.</directory>`,
+			reference: { kind: "file", value: shown, status: "pointer", note: "directory" },
+		};
+	}
+	if (info.size > MAX_INCLUDED_FILE_BYTES) {
+		const kilobytes = Math.round(info.size / 1024);
+		return {
+			block: `<file path="${shown}" size="${info.size}">Too large to include here (${kilobytes} KB); read the parts you need with the read tool.</file>`,
+			reference: { kind: "file", value: shown, status: "pointer", note: `${kilobytes} KB` },
+		};
+	}
+	const bytes = await readFile(path);
+	if (looksLikeBinary(bytes)) {
+		return {
+			block: `<file path="${shown}" size="${info.size}">A binary file; not included.</file>`,
+			reference: { kind: "file", value: shown, status: "pointer", note: "binary" },
+		};
+	}
+	return {
+		block: `<file path="${shown}">\n${bytes.toString("utf8")}\n</file>`,
+		reference: { kind: "file", value: shown, status: "included" },
+	};
+}
+
+/** The `<skill>` outcome for a `#name` reference, the way the Pi CLI's `/skill:name` invocation delivers it. */
+function expandSkillReference(reference: { value: string }, skills: readonly Skill[]): ReferenceOutcome | undefined {
+	const skill = skills.find((candidate) => candidate.name === reference.value);
+	if (skill === undefined) return undefined;
+	return { block: skillBlock(skill), reference: { kind: "skill", value: skill.name, status: "skill" } };
+}
 
 /**
- * The context `@` and `#` references add. A file brings its contents, or a pointer when it is too large or binary; a
- * skill brings its body as the Pi CLI invokes it. A reference to nothing known stays plain text.
+ * The context `@` and `#` references add. A file brings its contents, or a pointer when it is too large or
+ * binary; a skill brings its body. A reference to nothing known stays plain text, and each reference is
+ * expanded once however often it appears.
  */
 export async function expandReferences(text: string, root: ReferenceRoot, skills: readonly Skill[]): Promise<Expansion> {
 	const blocks: string[] = [];
@@ -99,44 +146,25 @@ export async function expandReferences(text: string, root: ReferenceRoot, skills
 		const key = `${reference.kind}:${reference.value}`;
 		if (seen.has(key)) continue;
 		seen.add(key);
-		if (reference.kind === "skill") {
-			const skill = skills.find((candidate) => candidate.name === reference.value);
-			if (skill === undefined) continue;
-			blocks.push(skillBlock(skill));
-			references.push({ kind: "skill", value: skill.name, status: "skill" });
-			continue;
-		}
-		const path = referenced(root, reference.value);
-		if (path === undefined) continue;
-		const info = await stat(path).catch(() => undefined);
-		if (info === undefined) continue;
-		if (info.isDirectory()) {
-			blocks.push(`<directory path="${reference.value}">A directory; list it with your tools.</directory>`);
-			references.push({ kind: "file", value: reference.value, status: "pointer", note: "directory" });
-			continue;
-		}
-		if (info.size > MAX_INCLUDED_FILE_BYTES) {
-			blocks.push(`<file path="${reference.value}" size="${info.size}">Too large to include here (${Math.round(info.size / 1024)} KB); read the parts you need with the read tool.</file>`);
-			references.push({ kind: "file", value: reference.value, status: "pointer", note: `${Math.round(info.size / 1024)} KB` });
-			continue;
-		}
-		const bytes = await readFile(path);
-		if (looksBinary(bytes)) {
-			blocks.push(`<file path="${reference.value}" size="${info.size}">A binary file; not included.</file>`);
-			references.push({ kind: "file", value: reference.value, status: "pointer", note: "binary" });
-			continue;
-		}
-		blocks.push(`<file path="${reference.value}">\n${bytes.toString("utf8")}\n</file>`);
-		references.push({ kind: "file", value: reference.value, status: "included" });
+		const outcome = reference.kind === "skill" ? expandSkillReference(reference, skills) : await expandFileReference(reference, root);
+		if (outcome === undefined) continue;
+		blocks.push(outcome.block);
+		references.push(outcome.reference);
 	}
 	return { blocks, references };
 }
 
+/** One place attachments may differ in a name: the stem keeps the human's file name, the hash keeps it unique. */
+function savedName(meta: UploadedAttachment, id: string): string {
+	const stem = basename(meta.name, extname(meta.name));
+	return `${stem}-${createHash("sha256").update(id).digest("hex").slice(0, 6)}${extname(meta.name)}`;
+}
+
 /**
- * Save attachments under pigui's own workspace of the session, in its attachments directory (which git ignores in a
- * repository's clone), and fit images for `model`. The agent is told each file's path as `shown` makes it: relative to
- * a clone, which is its working directory, or absolute for a local session, which works elsewhere. Rerunning with the
- * same uploads writes the same files, so a setup rerun after a crash attaches them once.
+ * Save attachments under the session's attachments directory inside its workspace (which git ignores in a
+ * repository's clone), and fit images for `model`. The agent learns each file's path as `shown` makes it:
+ * relative to a clone, which is its working directory, or absolute for a local session, which works elsewhere.
+ * Rerunning with the same uploads rewrites the same files, so a setup rerun after a crash attaches them once.
  */
 export async function attach(
 	ids: readonly string[],
@@ -149,26 +177,23 @@ export async function attach(
 	const notes: string[] = [];
 	const fitted: ImageContent[] = [];
 	const attachments: MessageEntryData["attachments"] = [];
-	const dir = join(workspace, ATTACHMENTS_DIR);
+	const directory = join(workspace, ATTACHMENTS_DIR);
 	for (const id of ids) {
 		const upload = await uploads.read(id);
 		if (upload === undefined) continue;
-		await mkdir(dir, { recursive: true });
+		await mkdir(directory, { recursive: true });
 		// The upload ID in the name keeps two photos both called image.jpg apart.
-		const stem = basename(upload.meta.name, extname(upload.meta.name));
-		const file = `${stem}-${createHash("sha256").update(id).digest("hex").slice(0, 6)}${extname(upload.meta.name)}`;
-		const path = shown === "relative" ? `${ATTACHMENTS_DIR}/${file}` : join(dir, file);
-		await writeFile(join(dir, file), upload.bytes);
-		const image = IMAGE_TYPES.has(upload.meta.mimeType);
-		attachments.push({ name: upload.meta.name, mimeType: upload.meta.mimeType, size: upload.meta.size, path, image });
-		if (image && model?.input.includes("image") === true) {
+		const file = savedName(upload.meta, id);
+		const path = shown === "relative" ? `${ATTACHMENTS_DIR}/${file}` : join(directory, file);
+		await writeFile(join(directory, file), upload.bytes);
+		const isImage = IMAGE_MIME_TYPES.has(upload.meta.mimeType);
+		attachments.push({ name: upload.meta.name, mimeType: upload.meta.mimeType, size: upload.meta.size, path, image: isImage });
+		if (isImage && model?.input.includes("image") === true) {
 			const result = await fitImage(upload.bytes, upload.meta.mimeType, imageLimits(model), images);
-			if (result.kind === "fitted") {
-				fitted.push(result.image);
-				notes.push(`Attached image ${path}${result.notes.length > 0 ? ` (${result.notes.join("; ")})` : ""}.`);
-			} else {
-				notes.push(`Attached image ${path}: ${result.note}`);
-			}
+			fitted.push(...(result.kind === "fitted" ? [result.image] : []));
+			notes.push(result.kind === "fitted"
+				? `Attached image ${path}${result.notes.length > 0 ? ` (${result.notes.join("; ")})` : ""}.`
+				: `Attached image ${path}: ${result.note}`);
 		} else {
 			notes.push(`Attached file ${path} (${upload.meta.mimeType}, ${upload.meta.size} bytes).`);
 		}
@@ -176,7 +201,7 @@ export async function attach(
 	return { notes, images: fitted, attachments };
 }
 
-/** The user message content: added context first, as the Pi CLI places a skill before its arguments, then the text. */
+/** The user message content: added context first, then the text as the Pi CLI places a skill before its arguments. */
 export function composeContent(text: string, expansion: Expansion, notes: readonly string[], images: readonly ImageContent[]): UserMessage["content"] {
 	const parts = [...expansion.blocks, ...(notes.length > 0 ? [notes.join("\n")] : []), text].filter((part) => part !== "");
 	const body = parts.join("\n\n");

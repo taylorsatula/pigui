@@ -1,6 +1,6 @@
-// The summarizer: a model call that writes the checkpoint's working state and recommends where the kept context
-// starts. Its prompt, cut strategy and section structure are ported from mirastyle-compaction; what code can compute
-// (the person's words, the plan, the repository, the files touched) is given to it as facts and never asked of it.
+// The summarizer: one model call that writes the checkpoint's working state and recommends where the kept context
+// starts. What code can compute (the person's words, the plan, the repository, the files touched) arrives as facts and
+// is never asked for; the model's job is the race report, not the record-keeping.
 import type { Api, AssistantMessage, Model, Models } from "@earendil-works/pi-ai";
 import type { EntryId, HookApi } from "@earendil-works/pi-durable";
 import { type ModelSpend, modelSpend } from "./budget.ts";
@@ -10,30 +10,31 @@ import type { AgentServices } from "./services.ts";
 
 /** The most the summarizer may write, or less when the model's own limit is lower. */
 const MAX_OUTPUT_TOKENS = 12_000;
+/** Tool results are bulky and their outcomes usually fit; messages from the person carry decisions. */
 const TOOL_RESULT_CHARS = 1500;
 const MESSAGE_CHARS = 4000;
 
-export const SUMMARIZER_PROMPT = `You are the compaction engine of a coding agent that works unattended on a person's repository. Your output is not a chat reply. It is the working state of an engineering checkpoint: the same agent continues from it after its older context is removed.
+export const SUMMARIZER_PROMPT = `You are the compaction engine of a coding agent that works unattended on a person's repository. What you write here is the working state of an engineering checkpoint, not a chat reply: once its older context is removed, the same agent continues from it.
 
-Think of the session as a hurdle race. The checkpoint records the race so far: what was attempted, decided, changed and learned, and why. The entries kept verbatim after it are the runner's short runway into the next hurdle: just enough live context to regain stride, not a replay of the race.
+The session is a hurdle race, and the checkpoint is its record to this point: what was attempted, decided, changed and learned, and why. The entries kept verbatim after the checkpoint are just enough runway for the next hurdle: live context to regain stride, not a replay of the race.
 
-You are given:
-- <previous_checkpoint>, after the first compaction: the working state written last time. Treat it as frozen history and evolve it.
-- <pigui_facts>: computed by pigui from its records and the workspace: the person's words verbatim, the plan and its progress, the session's state, the repository's state, and the files read and modified. pigui puts them in the checkpoint unchanged, so rely on them and do not restate them.
-- <agent_handoff>, when present: the agent's own first-person note, written just now, on what it is doing, what it learned and its exact next step. It is the freshest account, and it stays verbatim after the checkpoint. Use it, and do not copy it.
-- <new_history_to_compact>: entries this checkpoint replaces. Integrate all of them.
-- <kept_recent_context>: the entries after them, as boundary evidence. You choose where the verbatim runway starts among them.
+What you receive:
+- <previous_checkpoint> (after the first compaction): the working state written at the previous compaction. Treat it as frozen history and evolve it.
+- <pigui_facts>: computed by pigui from its records and the workspace: the person's words verbatim, the plan and its progress, the session state, the repository state, and the files read and modified. pigui places them in the checkpoint unchanged, so rely on them rather than restating them.
+- <agent_handoff> (when present): the agent's own first-person note, written just now, on what it is doing, what it learned and its exact next step. It is the freshest account and stays verbatim after the checkpoint; use it, but do not copy it.
+- <new_history_to_compact>: the entries this checkpoint replaces. Integrate all of them.
+- <kept_recent_context>: the entries that follow, as boundary evidence. Where the verbatim runway starts is your choice.
 
-Rules:
+How to work:
 - Write one complete successor checkpoint, not a delta. Keep what still holds from the previous checkpoint, correct what newer entries contradict, and update completed and pending work.
-- Integrate every entry before your cut: those entries leave the context. Do not recap entries at or after your cut; they stay verbatim.
+- Integrate every entry before your cut: those entries leave the context. Do not recap entries at or after your cut; those stay verbatim.
 - STATE AT COMPACTION BOUNDARY, WORK QUEUE and OPEN THREADS must reflect the newest evidence, including <kept_recent_context> and <agent_handoff>. Do not leave stale claims such as "not implemented yet" when later entries show otherwise.
 - Separate verified facts, the person's requirements and your inferences. Do not invent file contents, test results, commands, decisions or failures.
 - Keep exact file paths, symbols, commands, error messages, test names and identifiers. Point to large content (a path and lines, a command to rerun, or an entry number, which ${RECALL} reads) instead of copying it.
 - Include substantive tool activity: commands and tests with their outcomes, failures, decisions and observations that changed the plan. Do not list every routine call.
 - Use bounded phrasing such as "as of this checkpoint" or "during the compacted range". No greetings, praise or filler.
 
-Cut-point strategy:
+Choosing the cut:
 - The cut is the first entry kept verbatim. Choose an entry ID from <kept_recent_context> marked valid_cutpoint="true"; nothing else is accepted.
 - Prefer a message from the person, if one is in range: it gives the agent a concrete instruction.
 - Keep at least one coherent unit: a request and its response, or the start of the current action. Do not leave the agent looking at an orphaned result.
@@ -107,18 +108,18 @@ export type SummarizerResult = {
 	usage?: ModelSpend;
 };
 
+/** A long text is shown head and tail: a log's outcome usually sits at its end. */
 function clip(text: string, limit: number, id: EntryId): string {
 	if (text.length <= limit) return text;
-	// Head and tail: a log's outcome is usually at its end.
 	const half = Math.floor(limit / 2);
 	return `${text.slice(0, half)}\n[… ${text.length - limit} characters left out; ${RECALL} entry ${id} reads them …]\n${text.slice(-half)}`;
 }
 
 function entryBlock(span: Span, cutpoint: boolean | undefined): string {
 	const role = span.messages[0]?.role ?? "none";
-	const text = messagesText(span.messages);
 	const flag = cutpoint === undefined ? "" : ` valid_cutpoint="${cutpoint}"`;
-	return `<entry id="${span.entry.id}" kind="${span.entry.kind}" role="${role}"${flag}>\n${clip(text, role === "toolResult" ? TOOL_RESULT_CHARS : MESSAGE_CHARS, span.entry.id)}\n</entry>`;
+	const body = clip(messagesText(span.messages), role === "toolResult" ? TOOL_RESULT_CHARS : MESSAGE_CHARS, span.entry.id);
+	return `<entry id="${span.entry.id}" kind="${span.entry.kind}" role="${role}"${flag}>\n${body}\n</entry>`;
 }
 
 const shown = (span: Span) => span.messages.some((message) => message.role !== "system");
@@ -126,11 +127,17 @@ const shown = (span: Span) => span.messages.some((message) => message.role !== "
 /** History blocks within `budget` characters; past it, the oldest go first, since the newest lead to the boundary. */
 function historyText(spans: readonly Span[], budget: number): string {
 	const blocks = spans.filter(shown).map((span) => entryBlock(span, undefined));
-	let total = 0;
+	if (blocks.length === 0) return "(none)";
+	let used = 0;
 	let start = blocks.length;
-	while (start > 0 && total + (blocks[start - 1]?.length ?? 0) <= budget) total += blocks[--start]?.length ?? 0;
+	while (start > 0) {
+		const block = blocks[start - 1];
+		if (block === undefined || used + block.length > budget) break;
+		used += block.length;
+		start -= 1;
+	}
 	const omitted = start > 0 ? `[${start} earlier entries left out to fit; ${RECALL} reads them]\n` : "";
-	return blocks.length === 0 ? "(none)" : omitted + blocks.slice(start).join("\n");
+	return omitted + blocks.slice(start).join("\n");
 }
 
 /**
@@ -139,22 +146,32 @@ function historyText(spans: readonly Span[], budget: number): string {
  */
 function keptText(spans: readonly Span[], valid: (index: number) => boolean, budget: number): { text: string; presented: Set<EntryId> } {
 	const blocks = spans.flatMap((span, index) => (shown(span) ? [{ span, valid: valid(index), text: entryBlock(span, valid(index)) }] : []));
+	const whole = blocks.reduce((sum, block) => sum + block.text.length, 0);
 	let head = blocks.length;
 	let tail = blocks.length;
-	let total = blocks.reduce((sum, block) => sum + block.text.length, 0);
-	if (total > budget) {
+	if (whole > budget) {
 		// Keep a quarter of the budget from the start, the rest from the end.
 		head = 0;
-		total = 0;
-		while (head < blocks.length && total + (blocks[head]?.text.length ?? 0) <= budget / 4) total += blocks[head++]?.text.length ?? 0;
+		let used = 0;
+		while (head < blocks.length) {
+			const block = blocks[head];
+			if (block === undefined || used + block.text.length > budget / 4) break;
+			used += block.text.length;
+			head += 1;
+		}
 		tail = blocks.length;
-		while (tail > head && total + (blocks[tail - 1]?.text.length ?? 0) <= budget) total += blocks[--tail]?.text.length ?? 0;
+		while (tail > head) {
+			const block = blocks[tail - 1];
+			if (block === undefined || used + block.text.length > budget) break;
+			used += block.text.length;
+			tail -= 1;
+		}
 	}
-	const kept = [...blocks.slice(0, head), ...blocks.slice(tail)];
 	const gap = tail > head ? [`[${tail - head} entries left out of the middle to fit; they are not valid cuts here]`] : [];
+	const visible = [...blocks.slice(0, head), ...blocks.slice(Math.max(head, tail))];
 	return {
 		text: [...blocks.slice(0, head).map((block) => block.text), ...gap, ...blocks.slice(Math.max(head, tail)).map((block) => block.text)].join("\n"),
-		presented: new Set(kept.filter((block) => block.valid).map((block) => block.span.entry.id)),
+		presented: new Set(visible.filter((block) => block.valid).map((block) => block.span.entry.id)),
 	};
 }
 
@@ -183,12 +200,19 @@ export function summarizerPrompt(input: {
 	return { text: parts.join("\n\n"), presented: kept.presented };
 }
 
+const fenced = (text: string) => text.replace(/^\s*```\w*\s*/, "").replace(/```\s*$/, "");
+const tag = (text: string, name: string) => new RegExp(`<${name}>([\\s\\S]*?)</${name}>`).exec(text)?.[1];
+const tagNumber = (text: string, name: string) => {
+	const match = new RegExp(`<${name}>\\s*(\\d+)\\s*</${name}>`).exec(text)?.[1];
+	return match === undefined ? undefined : Number(match);
+};
+
 /** The decision block, the condense list and the body, or undefined when the body is missing. */
 function parseReply(text: string): SummarizerReply | undefined {
-	const cleaned = text.replace(/^\s*```\w*\s*/, "").replace(/```\s*$/, "");
-	const cut = /<recommended_cut_before_entry_id>\s*(\d+)\s*<\/recommended_cut_before_entry_id>/.exec(cleaned)?.[1];
-	const reasoning = /<cutpoint_reasoning>([\s\S]*?)<\/cutpoint_reasoning>/.exec(cleaned)?.[1]?.trim() ?? "";
-	const condenseBlock = /<condense>([\s\S]*?)<\/condense>/.exec(cleaned)?.[1] ?? "";
+	const cleaned = fenced(text);
+	const cut = tagNumber(cleaned, "recommended_cut_before_entry_id");
+	const reasoning = tag(cleaned, "cutpoint_reasoning")?.trim() ?? "";
+	const condenseBlock = tag(cleaned, "condense") ?? "";
 	const condense = [...condenseBlock.matchAll(/<tool_result\s+entry_id="(\d+)"\s*>([\s\S]*?)<\/tool_result>/g)].map((match) => ({
 		entry: Number(match[1]),
 		note: (match[2] ?? "").trim().replace(/\s+/g, " "),
@@ -196,7 +220,7 @@ function parseReply(text: string): SummarizerReply | undefined {
 	const start = cleaned.indexOf(FIRST_SECTION);
 	if (start === -1) return undefined;
 	const body = cleaned.slice(start).trim();
-	return cut === undefined ? { reasoning, condense, body } : { cut: Number(cut), reasoning, condense, body };
+	return cut === undefined ? { reasoning, condense, body } : { cut, reasoning, condense, body };
 }
 
 /**

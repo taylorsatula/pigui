@@ -1,8 +1,8 @@
-// pigui's compaction cycle. After each tool round, an `afterTools` hook measures the context. Past the trigger it asks
-// the agent, in a steer, for a handoff note; the round after it compacts: the summarizer writes a checkpoint, a marker
-// starts the context at the cut it chose (keeping the note's call and result), and a resume turn follows. Durable's own
-// compaction stays on as a backstop for what this cycle does not catch, such as one round's output jumping past
-// Durable's thresholds; pigui's `beforeCompact` hook writes that checkpoint the same way, within Durable's cut.
+// pigui's compaction cycle. Every tool round, an `afterTools` hook measures the context; past the trigger it steers
+// the agent to call write_handoff, and the round after that the agent or pigui compacts: a checkpoint replaces the
+// older context, a marker starts it at the cut, and a resume turn follows. Durable's own compaction stays on as a
+// backstop for rounds this cycle cannot catch, such as one round jumping past Durable's thresholds; pigui's
+// `beforeCompact` hook writes that checkpoint the same way, within Durable's cut.
 import type { Context } from "@earendil-works/chord/context";
 import { calculateContextTokens, estimateMessageTokens } from "@earendil-works/pi-ai/utils/estimate";
 import {
@@ -51,7 +51,8 @@ type CompactState = { phase: "checkpoint" } | { phase: "resume" };
 
 const markerRequest = (taskId: number) => `pigui-compaction:${taskId}`;
 
-async function limitsOf(services: AgentServices, api: Pick<HookApi, "conversationId" | "snapshot">, context: Context): Promise<Limits & { background: number }> {
+/** The session model, its context window, the verbatim-keeping cap and Durable's background threshold. */
+async function windowLimits(services: AgentServices, api: Pick<HookApi, "conversationId" | "snapshot">, context: Context): Promise<Limits & { background: number }> {
 	const agent = await api.snapshot(AgentDoc, api.conversationId, context);
 	const model = agent?.model === undefined ? undefined : services.model(agent.model.provider, agent.model.modelId);
 	const window = model?.contextWindow ?? DEFAULT_WINDOW;
@@ -66,20 +67,20 @@ async function limitsOf(services: AgentServices, api: Pick<HookApi, "conversatio
  * The context's size after a round, measured as Durable measures it: the usage of the request that made the round's
  * calls, plus estimates of the results it returned. Without usage, every message of the context is estimated.
  */
-async function contextTokens(services: AgentServices, api: HookApi, assistant: EntryId, results: readonly EntryId[], context: Context): Promise<number> {
+async function roundSize(services: AgentServices, api: HookApi, assistant: EntryId, results: readonly EntryId[], context: Context): Promise<number> {
 	const message = (await api.entry(assistant, context))?.model?.[0];
-	const measured = message?.role === "assistant" ? calculateContextTokens(message.usage) : 0;
-	if (measured === 0) {
-		const view = await (await services.harness().conversation(api.conversationId, context))?.context(context);
-		return (view?.messages ?? []).reduce((total, each) => total + estimateMessageTokens(each), 0);
+	const requested = message?.role === "assistant" ? calculateContextTokens(message.usage) : 0;
+	if (requested > 0) {
+		let total = requested;
+		for (const id of results) for (const each of (await api.entry(id, context))?.model ?? []) total += estimateMessageTokens(each);
+		return total;
 	}
-	let tokens = measured;
-	for (const id of results) for (const each of (await api.entry(id, context))?.model ?? []) tokens += estimateMessageTokens(each);
-	return tokens;
+	const view = await (await services.harness().conversation(api.conversationId, context))?.context(context);
+	return (view?.messages ?? []).reduce((sum, each) => sum + estimateMessageTokens(each), 0);
 }
 
 /** Whether a round's results include a saved handoff note. */
-async function wroteHandoff(api: HookApi, results: readonly EntryId[], context: Context): Promise<boolean> {
+async function handoffWritten(api: HookApi, results: readonly EntryId[], context: Context): Promise<boolean> {
 	for (const id of results) {
 		const message = (await api.entry(id, context))?.model?.[0];
 		if (message?.role === "toolResult" && message.toolName === WRITE_HANDOFF && !message.isError) return true;
@@ -94,7 +95,7 @@ function handoffText(spans: readonly Span[], assistant: number): string | undefi
 	return call?.type === "toolCall" && typeof call.arguments.text === "string" ? call.arguments.text : undefined;
 }
 
-async function handleOf(runtime: Pick<TaskRuntime<unknown, { phase: string }, unknown, object>, "conversation" | "conversationId">, context: Context): Promise<ConversationHandle> {
+async function conversationHandle(runtime: Pick<TaskRuntime<unknown, { phase: string }, unknown, object>, "conversation" | "conversationId">, context: Context): Promise<ConversationHandle> {
 	const handle = await runtime.conversation(runtime.conversationId, context);
 	if (handle === undefined) throw new Error("The session's conversation is missing.");
 	return handle;
@@ -113,18 +114,19 @@ function noteInput(note: CompactionNoteData["note"], taskId: number) {
 
 export function compactionCycle(services: AgentServices) {
 	/** Ask for the handoff note, and mark the cycle as waiting for it in the same commit. */
-	const request = defineTask<null, { phase: "ask" }, AfterToolsDecision, object>({
+	const ask = defineTask<null, { phase: "ask" }, AfterToolsDecision, object>({
 		name: "pigui.handoff-request",
 		version: 1,
 		initial: () => ({ phase: "ask" }),
 		phases: {
 			ask: async (_task, runtime, context) => {
-				const handle = await handleOf(runtime, context);
+				const handle = await conversationHandle(runtime, context);
 				await runtime.commit(async (tx) => {
 					await handle.submit(tx, noteInput("handoff-request", runtime.taskId));
 					await editSession(tx, runtime.conversationId, services.now(), (doc) => {
-						if (doc.handoff === undefined) doc.handoff = { compactions: 0, lastTask: 0, requestedAt: services.now() };
-						else doc.handoff.requestedAt = services.now();
+						const stamp = services.now();
+						if (doc.handoff === undefined) doc.handoff = { compactions: 0, lastTask: 0, requestedAt: stamp };
+						else doc.handoff.requestedAt = stamp;
 					});
 					return { status: "terminal", outcome: { status: "completed", result: {} } };
 				}, context);
@@ -149,7 +151,7 @@ export function compactionCycle(services: AgentServices) {
 				const doc = await runtime.snapshot(SessionDocToken, runtime.conversationId, context);
 				const view = await runtime.context(runtime.conversationId, context);
 				const spans = spansOf(view);
-				const limits = await limitsOf(services, runtime, context);
+				const limits = await windowLimits(services, runtime, context);
 				const keep = task.input.handoff ?? undefined;
 				const bounds = doc?.id === undefined ? undefined : cappedBounds(spans, limits.cap, view.head !== undefined, keep);
 				let written: Written | undefined;
@@ -157,7 +159,7 @@ export function compactionCycle(services: AgentServices) {
 					const handoff = keep === undefined ? undefined : handoffText(spans, keep);
 					written = await writeCheckpoint(services, runtime, { doc, view, spans, bounds, limits, ...(handoff === undefined ? {} : { handoff }), signal: runtime.signal }, context);
 				}
-				const handle = await handleOf(runtime, context);
+				const handle = await conversationHandle(runtime, context);
 				await runtime.commit(async (tx) => {
 					if (written === undefined) {
 						// Nothing to compact after all: the cycle ends without a checkpoint.
@@ -172,7 +174,7 @@ export function compactionCycle(services: AgentServices) {
 				}, context);
 			},
 			resume: async (_task, runtime, context) => {
-				const handle = await handleOf(runtime, context);
+				const handle = await conversationHandle(runtime, context);
 				await runtime.commit(async (tx) => {
 					await handle.submit(tx, noteInput("resume", runtime.taskId));
 					return { status: "terminal", outcome: { status: "completed", result: {} } };
@@ -192,15 +194,15 @@ export function compactionCycle(services: AgentServices) {
 			if ((await overCap(api, context)) !== undefined) return undefined;
 			if (doc.handoff?.requestedAt !== undefined) {
 				// The round after the request: compact, with the note when the agent wrote one.
-				return { tasks: [hookTask(compact, { handoff: (await wroteHandoff(api, results, context)) ? assistant : null } satisfies CompactInput)] };
+				return { tasks: [hookTask(compact, { handoff: (await handoffWritten(api, results, context)) ? assistant : null } satisfies CompactInput)] };
 			}
-			const limits = await limitsOf(services, api, context);
-			const tokens = await contextTokens(services, api, assistant, results, context);
+			const limits = await windowLimits(services, api, context);
+			const tokens = await roundSize(services, api, assistant, results, context);
 			// Past Durable's background threshold, Durable compacts before the agent could answer: leave it to the backstop.
 			if (tokens < limits.window * HANDOFF_TRIGGER || tokens >= limits.background) return undefined;
 			const live = await api.snapshot(LiveDoc, api.conversationId, context);
 			if ((live?.compactions?.length ?? 0) > 0) return undefined;
-			return { tasks: [hookTask(request, null)] };
+			return { tasks: [hookTask(ask, null)] };
 		},
 	});
 
@@ -217,7 +219,7 @@ export function compactionCycle(services: AgentServices) {
 			const bounds = durableBounds(spans, compaction.firstKept);
 			// A newer compaction already moved the context past this one's cut, so its summary could only be stale.
 			if (bounds === undefined) return { decline: true };
-			const limits = await limitsOf(services, api, context);
+			const limits = await windowLimits(services, api, context);
 			const written = await writeCheckpoint(services, api, { doc, view, spans, bounds, limits, durableCut: compaction.firstKept, signal: context.abortSignal }, context);
 			// Durable places this summary at its own cut; the marker, placed after it, moves the context to the
 			// summarizer's. A blocking compaction's generation continues at once, so there the marker applies from the
@@ -230,5 +232,5 @@ export function compactionCycle(services: AgentServices) {
 		},
 	});
 
-	return { hooks: [trigger, backstop], tasks: [request, compact] };
+	return { hooks: [trigger, backstop], tasks: [ask, compact] };
 }

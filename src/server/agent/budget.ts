@@ -1,6 +1,6 @@
-// The spend cap. After every tool round, the session's agent's or one of its agents', the whole session's spend is
-// checked; over the cap, a task records why, tells the person, stops every agent of the session and ends the round's
-// run before its next model request. Raising the cap and continuing starts from those tool results.
+// The spend cap. After each tool round, in the session and in every agent of it, spend is checked against the
+// session's cap; once it is reached the person is told, every agent of the session is stopped, and the run ends
+// before its next model request. Raising the cap and continuing resumes from the round's tool results.
 import type { Context } from "@earendil-works/chord/context";
 import { copyJson, type JsonRepresentation } from "@earendil-works/chord/json";
 import type { Api, AssistantMessage, Model, Usage } from "@earendil-works/pi-ai";
@@ -11,52 +11,50 @@ import { editSession, sessionFor } from "../documents.ts";
 import { agentSession, stopAgents } from "../subagents/extension.ts";
 import type { AgentServices } from "./services.ts";
 
-/**
- * What one of pigui's own model calls used, beside the agent's: a compaction checkpoint, a speakable script. As
- * JSON, since the checkpoint's is memoized; providers may leave optional counters undefined, which JSON cannot hold.
- */
+/** One of pigui's own model calls, beside the agent's: a compaction checkpoint, a speakable script. JSON, since the checkpoint memoizes it. */
 export type ModelSpend = { key: string; usage: JsonRepresentation<Usage> };
 
+/** Capture what a call spent, under the model's key, dropping the counters JSON cannot hold. */
 export function modelSpend(model: Model<Api>, reply: AssistantMessage): ModelSpend {
-	return { key: `${model.provider}/${model.id}`, usage: copyJson(reply.usage, { omitUndefinedProperties: true }) as JsonRepresentation<Usage> };
+	const key = `${model.provider}/${model.id}`;
+	return { key, usage: copyJson(reply.usage, { omitUndefinedProperties: true }) as JsonRepresentation<Usage> };
 }
 
 /**
- * Count `spend` in the session's `pi.usage` as Durable counts its own requests and summaries, so the spend cap and the
- * ledger see it. Durable does not export its `recordUsage`, so this follows it counter for counter: a model's first
- * call is copied whole, and later ones add every counter, the optional ones once either side reports them.
+ * Fold `spend` into the session's `pi.usage` document, the way Durable counts its own requests and summaries, so the
+ * cap and the ledger agree. Durable keeps `recordUsage` to itself, so the counters are followed one for one: a first
+ * call for a model is stored as it arrived, later calls add every counter, and the optional ones once either side reports them.
  */
 export async function countSpend(tx: Tx, conversationId: ConversationId, spend: ModelSpend): Promise<void> {
 	const { models } = await tx.doc(UsageDoc, conversationId);
 	const { usage } = spend;
-	const total = Object.hasOwn(models, spend.key) ? models[spend.key] : undefined;
-	if (total === undefined) {
+	const known = Object.hasOwn(models, spend.key) ? models[spend.key] : undefined;
+	if (known === undefined) {
 		models[spend.key] = copyJson(usage) as JsonRepresentation<Usage>;
 		return;
 	}
-	total.input += usage.input;
-	total.output += usage.output;
-	total.cacheRead += usage.cacheRead;
-	total.cacheWrite += usage.cacheWrite;
-	total.totalTokens += usage.totalTokens;
-	if (usage.cacheWrite1h !== undefined) total.cacheWrite1h = (total.cacheWrite1h ?? 0) + usage.cacheWrite1h;
-	if (usage.reasoning !== undefined) total.reasoning = (total.reasoning ?? 0) + usage.reasoning;
-	total.cost.input += usage.cost.input;
-	total.cost.output += usage.cost.output;
-	total.cost.cacheRead += usage.cost.cacheRead;
-	total.cost.cacheWrite += usage.cost.cacheWrite;
-	total.cost.total += usage.cost.total;
+	for (const counter of ["input", "output", "cacheRead", "cacheWrite", "totalTokens"] as const) {
+		known[counter] += usage[counter];
+	}
+	// Optional counters count once either side reports them; a side that never does leaves the other's reading alone.
+	for (const counter of ["cacheWrite1h", "reasoning"] as const) {
+		const reported = usage[counter];
+		if (reported !== undefined) known[counter] = (known[counter] ?? 0) + reported;
+	}
+	for (const counter of ["input", "output", "cacheRead", "cacheWrite", "total"] as const) {
+		known.cost[counter] += usage.cost[counter];
+	}
 }
 
-/** What a session has spent, its own conversation and every agent's, as `usage` reads each one. */
+/** What a session has spent, its own conversation plus every agent's, each read as Durable reads it. */
 export async function sessionSpend(doc: Readonly<SessionDoc>, usage: (conversation: ConversationId) => Promise<Readonly<UsageState> | undefined>): Promise<number> {
 	const agents = await Promise.all((doc.agents ?? []).map((agent) => usage(agent.id as ConversationId)));
 	return sessionSpent(await usage(doc.id as ConversationId), agents);
 }
 
 /**
- * The spend and cap of the session a conversation works for, once the spend has reached the cap; undefined below it or
- * without one. An agent's conversation counts its whole session.
+ * The spend and cap of the session behind `api`, once spend has reached the cap; undefined below it or with no cap
+ * set. An agent's conversation answers with its whole session's numbers.
  */
 export async function overCap(api: Pick<HookApi, "conversationId" | "snapshot">, context: Context): Promise<{ spent: number; cap: number } | undefined> {
 	const session = await sessionFor(api, api.conversationId, context);
@@ -71,8 +69,8 @@ export function budget(services: AgentServices) {
 		version: 1,
 		initial: () => ({ phase: "stop" }),
 		phases: {
-			// The person is told first: stopping the session's agents may stop this task too, when it runs in an agent's
-			// round, and it can commit nothing after that. Its last commit then fails, and its abort handler ends it.
+			// The person is told before anything else happens: when this runs inside an agent's round, stopping the
+			// session's agents may stop this task along with them, and a commit after that fails. The abort handler ends it.
 			stop: async (task, runtime, context) => {
 				const { spent, cap } = task.input;
 				const session = (await agentSession(runtime, runtime.conversationId, context)) ?? runtime.conversationId;
@@ -80,7 +78,7 @@ export function budget(services: AgentServices) {
 					await editSession(tx, session, services.now(), async (doc) => {
 						doc.outcome = { kind: "budget", at: services.now() };
 						doc.attentionAt = services.now();
-						// Keyed by the cap, so the session and its agents reaching it together notify once.
+						// Keyed by the cap, so the session and its agents reaching it together notify only once.
 						await services.notifications.enqueue(tx, doc, {
 							key: `budget:${cap}`,
 							title: "Budget reached",

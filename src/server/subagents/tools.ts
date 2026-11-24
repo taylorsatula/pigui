@@ -1,5 +1,6 @@
-// What pigui's agent gets: `Agent` starts or resumes an agent, `steer_subagent` sends one a message while it runs,
-// and a prompt section lists the agents it can start, read from their files at every request.
+// pigui's agents from the session's side: `Agent` starts or resumes one, `steer_subagent` talks to one while it runs,
+// and a prompt section lists the startable agents, read from their files at each request. The heavy lifting lives in
+// the task (./task.ts) and the definitions (./definitions.ts); this file is the model-facing surface.
 import type { Context } from "@earendil-works/chord/context";
 import type { JsonValue } from "@earendil-works/chord/json";
 import {
@@ -48,10 +49,10 @@ export type ToolsHost = TaskHost & {
 };
 
 /** What a call dispatched: its run's task and its agent, memoized so a rerun after a crash finds them. */
-type Made = { task: number; agent: number; type: string };
+type Dispatch = { task: number; agent: number; type: string };
 
-const refuse = (text: string): ToolExecutionResult => ({ output: [{ type: "text", text }], isError: true });
-const said = (text: string, isError = false): ToolExecutionResult => ({ output: [{ type: "text", text }], ...(isError ? { isError } : {}) });
+const errorResult = (text: string): ToolExecutionResult => ({ output: [{ type: "text", text }], isError: true });
+const saidResult = (text: string, isError = false): ToolExecutionResult => ({ output: [{ type: "text", text }], ...(isError ? { isError } : {}) });
 
 const AgentParameters = obj({
 	subagent_type: opt(str({ minLength: 1, maxLength: 100, description: "The agent to start, by name, as listed under <subagents>. With resume it may be left out; given, it must be that agent's type." })),
@@ -76,8 +77,8 @@ const SteerParameters = obj({
 
 const STEER_DESCRIPTION = `Send a message to a running agent. It reads the message after its current tool round and goes on with it, keeping everything it has done, so use it to correct its course or give it what it lacks. An agent still waiting its turn has not started and cannot be steered; one whose run has ended is continued with ${AGENT} and resume instead.`;
 
-/** The environment block that heads an agent's instructions: where it works, as pi-subagents tells its agents. */
-function environment(place: { dir: string; branch?: string }): string {
+/** Where the agent works, as its own first instruction line: the directory, the branch, and the platform. */
+function environmentBlock(place: { dir: string; branch?: string }): string {
 	return [
 		ENVIRONMENT,
 		`Working directory: ${place.dir}`,
@@ -86,8 +87,8 @@ function environment(place: { dir: string; branch?: string }): string {
 	].join("\n");
 }
 
-/** The ids the call `call` dispatched, should a crash have cut it off between that commit and its memo. */
-async function dispatched(tx: Tx, session: ConversationId, call: string): Promise<Made | undefined> {
+/** The ids `call` already dispatched, should a crash have cut the call off between its commit and its memo. */
+async function priorDispatch(tx: Tx, session: ConversationId, call: string): Promise<Dispatch | undefined> {
 	let cursor;
 	do {
 		const page = await tx.scanTasks({ conversationId: session, kind: AGENT_TASK, order: "descending" }, 100, cursor);
@@ -102,17 +103,21 @@ async function dispatched(tx: Tx, session: ConversationId, call: string): Promis
 	return undefined;
 }
 
+/** How a backgrounded agent's run is owned: by the agent's conversation, so a stop of the parent leaves it alone. */
+function ownershipFor(background: boolean, owner: TaskId): { ownership: { kind: "conversation" }; background: true } | { ownership: { kind: "task"; taskId: TaskId } } {
+	return background ? ({ ownership: { kind: "conversation" }, background: true } as const) : { ownership: { kind: "task", taskId: owner } };
+}
+
 export function subagentTools(host: ToolsHost, task: AgentTask) {
 	/** A new agent: its conversation, configured once from its definition, owned by its first run. */
-	const start = async (tx: Tx, api: ToolExecutionApi, input: AgentInput, definition: Definition, place: { dir: string; branch?: string }): Promise<Made> => {
+	const newAgent = async (tx: Tx, api: ToolExecutionApi, input: AgentInput, definition: Definition, place: { dir: string; branch?: string }): Promise<Dispatch> => {
 		const session = api.conversationId;
-		const ownership = input.background ? ({ ownership: { kind: "conversation" }, background: true } as const) : ({ ownership: { kind: "task", taskId: api.taskId } } as const);
-		const run = await tx.createTask(task, input, ownership);
+		const run = await tx.createTask(task, input, ownershipFor(input.background, api.taskId));
 		const conversation = await tx.createConversation({ ownership: { kind: "task", taskId: run } });
 		const change: AgentChange = {
 			tools: host.tools(api, definition.tools),
 			extensions: { remove: definition.skills ? host.excluded() : [...host.excluded(), host.skills] },
-			instructions: `${environment(place)}\n\n${definition.prompt}`,
+			instructions: `${environmentBlock(place)}\n\n${definition.prompt}`,
 			cwd: place.dir,
 			maxTurns: definition.maxTurns ?? null,
 			...(definition.model === undefined ? {} : { model: definition.model }),
@@ -130,7 +135,7 @@ export function subagentTools(host: ToolsHost, task: AgentTask) {
 	};
 
 	/** A new run of an agent whose last one ended, on the conversation it already has. */
-	const resume = async (tx: Tx, api: ToolExecutionApi, agent: number, args: { subagent_type?: string; description: string; prompt: string; background: boolean }): Promise<Made> => {
+	const resumeAgent = async (tx: Tx, api: ToolExecutionApi, agent: number, args: { subagent_type?: string; description: string; prompt: string; background: boolean }): Promise<Dispatch> => {
 		const session = api.conversationId;
 		const doc = await tx.doc(AgentDocToken, agent as ConversationId);
 		const last = await tx.task(doc.task as TaskId);
@@ -143,8 +148,7 @@ export function subagentTools(host: ToolsHost, task: AgentTask) {
 			throw new Error(`Agent ${agent} is a ${previous.type}, not a ${args.subagent_type}. Leave subagent_type out to resume it.`);
 		}
 		const input: AgentInput = { call: String(api.taskId), type: previous.type, description: args.description, prompt: args.prompt, background: args.background, agent };
-		const ownership = args.background ? ({ ownership: { kind: "conversation" }, background: true } as const) : ({ ownership: { kind: "task", taskId: api.taskId } } as const);
-		const run = await tx.createTask(task, input, ownership);
+		const run = await tx.createTask(task, input, ownershipFor(args.background, api.taskId));
 		doc.task = run;
 		await host.row(tx, session, agent, (row) => {
 			if (row === undefined) throw new Error(`Agent ${agent} has no row in its session.`);
@@ -157,13 +161,13 @@ export function subagentTools(host: ToolsHost, task: AgentTask) {
 	type Args = { subagent_type?: string | undefined; description: string; prompt: string; resume?: number | undefined };
 
 	/** What the call asks for, checked before anything is created: the commit that dispatches it, or why it cannot. */
-	const prepare = async (api: ToolExecutionApi, args: Args, background: boolean, context: Context): Promise<{ refused: string } | { run: (tx: Tx) => Promise<Made> }> => {
+	const plan = async (api: ToolExecutionApi, args: Args, background: boolean, context: Context): Promise<{ refused: string } | { run: (tx: Tx) => Promise<Dispatch> }> => {
 		if (args.resume !== undefined) {
 			const id = args.resume;
 			const doc = await api.snapshot(AgentDocToken, id as ConversationId, context);
 			if (doc === undefined || doc.session !== api.conversationId) return { refused: `There is no agent ${id} in this session.` };
 			const resumed = { description: args.description, prompt: args.prompt, background, ...(args.subagent_type === undefined ? {} : { subagent_type: args.subagent_type }) };
-			return { run: (tx) => resume(tx, api, id, resumed) };
+			return { run: (tx) => resumeAgent(tx, api, id, resumed) };
 		}
 		if (args.subagent_type === undefined) return { refused: "Name the agent to start in subagent_type, or an agent to continue in resume." };
 		const roots = await host.roots(api.conversationId, api, context);
@@ -175,50 +179,60 @@ export function subagentTools(host: ToolsHost, task: AgentTask) {
 		}
 		const place = await host.place(api.conversationId, api, context);
 		const input: AgentInput = { call: String(api.taskId), type: found.name, description: args.description, prompt: args.prompt, background };
-		return { run: (tx) => start(tx, api, input, found, place) };
+		return { run: (tx) => newAgent(tx, api, input, found, place) };
+	};
+
+	type Outcome = { refused: string } | { made: Dispatch };
+
+	/**
+	 * Find what this call dispatched, from the memo, or dispatch it. Refusals return before anything is created; the
+	 * commit that creates the agent writes its memo after it, and the call-id scan recovers a crash between the two.
+	 */
+	const openDispatch = async (api: ToolExecutionApi, args: Args, background: boolean, context: Context): Promise<Outcome> => {
+		const cached = await api.memo<Dispatch>("agent", context);
+		if (cached !== undefined) return { made: cached };
+		const settings = await readSettings(host.dataDir);
+		host.warn("subagents.settings_invalid", "subagent-settings.json", "error" in settings ? settings.error : undefined);
+		if ("error" in settings) {
+			return { refused: `No agent can start: ${settings.error}. Only the person can fix the file.` };
+		}
+		// file_report runs its round in call order, so a report before this call in the round is already filed:
+		// an agent started now would work after the run's report, for a run that has ended.
+		if (await host.reported(api.conversationId, api, context)) {
+			return { refused: "This run's report is filed, so no agent can start in it. Start agents before the report, and file it once their answers are in." };
+		}
+		const prepared = await plan(api, args, background, context);
+		if ("refused" in prepared) return { refused: prepared.refused };
+		const made = await api.commit(async (tx) => (await priorDispatch(tx, api.conversationId, String(api.taskId))) ?? (await prepared.run(tx)), context);
+		return { made: await api.memo("agent", made, context) };
 	};
 
 	/** What a foreground call returns once its agent's run ends. */
-	const answer = async (api: ToolExecutionApi, made: Made, context: Context): Promise<ToolExecutionResult> => {
+	const collectAnswer = async (api: ToolExecutionApi, made: Dispatch, context: Context): Promise<ToolExecutionResult> => {
 		const record = await api.getTask(made.task as TaskId<AgentEnd>, context);
-		if (record === undefined || record.state.status !== "terminal") return refuse(`Agent ${made.agent}'s run is missing.`);
+		if (record === undefined || record.state.status !== "terminal") return errorResult(`Agent ${made.agent}'s run is missing.`);
 		const input = record.input as AgentInput;
 		const outcome = record.state.outcome;
-		if (outcome.status === "completed") return said(endMessage(input, outcome.result), outcome.result.status === "failed");
-		if (outcome.status === "aborted") return said(stopMessage(made.agent, input));
-		return refuse(`Agent ${made.agent}'s run broke down: ${outcome.status === "orphaned" ? outcome.reason : outcome.error.message}. Resume it with Agent and resume: ${made.agent}.`);
+		if (outcome.status === "completed") return saidResult(endMessage(input, outcome.result), outcome.result.status === "failed");
+		if (outcome.status === "aborted") return saidResult(stopMessage(made.agent, input));
+		return errorResult(`Agent ${made.agent}'s run broke down: ${outcome.status === "orphaned" ? outcome.reason : outcome.error.message}. Resume it with Agent and resume: ${made.agent}.`);
 	};
 
-	const agentTool = defineTool<typeof AgentParameters, JsonValue, Made>({
+	const agentTool = defineTool<typeof AgentParameters, JsonValue, Dispatch>({
 		name: AGENT,
 		description: AGENT_DESCRIPTION,
 		parameters: AgentParameters,
 		replay: "safe",
 		async execute(args, api, context) {
-			if (api.wake !== undefined && api.checkpoint !== undefined) return answer(api, api.checkpoint, context);
+			if (api.wake !== undefined && api.checkpoint !== undefined) return collectAnswer(api, api.checkpoint, context);
 			const background = args.run_in_background === true;
-			let made = await api.memo<Made>("agent", context);
-			if (made === undefined) {
-				const settings = await readSettings(host.dataDir);
-				host.warn("subagents.settings_invalid", "subagent-settings.json", "error" in settings ? settings.error : undefined);
-				if ("error" in settings) {
-					return refuse(`No agent can start: ${settings.error}. Only the person can fix the file.`);
-				}
-				// file_report runs its round in call order, so a report before this call in the round is already filed:
-				// an agent started now would work after the run's report, for a run that has ended.
-				if (await host.reported(api.conversationId, api, context)) {
-					return refuse("This run's report is filed, so no agent can start in it. Start agents before the report, and file it once their answers are in.");
-				}
-				const dispatch = await prepare(api, args, background, context);
-				if ("refused" in dispatch) return refuse(dispatch.refused);
-				// The memo is written after the commit, so a rerun cut off between the two finds its agent by its call.
-				made = await api.commit(async (tx) => (await dispatched(tx, api.conversationId, String(api.taskId))) ?? (await dispatch.run(tx)), context);
-				made = await api.memo("agent", made, context);
-			}
+			const outcome = await openDispatch(api, args, background, context);
+			if ("refused" in outcome) return errorResult(outcome.refused);
+			const made = outcome.made;
 			if (!background) return { wait: { on: [made.task as TaskId], policy: "allSettled", checkpoint: made } };
 			const run = await api.getTask(made.task as TaskId, context);
 			const state = run !== undefined && !queued(run) ? "running" : "queued, waiting its turn";
-			return said(`Agent ${made.agent} (${made.type}) is ${state}. Its full answer will arrive as a message; until then, go on with other work or end your turn.`);
+			return saidResult(`Agent ${made.agent} (${made.type}) is ${state}. Its full answer will arrive as a message; until then, go on with other work or end your turn.`);
 		},
 	});
 
@@ -230,20 +244,20 @@ export function subagentTools(host: ToolsHost, task: AgentTask) {
 		async execute(args, api, context) {
 			const id = args.agent_id;
 			const doc = await api.snapshot(AgentDocToken, id as ConversationId, context);
-			if (doc === undefined || doc.session !== api.conversationId) return refuse(`There is no agent ${id} in this session.`);
+			if (doc === undefined || doc.session !== api.conversationId) return errorResult(`There is no agent ${id} in this session.`);
 			const run = await api.getTask(doc.task as TaskId, context);
 			const ended = `Agent ${id}'s run has ended, so it cannot be steered. Continue it with ${AGENT} and resume: ${id}.`;
-			if (run === undefined || run.state.status === "terminal" || run.state.status === "completing") return refuse(ended);
-			if (queued(run)) return refuse(`Agent ${id} is queued and has not started, so there is nothing to steer yet. Its prompt reaches it when it starts.`);
+			if (run === undefined || run.state.status === "terminal" || run.state.status === "completing") return errorResult(ended);
+			if (queued(run)) return errorResult(`Agent ${id} is queued and has not started, so there is nothing to steer yet. Its prompt reaches it when it starts.`);
 			const child = await api.conversation(id as ConversationId, context);
 			try {
-				// By this call's task, so a rerun after a crash steers once, and a later call whose provider id repeats still steers.
+				// Keyed by this call's task, so a rerun after a crash steers once, and a later call whose provider id repeats still steers.
 				await child?.submit({ type: "input", content: args.message, whenBusy: "steer", whenIdle: "reject", requestId: `${STEER}:${api.taskId}` }, context);
 			} catch (error) {
-				if (error instanceof ConversationIdle) return refuse(ended);
+				if (error instanceof ConversationIdle) return errorResult(ended);
 				throw error;
 			}
-			return said(`Agent ${id} gets the message after its current tool round.`);
+			return saidResult(`Agent ${id} gets the message after its current tool round.`);
 		},
 	});
 
@@ -264,11 +278,11 @@ export function agentsSection(host: Pick<ToolsHost, "roots" | "catalog" | "warn"
 			host.warn("subagents.tools_missing", agent.file, agent.missing.length === 0 ? undefined : `no installed extension provides ${agent.missing.join(", ")}`);
 		}
 		if (agents.length === 0) return undefined;
-		return [`Agents you can start with ${AGENT}, by subagent_type:`, ...agents.map(entry)].join("\n");
+		return [`Agents you can start with ${AGENT}, by subagent_type:`, ...agents.map(agentLine)].join("\n");
 	});
 }
 
-function entry(agent: Definition): string {
+function agentLine(agent: Definition): string {
 	const line = `- ${agent.name}: ${agent.description}`;
 	if (agent.missing.length === 0) return line;
 	const missing = agent.missing.length === 1 ? `${agent.missing[0]} is` : `${agent.missing.slice(0, -1).join(", ")} and ${agent.missing.at(-1)} are`;

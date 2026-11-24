@@ -1,12 +1,12 @@
-// The handoff note: before pigui compacts the context, it asks the agent, in a steer, for a short first-person note
-// on where it stands, and the agent writes it with this tool. The call and its result stay in the context verbatim after
-// the compaction, right before the resume turn, so the agent reads its own words first; the summarizer reads them too.
+// Before the context is compacted, pigui asks the agent for a short first-person account of where it stands, and
+// the agent saves it with this tool. The call and its result stay verbatim in the context past the compaction,
+// just before the resume turn, and the summarizer reads them too.
 import { defineTool, type ToolExecutionResult } from "@earendil-works/pi-durable";
 import { obj, str } from "@earendil-works/pi-schema";
 
 export const WRITE_HANDOFF = "write_handoff";
 
-/** About 300 words. */
+/** About 300 words, the upper end of what fits beside the resume turn. */
 export const MAX_HANDOFF_CHARS = 2000;
 
 export const HANDOFF_REQUEST =

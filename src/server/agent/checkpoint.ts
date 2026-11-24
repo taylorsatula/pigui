@@ -1,7 +1,7 @@
-// The compaction checkpoint: the text the agent reads in place of the context it lost. What code can recompute (the
-// person's words, the plan, the session, the repository, the files touched; see facts.ts) is rebuilt at every
-// compaction; only the working state comes from the summarizer, which evolves the previous one. Both ways a compaction
-// happens, pigui's own after a handoff note and Durable's through the backstop hook, write their checkpoint here.
+// The compaction checkpoint: the text the agent reads in place of the context it lost. Code recomputes what it can
+// (the person's words, the plan, the session, the repository, the files touched; see facts.ts) and the summarizer is
+// asked only for the working state, evolved from the previous one. Both compaction paths, pigui's own after a handoff
+// note and Durable's through the backstop hook, render and memoize their checkpoint here.
 import type { Context } from "@earendil-works/chord/context";
 import type { Api, Model } from "@earendil-works/pi-ai";
 import type { ContextView, EntryDraft, EntryId, EntryRecord, HookApi, Tx } from "@earendil-works/pi-durable";
@@ -21,6 +21,7 @@ export const CHECKPOINT_HEADER = "HISTORICAL CHECKPOINT.";
 const FACTS_SHARE = 0.1;
 /** The summarizer's input, as a share of its context window; the rest is for its instructions and reply. */
 const PROMPT_SHARE = 0.6;
+/** The memo the summarizer's reply lives under on the compaction task, so a restart never asks twice. */
 const MEMO = "pigui.checkpoint";
 
 /** What both compaction paths may use: committed reads and the compaction task's memos. */
@@ -29,13 +30,21 @@ type CheckpointApi = Pick<HookApi, "taskId" | "conversationId" | "models" | "mem
 /** The session model, its context window and the cap on what a checkpoint keeps verbatim. */
 export type Limits = { model: Model<Api> | undefined; window: number; cap: number };
 
-type Sheddable = { lines: string[]; label: string };
+type Owed = { lines: string[]; label: string; dropped: number };
+const shedList = (lines: readonly string[], label: string): Owed => ({ lines: [...lines], label, dropped: 0 });
+
+/** The rendered lines of a sheddable list, with a note when lines were dropped to fit the budget. */
+const shedLines = (part: Owed, empty: string): string[] => {
+	const lines = part.lines.length === 0 && part.dropped === 0 ? [empty] : [...part.lines];
+	if (part.dropped > 0) lines.unshift(`(${part.dropped} older ${part.label} left out to fit; ${RECALL} and git recover them)`);
+	return lines;
+};
 
 /**
- * The checkpoint text. The code-owned part fits `budgetTokens`: over it, lists are shed oldest first, in this order:
- * files read, files modified, the changed-file list, the commit list, each with a note of what was left out. The
- * person's words, the plan, the session and repository state, the instructions and the summarizer's working state are
- * never shed; the working state is bounded by the summarizer's output limit instead.
+ * The checkpoint text. The parts code owns fit `budgetTokens`: when they do not, whole lists are shed oldest first,
+ * files read, then files modified, then the changed-file list, then the commit list, each with a count of what was
+ * left out. The person's words, the plan, the session and repository state, the instructions and the working state
+ * are never shed; the working state is bounded by the summarizer's output limit instead.
  */
 export function renderCheckpoint(input: {
 	doc: Readonly<SessionDoc>;
@@ -52,36 +61,34 @@ export function renderCheckpoint(input: {
 	cut: EntryId;
 	budgetTokens: number;
 }): string {
-	const { ground } = input;
-	const readList: Sheddable = { lines: [...input.files.read], label: "files read" };
-	const modifiedList: Sheddable = { lines: [...input.files.modified], label: "files modified" };
-	const fileList: Sheddable = { lines: (ground?.files ?? []).map(fileLine), label: "changed files" };
-	const commitList: Sheddable = { lines: (ground?.commits ?? []).map(commitLine), label: "commits" };
-	const shedOrder = [readList, modifiedList, fileList, commitList];
-	const omitted = new Map<Sheddable, number>();
-	const listed = (part: Sheddable, empty: string): string[] => {
-		const dropped = omitted.get(part) ?? 0;
-		const lines = part.lines.length === 0 && dropped === 0 ? [empty] : [...part.lines];
-		if (dropped > 0) lines.unshift(`(${dropped} older ${part.label} left out to fit; ${RECALL} and git recover them)`);
-		return lines;
-	};
+	const { doc, ground } = input;
+	const read = shedList(input.files.read, "files read");
+	const modified = shedList(input.files.modified, "files modified");
+	const changed = shedList((ground?.files ?? []).map(fileLine), "changed files");
+	const commitsList = shedList((ground?.commits ?? []).map(commitLine), "commits");
+	const shedding = [read, modified, changed, commitsList];
+
 	const working = [
 		...input.notes.map((note) => `(pigui: ${note})`),
 		...(input.notes.length === 0 ? [] : [""]),
 		input.body ?? "No working state has been written yet. Work from the plan progress, the repository state and the messages after this checkpoint.",
 	].join("\n");
 
-	const place = (): string[] =>
-		ground === undefined
-			? ["## Where you work", `In ${input.doc.place === "local" ? input.doc.dir : "your working directory"}, on the person's own computer, in place: no branch, and no commits of this session's.`]
-			: [
-					"## Repository, computed at compaction",
-					...repositoryLines(ground),
-					`Commits in this session (${ground.commitTotal}; \`git log\` shows them all):`,
-					...listed(commitList, "- none yet"),
-					`Files changed in this session (${ground.files.length}; \`git diff --stat\` shows them):`,
-					...listed(fileList, "- none yet"),
-				];
+	const place = (): string[] => {
+		if (ground === undefined) {
+			const where = input.doc.place === "local" ? input.doc.dir : "your working directory";
+			return ["## Where you work", `In ${where}, on the person's own computer, in place: no branch, and no commits of this session's.`];
+		}
+		return [
+			"## Repository, computed at compaction",
+			...repositoryLines(ground),
+			`Commits in this session (${ground.commitTotal}; \`git log\` shows them all):`,
+			...shedLines(commitsList, "- none yet"),
+			`Files changed in this session (${ground.files.length}; \`git diff --stat\` shows them):`,
+			...shedLines(changed, "- none yet"),
+		];
+	};
+
 	const facts = (): string =>
 		[
 			`${CHECKPOINT_HEADER} pigui compacted this session's earlier context into checkpoint ${input.number}, at ${new Date(input.at).toISOString()}. The files on disk and the messages after this checkpoint are newer than it: where they disagree with it, they win.`,
@@ -95,34 +102,36 @@ export function renderCheckpoint(input: {
 			`4. Anything missing here is still in the full history: use ${RECALL} with a query (a file name, an error, a number) or an entry number.`,
 			"",
 			"## The person's words, verbatim, oldest first",
-			...wordLines(input.doc),
+			...wordLines(doc),
 			"",
 			"## Plan",
-			...planLines(input.doc),
+			...planLines(doc),
 			"",
 			"## Session",
-			...sessionLines(input.doc),
+			...sessionLines(doc),
 			"",
 			...place(),
 			"",
 			"## Files you read and modified with your file tools",
-			`Read: ${listed(readList, "none").join(", ")}`,
-			`Modified: ${listed(modifiedList, "none").join(", ")}`,
+			`Read: ${shedLines(read, "none").join(", ")}`,
+			`Modified: ${shedLines(modified, "none").join(", ")}`,
 		].join("\n");
+
 	const recovery = [
 		"## Recovery",
 		`The context continues verbatim from entry ${input.cut}.${input.compacted === undefined ? "" : ` This compaction covered entries ${input.compacted.first} to ${input.compacted.last}.`} Every entry is still stored: ${RECALL} searches and reads them.`,
 	].join("\n");
+
 	const render = () => [facts(), "", "## Working state, written at compaction", working, "", recovery].join("\n");
 
 	const budgetChars = input.budgetTokens * 4;
+	// The budget governs what code owns; the working state is the summarizer's and is bounded by its output limit.
 	const ownLength = () => render().length - working.length;
-	for (const part of shedOrder) {
+	for (const part of shedding) {
 		while (ownLength() > budgetChars && part.lines.length > 0) {
-			// Oldest first; with many lines to go, drop several at a time.
 			const drop = Math.max(1, Math.ceil(part.lines.length / 4));
 			part.lines.splice(0, drop);
-			omitted.set(part, (omitted.get(part) ?? 0) + drop);
+			part.dropped += drop;
 		}
 		if (ownLength() <= budgetChars) break;
 	}
@@ -168,24 +177,25 @@ export async function writeCheckpoint(
 	const { doc, spans, bounds } = input;
 	const { window, cap } = input.limits;
 	const previous = doc.handoff?.body;
-	// The previous checkpoint's working state is given as such; any other head (Durable's own summary, an older kind of
-	// handoff) is history to integrate.
-	const start = previous !== undefined && isCheckpoint(input.view.head) ? 1 : 0;
+	// The head is the previous checkpoint when pigui's last one still governs; any other head (a Durable summary, an
+	// older handoff) is history the summarizer should integrate, not state it should treat as settled.
+	const historyFrom = previous !== undefined && isCheckpoint(input.view.head) ? 1 : 0;
 	const earliest = spans[bounds.earliest]?.entry.id;
 	if (earliest === undefined) throw new Error("The compaction's bounds are outside its context.");
 	const ground = doc.place === "repo" ? await groundTruth(services.workspace(doc.id), doc) : undefined;
-	const files = await filesTouched(api, earliest, services.workingDir(doc), context);
+	const touched = await filesTouched(api, earliest, services.workingDir(doc), context);
 	const summarizer = await summarizerModel(services, api, input.limits.model);
 	const prompt = summarizerPrompt({
 		previous,
-		facts: promptFacts(doc, ground, files),
+		facts: promptFacts(doc, ground, touched),
 		handoff: input.handoff,
-		history: spans.slice(start, bounds.earliest),
+		history: spans.slice(historyFrom, bounds.earliest),
 		kept: spans.slice(bounds.earliest),
 		valid: (index) => bounds.earliest + index <= bounds.latest && spans[bounds.earliest + index]?.cut === true,
 		budgetChars: Math.floor((summarizer?.contextWindow ?? window) * 4 * PROMPT_SHARE),
 	});
 
+	// One model call per compaction task; the memo holds either the reply or the reason there is none.
 	let result = await api.memo<SummarizerResult>(MEMO, context);
 	if (result === undefined) {
 		const asked = summarizer === undefined ? { problem: "no model is available" } : await summarize(api.models, summarizer, prompt.text, services.now(), input.signal);
@@ -205,15 +215,14 @@ export async function writeCheckpoint(
 		...(choice.note === undefined ? [] : [choice.note]),
 		...(condenseNote === undefined ? [] : [condenseNote]),
 	];
-	// The head marker heads the range from an entry before its own: the range it covers starts after it.
+	// The range a marker heads starts after the marker it follows: count only what this compaction condenses.
 	const compactedIds = spans.slice(input.view.head === undefined ? 0 : 1, choice.index).filter((span) => span.messages.length > 0).map((span) => span.entry.id);
-	const first = compactedIds[0];
-	const last = compactedIds.at(-1);
+	const [first, last] = [compactedIds[0], compactedIds.at(-1)];
 	const body = reply?.body ?? previous;
 	const text = renderCheckpoint({
 		doc,
 		ground,
-		files: files.all,
+		files: touched.all,
 		number: doc.handoff?.lastTask === api.taskId ? doc.handoff.compactions : (doc.handoff?.compactions ?? 0) + 1,
 		at: services.now(),
 		body,
@@ -229,8 +238,9 @@ export async function writeCheckpoint(
 		retained: retainedMessages(spans, choice.index),
 		condensed: edits.length,
 	};
-	const sameAsDurable = input.durableCut === cut && edits.length === 0;
-	const marker = sameAsDurable
+	// When Durable's summary carries this same checkpoint verbatim, a marker would only repeat it; skip it then.
+	const duplicate = input.durableCut === cut && edits.length === 0;
+	const marker = duplicate
 		? undefined
 		: {
 				kind: CHECKPOINT_ENTRY,

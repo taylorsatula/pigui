@@ -1,5 +1,5 @@
-// History recall: compaction drops old context from what the model sees, but every entry stays in storage. This tool
-// searches and reads that full history, so a detail lost to a summary can be found again.
+// recall_history looks past compaction. Everything the model was shown stays in storage even after a summary
+// replaces it, so a search over the entries can find a detail the summary dropped.
 import type { Context } from "@earendil-works/chord/context";
 import type { Message } from "@earendil-works/pi-ai";
 import { type Cursor, defineTool, type EntryRecord, type ToolExecutionApi, type ToolExecutionResult } from "@earendil-works/pi-durable";
@@ -7,23 +7,23 @@ import { int, obj, opt, str } from "@earendil-works/pi-schema";
 
 export const RECALL = "recall_history";
 
-const MAX_MATCHES = 8;
-const SNIPPET = 240;
-const MAX_ENTRY_TEXT = 20_000;
+const MATCH_LIMIT = 8;
+const SNIPPET_CHARS = 240;
+const ENTRY_CHAR_LIMIT = 20_000;
 
 /** The searchable text of one entry: what was said, the calls made with their arguments, and what tools returned. */
 export function entryText(entry: EntryRecord): string {
 	return messagesText(entry.model ?? []);
 }
 
-/** Messages as text, the way recall shows an entry; system messages are left out. */
+/** Messages flattened to text the way recall shows them; system messages carry nothing to search for. */
 export function messagesText(messages: readonly Message[]): string {
 	const parts: string[] = [];
 	for (const message of messages) {
 		if (message.role === "system") continue;
 		if (message.role === "toolResult") parts.push(`[result of ${message.toolName}]`);
-		const content = typeof message.content === "string" ? [{ type: "text" as const, text: message.content }] : message.content;
-		for (const block of content) {
+		const blocks = typeof message.content === "string" ? [{ type: "text" as const, text: message.content }] : message.content;
+		for (const block of blocks) {
 			if (block.type === "text") parts.push(block.text);
 			else if (block.type === "toolCall") parts.push(`[call ${block.name}] ${JSON.stringify(block.arguments)}`);
 		}
@@ -31,7 +31,8 @@ export function messagesText(messages: readonly Message[]): string {
 	return parts.join("\n");
 }
 
-async function scanHistory(api: ToolExecutionApi, context: Context, visit: (entry: EntryRecord) => boolean): Promise<void> {
+/** Walk the entry history newest-first in pages, stopping when `visit` says enough has been seen. */
+async function walkEntries(api: ToolExecutionApi, context: Context, visit: (entry: EntryRecord) => boolean): Promise<void> {
 	let cursor: Cursor | undefined;
 	do {
 		const page = await api.commit(
@@ -41,6 +42,24 @@ async function scanHistory(api: ToolExecutionApi, context: Context, visit: (entr
 		for (const entry of page.items) if (!visit(entry)) return;
 		cursor = page.next;
 	} while (cursor !== undefined);
+}
+
+/** Fetch one entry by number, or nothing when the session never held it. */
+async function findEntry(api: ToolExecutionApi, context: Context, wanted: number): Promise<EntryRecord | undefined> {
+	let found: EntryRecord | undefined;
+	// Entries descend, so once the number passes the wanted one there is nothing more to look at.
+	await walkEntries(api, context, (entry) => {
+		if (entry.id === wanted) found = entry;
+		return found === undefined && entry.id > wanted;
+	});
+	return found;
+}
+
+/** A window around the first place the leading term appears, flattened so it fits one line of a list. */
+function snippetAround(text: string, lower: string, term: string): string {
+	const at = lower.indexOf(term);
+	const start = Math.max(0, at - SNIPPET_CHARS / 2);
+	return text.slice(start, start + SNIPPET_CHARS).replace(/\s+/g, " ");
 }
 
 export function recallTool() {
@@ -55,30 +74,24 @@ export function recallTool() {
 		replay: "safe",
 		async execute(args, api, context): Promise<ToolExecutionResult> {
 			if (args.entry !== undefined) {
-				const wanted = args.entry;
-				let found: EntryRecord | undefined;
-				await scanHistory(api, context, (entry) => {
-					if (entry.id === wanted) found = entry;
-					return found === undefined && entry.id > wanted;
-				});
-				if (found === undefined) return { output: [{ type: "text", text: `No entry ${wanted} in this session.` }], isError: true };
-				const text = entryText(found);
-				const shown = text.length > MAX_ENTRY_TEXT ? `${text.slice(0, MAX_ENTRY_TEXT)}\n[… ${text.length - MAX_ENTRY_TEXT} more characters]` : text;
-				return { output: [{ type: "text", text: `Entry ${found.id} (${found.kind}):\n${shown}` }] };
+				const entry = await findEntry(api, context, args.entry);
+				if (entry === undefined) return { output: [{ type: "text", text: `No entry ${args.entry} in this session.` }], isError: true };
+				const text = entryText(entry);
+				const shown =
+					text.length > ENTRY_CHAR_LIMIT ? `${text.slice(0, ENTRY_CHAR_LIMIT)}\n[… ${text.length - ENTRY_CHAR_LIMIT} more characters]` : text;
+				return { output: [{ type: "text", text: `Entry ${entry.id} (${entry.kind}):\n${shown}` }] };
 			}
 			if (args.query === undefined) throw new Error("Give a query to search for, or an entry number to read.");
 			const terms = args.query.toLowerCase().split(/\s+/).filter((term) => term !== "");
+			const [first = ""] = terms;
 			const matches: string[] = [];
-			await scanHistory(api, context, (entry) => {
+			await walkEntries(api, context, (entry) => {
 				const text = entryText(entry);
 				const lower = text.toLowerCase();
 				if (terms.every((term) => lower.includes(term))) {
-					const at = lower.indexOf(terms[0] ?? "");
-					const start = Math.max(0, at - SNIPPET / 2);
-					const snippet = text.slice(start, start + SNIPPET).replace(/\s+/g, " ");
-					matches.push(`Entry ${entry.id} (${entry.kind}): …${snippet}…`);
+					matches.push(`Entry ${entry.id} (${entry.kind}): …${snippetAround(text, lower, first)}…`);
 				}
-				return matches.length < MAX_MATCHES;
+				return matches.length < MATCH_LIMIT;
 			});
 			const text =
 				matches.length === 0

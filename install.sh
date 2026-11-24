@@ -623,8 +623,7 @@ run_onprem() {
 			# across, so no packages, extensions or skills overlap.
 			defaults=$(node -e 'try { const s = require(process.argv[1]); process.stdout.write(JSON.stringify({ defaultProvider: s.defaultProvider, defaultModel: s.defaultModel })); } catch { process.stdout.write("{}"); }' "$HOME/.pi/agent/settings.json" 2>/dev/null || printf '{}')
 			[[ $defaults == "{}" ]] && defaults='{"defaultProvider":"lunaroute","defaultModel":"inkling-2-small"}'
-			printf '%s\n' "$defaults" | run tee "$PI_AGENT_DIR/settings.json" >/dev/null
-			[[ $DRY_RUN == 1 ]] || chmod 600 "$PI_AGENT_DIR/settings.json"
+			printf '%s\n' "$defaults" | write_file "$PI_AGENT_DIR/settings.json" 0600 "$OWNER"
 			note "wrote a minimal settings.json (default provider and model only)"
 		else
 			note "settings.json is in place"
@@ -632,8 +631,7 @@ run_onprem() {
 		if [[ ! -f $PI_AGENT_DIR/auth.json ]]; then
 			# An empty auth.json: OAuth entries here would fight the ones in ~/.pi/agent over refresh-token rotation, and
 			# the key in models.json is what pigui signs with.
-			printf '{}' | run tee "$PI_AGENT_DIR/auth.json" >/dev/null
-			[[ $DRY_RUN == 1 ]] || chmod 600 "$PI_AGENT_DIR/auth.json"
+			printf '{}' | write_file "$PI_AGENT_DIR/auth.json" 0600 "$OWNER"
 			note "wrote an empty auth.json"
 		else
 			note "auth.json is in place"

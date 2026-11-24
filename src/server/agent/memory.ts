@@ -1,9 +1,9 @@
-// Long-term memory as the agent uses it: surface_memories searches it while the work goes on, and the report's
-// `memory` part records, corrects, removes and rates memories, applied in the report's own commit.
+// Long-term memory on the agent's side of the fence: surface_memories searches it mid-work, and the report's
+// `memory` part records, corrects, removes and rates entries, all applied inside the report's own commit.
 import type { Context } from "@earendil-works/chord/context";
 import { defineTool, type ToolExecutionResult } from "@earendil-works/pi-durable";
 import { arr, bool, obj, str } from "@earendil-works/pi-schema";
-import { editSession } from "../documents.ts";
+import { editSession, type MemoryRow } from "../documents.ts";
 import {
 	CREATE_DESCRIPTION,
 	DELETE_DESCRIPTION,
@@ -22,7 +22,7 @@ import type { AgentServices } from "./services.ts";
 const memoryText = (description?: string) => str({ minLength: 1, maxLength: 1000, ...(description === undefined ? {} : { description }) });
 const memoryId = str({ minLength: 1, maxLength: 64, description: `A full id, as ${SURFACE_MEMORIES} returned it` });
 
-/** Four arrays, each required and each allowed to be empty, so the report states every one out loud. */
+/** Four arrays, each required and each allowed to be empty, so the report states every one of them out loud. */
 export const MemoryPart = obj(
 	{
 		create: arr(memoryText(), { maxItems: 20, description: CREATE_DESCRIPTION }),
@@ -42,12 +42,13 @@ export function surfaceTool(services: AgentServices, memory: Memory) {
 		async execute(args, api, context): Promise<ToolExecutionResult> {
 			const session = await sessionOf(api, context);
 			const result = await memory.search(args.query, context);
-			// Recorded on the session rather than read back from the transcript, so a compaction cannot hide one from the report.
+			// Noted on the session rather than read from the transcript, so no compaction can hide a surfaced memory from the report's rating check.
 			const shown = result.hits.map((hit) => hit.id).filter((id) => !(session.memoryShown ?? []).includes(id));
 			if (shown.length > 0) {
+				const stamp = services.now();
 				await api.commit(
 					(tx) =>
-						editSession(tx, api.conversationId, services.now(), (doc) => {
+						editSession(tx, api.conversationId, stamp, (doc) => {
 							const known = doc.memoryShown ?? [];
 							doc.memoryShown = [...known, ...shown.filter((id) => !known.includes(id))];
 						}),
@@ -60,37 +61,49 @@ export function surfaceTool(services: AgentServices, memory: Memory) {
 }
 
 /**
- * What the report does with its memory part: refuse the report, apply the part in its commit, or record it unavailable.
- * A memory the agent asked for is better than a missing note; when embedding fails the report still files, with a
- * note saying so, because the work matters more than the memory.
+ * What the report does with its memory part when the store cannot take it: refuse the report, or apply the part and
+ * note that it could not be applied. An unrecorded memory is better than a lost report; the work matters more.
  */
 export type MemoryOutcome = { kind: "refused"; text: string } | { kind: "apply"; changes: PreparedChanges } | { kind: "unavailable"; reason: string };
 
 /**
- * Check a report's memory part against the store and the memories this session was shown, then embed what it writes.
- * An unknown id, or a surfaced memory left unrated, refuses the report. An embedding failure returns `unavailable`,
- * so the caller files the report with a note instead: the work matters more than the memory.
+ * The surfaced memories the report neither rated nor removed. Memories rated or deleted here are settled; ids another
+ * session removed cannot be rated and need no rating, so they are quietly excused.
+ */
+function unratedShown(changes: MemoryChanges, rows: Readonly<Record<string, MemoryRow>>, shown: readonly string[]): string[] {
+	const settled = new Set([...changes.helpful.map((vote) => vote.id), ...changes.delete]);
+	return shown.filter((id) => !settled.has(id) && rows[id] !== undefined);
+}
+
+/**
+ * Check a report's memory part against the store and the memories this session was shown, then embed what it
+ * writes. An unknown id, a delete/edit overlap, empty edit text or an unrated surfaced memory refuses the report.
+ * An embedding failure comes back as `unavailable` so the caller files the report with a note instead.
  */
 export async function prepareMemory(memory: Memory, changes: MemoryChanges, shown: readonly string[], context: Context): Promise<MemoryOutcome> {
 	const rows = await memory.rows(context);
 	const problems: string[] = [];
+	const unknownIds = (ids: readonly string[]) => ids.filter((id) => rows[id] === undefined);
 	for (const [field, ids] of [
 		["memory.delete", changes.delete],
 		["memory.edit", changes.edit.map((item) => item.id)],
 	] as const) {
-		const unknown = ids.filter((id) => rows[id] === undefined);
+		const unknown = unknownIds(ids);
 		if (unknown.length > 0) problems.push(`${field} names no stored memory: ${unknown.map((id) => `"${id}"`).join(", ")}. Use the full ids ${SURFACE_MEMORIES} returned.`);
 	}
-	const both = changes.edit.filter((item) => changes.delete.includes(item.id)).map((item) => `"${item.id}"`);
-	if (both.length > 0) problems.push(`${both.join(", ")} ${both.length === 1 ? "is" : "are"} in both memory.delete and memory.edit. Delete applies first, so never delete and edit the same id.`);
-	if (changes.edit.some((item) => item.text.trim() === "")) problems.push("A memory.edit item has empty text. Give the corrected text, or delete the memory instead.");
-	const settled = new Set([...changes.helpful.map((vote) => vote.id), ...changes.delete]);
-	// A memory another session removed since it was shown cannot be rated, and needs no rating.
-	const unrated = shown.filter((id) => !settled.has(id) && rows[id] !== undefined);
+	const overlapping = changes.edit.filter((item) => changes.delete.includes(item.id)).map((item) => `"${item.id}"`);
+	if (overlapping.length > 0) {
+		problems.push(`${overlapping.join(", ")} ${overlapping.length === 1 ? "is" : "are"} in both memory.delete and memory.edit. Delete applies first, so never delete and edit the same id.`);
+	}
+	if (changes.edit.some((item) => item.text.trim() === "")) {
+		problems.push("A memory.edit item has empty text. Give the corrected text, or delete the memory instead.");
+	}
+	const unrated = unratedShown(changes, rows, shown);
 	if (unrated.length > 0) {
+		const count = unrated.length === 1 ? "1 memory" : `${unrated.length} memories`;
 		problems.push(
 			[
-				`${unrated.length === 1 ? "1 memory" : `${unrated.length} memories`} surfaced in this session ${unrated.length === 1 ? "is" : "are"} not rated. Rate each in memory.helpful (true if it changed what you did, false if it did not), or remove it with memory.delete:`,
+				`${count} surfaced in this session ${unrated.length === 1 ? "is" : "are"} not rated. Rate each in memory.helpful (true if it changed what you did, false if it did not), or remove it with memory.delete:`,
 				...unrated.map((id) => `- ${id}: ${rows[id]!.text}`),
 			].join("\n"),
 		);

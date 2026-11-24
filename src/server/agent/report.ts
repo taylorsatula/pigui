@@ -1,13 +1,15 @@
-// The report tool: the end of a piece of work. In a repository session it checks the clone itself instead of trusting
-// the model, refusing uncommitted changes and a branch behind its base; a local session works in place, with nothing
-// to deliver, so nothing is checked. Then it files the report, updates repo memory and notifies. With long-term memory
-// on, it also records and grades memory, in the same commit.
-import { defineTool, type ToolExecutionResult } from "@earendil-works/pi-durable";
+// file_report is the end of a piece of work. In a repository session the clone is checked rather than trusted:
+// uncommitted changes and a branch behind its base are refused until fixed. A local session works in place, with
+// nothing to deliver, so nothing is checked. On success the report is filed, repo memory is updated, the person is
+// notified, and the run's agents are done being waited on. With long-term memory on, the memory part is recorded and
+// rated in the same commit as the report.
+import type { Draft } from "@earendil-works/chord/delta";
+import { defineTool, type ToolExecutionResult, type Tx } from "@earendil-works/pi-durable";
 import { arr, bool, obj, oneOf, type Static, str, unsafe } from "@earendil-works/pi-schema";
-import { type Report, reportOf, type RepoSessionDoc } from "../../shared/session.ts";
+import { type Report, reportOf, type RepoSessionDoc, type SessionDoc } from "../../shared/session.ts";
 import { editSession, MemoryToken, RepoMemoryToken, repoMemoryKey } from "../documents.ts";
 import { fetchBranch, head, isAncestor, refExists, uncommitted } from "../git.ts";
-import { applyChanges } from "../memory/store.ts";
+import { applyChanges, type PreparedChanges } from "../memory/store.ts";
 import { liveAgentTasks } from "../subagents/extension.ts";
 import { sessionOf } from "./cards.ts";
 import { MemoryPart, type MemoryOutcome, prepareMemory } from "./memory.ts";
@@ -17,7 +19,7 @@ export const FILE_REPORT = "file_report";
 
 const line = (description: string) => str({ minLength: 1, maxLength: 300, description });
 
-// Set against the plan, part by part, so the card can show what was asked beside what was done.
+// Each part sits beside the plan on the card, so what was asked can be read next to what was done.
 const reportParts = {
 	headline: str({
 		minLength: 1,
@@ -70,12 +72,19 @@ const reportParts = {
 };
 
 const ReportParameters = obj(reportParts);
+// The memory part exists only with long-term memory on, so its schema is chosen at registration.
 const MemoryReportParameters = obj({ ...reportParts, memory: MemoryPart });
 
-/** The arguments either schema gives: `memory` is there exactly when long-term memory is on. */
+/** The arguments either schema gives: `memory` is present exactly when long-term memory is on. */
 type ReportArgs = Static<typeof ReportParameters> & { memory?: Static<typeof MemoryPart> };
 
 const refuse = (text: string): ToolExecutionResult => ({ output: [{ type: "text", text }], isError: true });
+
+/** What the agent is told when it tries to file while agents it started are still working. */
+function agentsRefusal(waiting: number): string {
+	if (waiting === 1) return "1 agent is still running or queued. Its answer arrives as a message; file the report after it has.";
+	return `${waiting} agents are still running or queued. Their answers arrive as messages; file the report after they have.`;
+}
 
 export function reportTool(services: AgentServices) {
 	return defineTool({
@@ -89,20 +98,15 @@ export function reportTool(services: AgentServices) {
 		executionMode: "sequential",
 		async execute(args, api, context): Promise<ToolExecutionResult> {
 			const session = await sessionOf(api, context);
-			// By the call's task, not the provider's call id, which can repeat: a later report must not read as this one.
+			// Keyed by the call's task rather than the provider's call ID, which can repeat: a later report must not read as this one.
 			const key = `report:${api.taskId}`;
-			// A rerun of this call after a crash, once the report is filed: return it as it was filed, checking nothing again.
-			if (session.notified.includes(key) && session.report !== undefined) return filed(reportOf(session.report));
-			// The report ends the work, so it waits for every agent's answer, read from Durable's own task records.
-			const agents = (await api.commit((tx) => liveAgentTasks(tx, api.conversationId), context)).length;
-			if (agents > 0) {
-				return refuse(
-					agents === 1
-						? "1 agent is still running or queued. Its answer arrives as a message; file the report after it has."
-						: `${agents} agents are still running or queued. Their answers arrive as messages; file the report after they have.`,
-				);
-			}
-			const checked = session.place === "repo" ? await checkClone(services.workspace(session.id), session) : { notes: [] };
+			// This exact call already filed its report before a crash: hand back what was filed, checks and all, unchanged.
+			const already = session.notified.includes(key) && session.report !== undefined ? filed(reportOf(session.report)) : undefined;
+			if (already !== undefined) return already;
+			// These agents may have answers to give; the report waits for them, read from Durable's own task records.
+			const waiting = (await api.commit((tx) => liveAgentTasks(tx, api.conversationId), context)).length;
+			if (waiting > 0) return refuse(agentsRefusal(waiting));
+			const checked = session.place === "repo" ? await checkRepository(services.workspace(session.id), session) : { notes: [] };
 			if ("refused" in checked) return refuse(checked.refused);
 			const { memory: memoryPart, ...parts } = args;
 			const notes = [...parts.notes, ...checked.notes];
@@ -112,7 +116,7 @@ export function reportTool(services: AgentServices) {
 				remembering = await prepareMemory(services.memory, memoryPart ?? { create: [], helpful: [], edit: [], delete: [] }, shown, context);
 				if (remembering.kind === "refused") return refuse(remembering.text);
 				if (remembering.kind === "unavailable") {
-					// The work matters more than the memory: the report files, with a note saying the memory was not recorded.
+					// Better a report without memory than no report: the work matters more.
 					notes.push(`Memory was not recorded: ${remembering.reason}`);
 				}
 			}
@@ -120,18 +124,9 @@ export function reportTool(services: AgentServices) {
 			let missing: string[] = [];
 			await api.commit(async (tx) => {
 				await editSession(tx, api.conversationId, services.now(), async (doc) => {
-					// A rerun of this call after a crash: the report is already filed.
+					// This exact call already filed before a crash.
 					if (doc.notified.includes(key)) return;
-					if (remembering?.kind === "apply") {
-						const applied = applyChanges(await tx.doc(MemoryToken), remembering.changes, String(doc.id), report.filedAt);
-						if (applied.done !== undefined) report.memory = applied.done;
-						missing = applied.missing;
-						// What this report was checked against is settled. Memories a failed embedding left unapplied stay to be
-						// rated again, and so would any a search in the same round showed after this call read the session.
-						const remaining = (doc.memoryShown ?? []).filter((id) => !shown.includes(id));
-						if (remaining.length > 0) doc.memoryShown = remaining;
-						else delete doc.memoryShown;
-					}
+					if (remembering?.kind === "apply") missing = await applyRemembering(tx, doc, remembering.changes, shown, report);
 					doc.report = report;
 					doc.workflow = "reported";
 					doc.outcome = { kind: "reported", at: report.filedAt };
@@ -150,16 +145,29 @@ export function reportTool(services: AgentServices) {
 }
 
 /**
- * What a repository's clone must show before its report is filed: everything committed, and the branch not behind its
- * base. Its HEAD, and a note when the base could not be fetched to check.
+ * Apply the report's memory part inside its commit, and settle what this session was shown: memories the report
+ * answered for are answered for. Memories a failed embedding left behind stay to be rated, as would any a same-round
+ * search showed after this call read the session. Answers with the ids that matched nothing and were not rated.
  */
-async function checkClone(workspace: string, session: Readonly<RepoSessionDoc>): Promise<{ refused: string } | { commit: string; notes: string[] }> {
+async function applyRemembering(tx: Tx, doc: Draft<SessionDoc>, changes: PreparedChanges, shown: readonly string[], report: Report): Promise<string[]> {
+	const applied = applyChanges(await tx.doc(MemoryToken), changes, String(doc.id), report.filedAt);
+	if (applied.done !== undefined) report.memory = applied.done;
+	const remaining = (doc.memoryShown ?? []).filter((id) => !shown.includes(id));
+	if (remaining.length > 0) doc.memoryShown = remaining;
+	else delete doc.memoryShown;
+	return applied.missing;
+}
+
+/**
+ * What a repository's clone must show before its report is filed: everything committed, and the branch not behind its
+ * base. Answers with its HEAD, and a note when the base could not be fetched to check.
+ */
+async function checkRepository(workspace: string, session: Readonly<RepoSessionDoc>): Promise<{ refused: string } | { commit: string; notes: string[] }> {
 	const dirty = await uncommitted(workspace);
 	if (dirty.length > 0) {
 		const listed = dirty.slice(0, 20).map((path) => `- ${path}`).join("\n");
-		return {
-			refused: `Report refused: ${dirty.length} uncommitted change${dirty.length === 1 ? "" : "s"}:\n${listed}\nCommit what belongs in the work, remove what does not, then file the report again.`,
-		};
+		const changes = dirty.length === 1 ? "1 uncommitted change" : `${dirty.length} uncommitted changes`;
+		return { refused: `Report refused: ${changes}:\n${listed}\nCommit what belongs in the work, remove what does not, then file the report again.` };
 	}
 	const fetchError = await fetchBranch(workspace, session.base);
 	const baseRef = `refs/remotes/origin/${session.base}`;
@@ -172,15 +180,12 @@ async function checkClone(workspace: string, session: Readonly<RepoSessionDoc>):
 }
 
 function filed(report: Report, missing: string[] = []): ToolExecutionResult {
-	const text = [
-		"Report filed. The person will review it and choose to push the branch, open a pull request, or ask for more.",
-		...(missing.length === 0
-			? []
-			: [
-					`These memory ids matched nothing and were not rated: ${missing.join(", ")}.`,
-					"They may have been from an earlier session and since deleted. Nothing else failed.",
-				]),
-	].join("\n");
+	const lines = ["Report filed. The person will review it and choose to push the branch, open a pull request, or ask for more."];
+	if (missing.length > 0) {
+		lines.push(`These memory ids matched nothing and were not rated: ${missing.join(", ")}.`);
+		lines.push("They may have been from an earlier session and since deleted. Nothing else failed.");
+	}
+	const text = lines.join("\n");
 	return {
 		output: [{ type: "text", text }],
 		details: { report },

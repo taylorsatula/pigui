@@ -1,6 +1,6 @@
-// pigui's subagents, as one Durable extension: the `Agent` and `steer_subagent` tools, the list of agents the parent
-// can start, and the agent task. It takes a small interface from pigui and imports nothing else of pigui's
-// server; pigui's side calls it through the functions exported here.
+// pigui's subagents as one Durable extension: the `Agent` and `steer_subagent` tools, the `<subagents>` prompt section,
+// and the task each agent's run is a task of. It speaks only the small interface below to pigui, and pigui reaches in
+// through the functions exported here.
 import { join } from "node:path";
 import type { Context } from "@earendil-works/chord/context";
 import type { Models } from "@earendil-works/pi-ai";
@@ -11,6 +11,7 @@ import {
 	type Extension,
 	type Harness,
 	type RegistryReader,
+	type ToolExecutionApi,
 	type ToolRegistration,
 	type Tx,
 } from "@earendil-works/pi-durable";
@@ -53,25 +54,28 @@ export type SubagentHost = {
 };
 
 export function subagentsExtension(host: SubagentHost): Extension {
-	// What was last logged about each file, so a problem is logged once for each change of it.
-	const logged = new Map<string, string>();
+	// The last text logged per file and event, so a problem is logged once for each change of it, and again when it is fixed.
+	const lastLogged = new Map<string, string>();
 	const warn = (event: string, file: string, text: string | undefined) => {
 		const key = `${event} ${file}`;
 		if (text === undefined) {
-			logged.delete(key);
+			lastLogged.delete(key);
 			return;
 		}
-		if (logged.get(key) === text) return;
-		logged.set(key, text);
+		if (lastLogged.get(key) === text) return;
+		lastLogged.set(key, text);
 		host.log.warn(event, { file, reason: text });
 	};
+
 	const excluded = (): readonly Extension[] => [...host.exclude, extension];
-	const allowed = (snapshot: { tools(): readonly { extension: Extension; tool: ToolRegistration }[] }) => {
-		const names = new Set(excluded().map((ext) => ext.name));
-		return snapshot.tools().filter(({ extension: ext }) => !names.has(ext.name));
+	// An agent's tools come from its definition, minus the ones pigui keeps for the session's own agent.
+	const allowedTools = (snapshot: { tools(): readonly { extension: Extension; tool: ToolRegistration }[] }) => {
+		const hidden = new Set(excluded().map((ext) => ext.name));
+		return snapshot.tools().filter(({ extension: ext }) => !hidden.has(ext.name));
 	};
+
 	const catalog = async (): Promise<Catalog> => ({
-		tools: new Set(allowed(host.registry.snapshot()).map(({ tool }) => tool.name)),
+		tools: new Set(allowedTools(host.registry.snapshot()).map(({ tool }) => tool.name)),
 		coding: host.registry
 			.snapshot()
 			.tools()
@@ -82,29 +86,32 @@ export function subagentsExtension(host: SubagentHost): Extension {
 			return models.getModel(ref.provider, ref.modelId) !== undefined && (await models.checkAuth(ref.provider).catch(() => undefined)) !== undefined;
 		},
 	});
+
 	const roots = async (session: ConversationId, read: DocumentReader, context: Context): Promise<Roots> => {
 		const dir = await host.dir(session, read, context);
-		return { ...host.agents, ...(dir === undefined ? {} : { workspace: join(dir, ".agents", "agents"), project: join(dir, ".pi", "agents") }) };
+		const sessionRoots = dir === undefined ? {} : { workspace: join(dir, ".agents", "agents"), project: join(dir, ".pi", "agents") };
+		return { ...host.agents, ...sessionRoots };
 	};
+
 	const taskHost = { dataDir: host.dataDir, now: host.now, row: host.row, warn, faults: host.faults };
 	const task = agentTask(taskHost);
-	const { tools } = subagentTools(
-		{
-			...taskHost,
-			roots,
-			catalog,
-			tools: (api, names) => {
-				const found = new Map<string, ToolRegistration>();
-				for (const { tool } of allowed(api.registry)) if (names.includes(tool.name) && !found.has(tool.name)) found.set(tool.name, tool);
-				return names.flatMap((name) => found.get(name) ?? []);
-			},
-			excluded,
-			skills: host.skills,
-			place: host.place,
-			reported: host.reported,
+	const toolsHost = {
+		...taskHost,
+		roots,
+		catalog,
+		tools: (api: ToolExecutionApi, names: readonly string[]) => {
+			const byName = new Map<string, ToolRegistration>();
+			for (const { tool } of allowedTools(api.registry)) {
+				if (names.includes(tool.name) && !byName.has(tool.name)) byName.set(tool.name, tool);
+			}
+			return names.flatMap((name) => byName.get(name) ?? []);
 		},
-		task,
-	);
+		excluded,
+		skills: host.skills,
+		place: host.place,
+		reported: host.reported,
+	};
+	const { tools } = subagentTools(toolsHost, task);
 	const extension: Extension = defineExtension({
 		name: SUBAGENTS,
 		tools,
