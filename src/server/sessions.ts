@@ -113,10 +113,11 @@ export class Sessions {
 		return doc;
 	}
 
-	async #advance(runtime: SetupRuntime, next: SetupStep, context: Context): Promise<void> {
+	async #advance(runtime: SetupRuntime, next: SetupStep, context: Context, change?: (doc: Draft<SessionDoc>) => void): Promise<void> {
 		await runtime.commit(async (tx) => {
 			await editSession(tx, runtime.conversationId, this.#deps.now(), (doc) => {
 				doc.setup = { status: "preparing", step: next };
+				change?.(doc);
 			});
 			return { status: "running", checkpoint: { phase: next } };
 		}, context);
@@ -147,27 +148,27 @@ export class Sessions {
 			if (await branchExists(workspace, doc.branch)) await git(workspace, ["switch", "--quiet", doc.branch]);
 			else await git(workspace, ["switch", "--quiet", "-c", doc.branch]);
 		}
-		await this.#advance(runtime, "start", context);
+		// A repository carries pigui's own identity for its commits, and pigui's files stay out of its index.
+		await git(workspace, ["config", "user.name", "Pi"]);
+		await git(workspace, ["config", "user.email", "pi@pigui.invalid"]);
+		const exclude = join(workspace, ".git", "info", "exclude");
+		const excluded = await readFile(exclude, "utf8").catch(() => "");
+		if (!excluded.split("\n").includes("/.pigui/")) {
+			await mkdir(join(workspace, ".git", "info"), { recursive: true });
+			await writeFile(exclude, `${excluded}${excluded === "" || excluded.endsWith("\n") ? "" : "\n"}/.pigui/\n`);
+		}
+		await mkdir(join(workspace, ATTACHMENTS_DIR), { recursive: true });
+		const startCommit = await head(workspace);
+		// The commit that moves the step to `start` carries the commit the session's work began at.
+		await this.#advance(runtime, "start", context, (draft) => {
+			if (draft.place === "repo") draft.startCommit = startCommit;
+		});
 	}
 
 	async #start(runtime: SetupRuntime, context: Context): Promise<void> {
 		const doc = await this.#session(runtime, context);
 		const pending = doc.pendingTask;
 		if (pending === undefined) throw new Error("The first message is missing.");
-		let startCommit: string | undefined;
-		if (doc.place === "repo") {
-			// A repository carries pigui's own identity for its commits, and pigui's files stay out of its index.
-			const workspace = this.#workspace(doc.id);
-			await git(workspace, ["config", "user.name", "Pi"]);
-			await git(workspace, ["config", "user.email", "pi@pigui.invalid"]);
-			const exclude = join(workspace, ".git", "info", "exclude");
-			const excluded = await readFile(exclude, "utf8").catch(() => "");
-			if (!excluded.split("\n").includes("/.pigui/")) {
-				await mkdir(join(workspace, ".git", "info"), { recursive: true });
-				await writeFile(exclude, `${excluded}${excluded === "" || excluded.endsWith("\n") ? "" : "\n"}/.pigui/\n`);
-			}
-			startCommit = await head(workspace);
-		}
 		const input = await this.prepare(doc, pending.text, pending.attachments, context);
 		const handle = await runtime.conversation(runtime.conversationId, context);
 		if (handle === undefined) throw new Error("The session's conversation is missing.");
@@ -184,7 +185,6 @@ export class Sessions {
 				draft.activeRun = { submission, startedAt: now };
 				draft.words.push({ at: now, kind: "task", text: pending.text });
 				delete draft.pendingTask;
-				if (draft.place === "repo" && startCommit !== undefined) draft.startCommit = startCommit;
 			});
 			return { status: "terminal", outcome: { status: "completed", result: null } };
 		}, context);

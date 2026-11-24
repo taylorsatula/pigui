@@ -117,16 +117,8 @@ export function planTools(services: AgentServices) {
 			if (isPark(outcome)) return outcome;
 			const details = { card, answer: outcome } as unknown as JsonValue;
 			if (outcome.kind === "approve") {
-				// Approval turns the session to implementation. The flip is idempotent: a crash before or after it, or an answer
-				// path that sets it too, all land on the same state.
-				await api.commit(async (tx) => {
-					await editSession(tx, api.conversationId, services.now(), (doc) => {
-						doc.workflow = "implementing";
-						doc.continuations = 0;
-						delete doc.report;
-						if (doc.plan !== undefined) doc.plan.approved = true;
-					});
-				}, context);
+				// The answer commit already turned the session to implementation (workflow, continuations, report, plan.approved),
+				// in the same commit that signalled this call; there is nothing to flip here.
 				return { output: [{ type: "text", text: approvalText(revision) }], details };
 			}
 			const feedback = outcome.kind === "revise" ? outcome.feedback : outcome.kind === "text" ? outcome.text : "";

@@ -3,10 +3,11 @@
 // when asked, for a PATH without Docker.
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { chmodSync, existsSync, mkdtempSync, readdirSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdtempSync, readdirSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
+import { pathWithout } from "./path.ts";
 
 const install = join(import.meta.dirname, "..", "install.sh");
 
@@ -16,14 +17,14 @@ function dryRun(args: string[], env: NodeJS.ProcessEnv = {}, hideDocker = false)
 	const home = realpathSync(mkdtempSync(join(tmpdir(), "pigui-install-home-")));
 	const bin = mkdtempSync(join(tmpdir(), "pigui-install-bin-"));
 	const state = mkdtempSync(join(tmpdir(), "pigui-install-state-"));
-	const pathDirs = (process.env.PATH ?? "").split(":").filter((dir) => !hideDocker || !existsSync(join(dir, "docker")));
+	const path = hideDocker ? pathWithout(bin, "docker") : `${bin}:${process.env.PATH ?? ""}`;
 	// A login shell whose profile puts a PATH on, as a person's does and launchd's environment does not.
 	writeFileSync(join(bin, "login-shell"), '#!/bin/bash\nPATH=/opt/homebrew/bin:/usr/bin:/bin; eval "${@: -1}"\n');
 	chmodSync(join(bin, "login-shell"), 0o755);
 	try {
 		const result = spawnSync("bash", [install, "--dry-run", ...args], {
 			encoding: "utf8",
-			env: { ...process.env, HOME: home, SHELL: join(bin, "login-shell"), PATH: `${bin}:${pathDirs.join(":")}`, XDG_CONFIG_HOME: "", XDG_STATE_HOME: state, ...env },
+			env: { ...process.env, HOME: home, SHELL: join(bin, "login-shell"), PATH: path, XDG_CONFIG_HOME: "", XDG_STATE_HOME: state, ...env },
 		});
 		return { status: result.status, stdout: result.stdout, stderr: result.stderr, home };
 	} finally {

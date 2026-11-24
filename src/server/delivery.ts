@@ -2,10 +2,9 @@
 // the person taps. Reviewing the diff lives here too, since it shows exactly what a delivery would send.
 import type { Context } from "@earendil-works/chord/context";
 import type { Draft } from "@earendil-works/chord/delta";
-import { type ConversationId, LiveDoc } from "@earendil-works/pi-durable";
+import { type ConversationId, type Harness, LiveDoc } from "@earendil-works/pi-durable";
 import type { DeliveryResult, SessionDiff } from "../shared/api.ts";
 import { type Report, reportOf, type RepoSessionDoc } from "../shared/session.ts";
-import type { AgentServices } from "./agent/services.ts";
 import { editSession, SessionDocToken } from "./documents.ts";
 import { HttpError, notFound } from "./errors.ts";
 import { comparisonPoint, diffFiles, head, push, PushRejected, uncommitted } from "./git.ts";
@@ -13,8 +12,11 @@ import type { RepoHost } from "./host.ts";
 import { errorKind, type Logger } from "./log.ts";
 
 export type DeliveryDeps = {
+	harness: () => Harness;
 	host: RepoHost;
-	agent: AgentServices;
+	/** A session's workspace: the clone its branch is pushed from. */
+	workspace: (id: number) => string;
+	now: () => number;
 	log: Logger;
 };
 
@@ -60,7 +62,7 @@ export class Delivery {
 	}
 
 	async #session(id: number, context: Context): Promise<Readonly<RepoSessionDoc>> {
-		const doc = await this.#deps.agent.harness().snapshot(SessionDocToken, id as ConversationId, context);
+		const doc = await this.#deps.harness().snapshot(SessionDocToken, id as ConversationId, context);
 		if (doc?.id === undefined) throw notFound("The session");
 		if (doc.place === "local") {
 			throw new HttpError(
@@ -85,11 +87,11 @@ export class Delivery {
 
 	async #deliver(id: number, action: "push" | "pr", context: Context): Promise<DeliveryResult> {
 		const doc = await this.#session(id, context);
-		const live = await this.#deps.agent.harness().snapshot(LiveDoc, id as ConversationId, context);
+		const live = await this.#deps.harness().snapshot(LiveDoc, id as ConversationId, context);
 		if (live?.run !== undefined) {
 			throw new HttpError(409, "Pi is still working, so there is nothing final to deliver yet.", "Wait for the report, or tap Stop first.");
 		}
-		const workspace = this.#deps.agent.workspace(id);
+		const workspace = this.#deps.workspace(id);
 		try {
 			await push(workspace, doc.branch);
 		} catch (error) {
@@ -118,7 +120,7 @@ export class Delivery {
 			}
 		}
 		await this.#record(id, context, (draft) => {
-			draft.delivery.pushed = { commit: pushed, at: this.#deps.agent.now() };
+			draft.delivery.pushed = { commit: pushed, at: this.#deps.now() };
 			if (pr !== undefined) draft.delivery.pr = { number: pr.number, url: pr.url };
 			delete draft.delivery.error;
 		});
@@ -130,15 +132,15 @@ export class Delivery {
 		const message = error instanceof Error ? error.message : String(error);
 		this.#deps.log.warn("deliver.failed", { session: id, error: errorKind(error) });
 		await this.#record(id, context, (draft) => {
-			draft.delivery.error = { message, at: this.#deps.agent.now() };
+			draft.delivery.error = { message, at: this.#deps.now() };
 		});
 		return message;
 	}
 
 	async #record(id: number, context: Context, change: (doc: Draft<RepoSessionDoc>) => void): Promise<void> {
-		await this.#deps.agent.harness().commit(
+		await this.#deps.harness().commit(
 			(tx) =>
-				editSession(tx, id, this.#deps.agent.now(), (doc) => {
+				editSession(tx, id, this.#deps.now(), (doc) => {
 					if (doc.place === "repo") change(doc);
 				}),
 			context,
@@ -148,7 +150,7 @@ export class Delivery {
 	/** The session's committed changes, file by file, measured from where the session's own work began. */
 	async diff(id: number, context: Context): Promise<SessionDiff> {
 		const doc = await this.#session(id, context);
-		const workspace = this.#deps.agent.workspace(id);
+		const workspace = this.#deps.workspace(id);
 		const from = await comparisonPoint(workspace, doc.startCommit ?? "HEAD", doc.base);
 		return { base: doc.base, files: await diffFiles(workspace, from), uncommitted: (await uncommitted(workspace)).length };
 	}

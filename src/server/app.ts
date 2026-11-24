@@ -166,11 +166,13 @@ export async function startApp(options: AppOptions): Promise<App> {
 		harness,
 		log,
 		now,
-		dataDir: config.dataDir,
+		databaseFile: paths.database,
+		backupDir: paths.backups,
 		uploadsDir: paths.uploads,
-		dirs: (id) => ({ workspace: workspace(id), scratch: scratch(id) }),
+		workspace,
+		scratch,
 	});
-	const delivery = new Delivery({ host, agent: services, log });
+	const delivery = new Delivery({ harness, host, workspace, now, log });
 	const supervisor = new Supervisor({ harness, notifications, log, now });
 	const synthesizer = options.speech === false ? undefined : config.fake ? fakeSynthesizer() : (await kokoroInstalled()) ? kokoroSynthesizer(log, config.modelsUnloadAfterMs) : undefined;
 	const speech = synthesizer === undefined ? undefined : new Speech({ harness, agent: services, synthesizer, log, now });

@@ -139,13 +139,13 @@ export function NewSession(): JSX.Element {
 					onSend={async (text, attachments, requestId) => {
 						if (local) {
 							const { id } = await api.create({ requestId, place: "local", dir, text, attachments });
-							navigate(`#/s/${id}`);
+							navigate({ kind: "session", id });
 							return;
 						}
 						if (repo === undefined) return;
 						const start = mode === "new" ? { kind: "new" as const, base } : { kind: "continue" as const, branch };
 						const { id } = await api.create({ requestId, place: "repo", repo, start, text, attachments });
-						navigate(`#/s/${id}`);
+						navigate({ kind: "session", id });
 					}}
 				/>
 			</ComposerDock>

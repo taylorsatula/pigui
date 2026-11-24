@@ -11,26 +11,26 @@ import { editSession, SessionDocToken, SessionIndexToken } from "./documents.ts"
 import { isAncestor, isRepository, refExists, uncommitted, unpushedCount } from "./git.ts";
 import { errorKind, type Logger } from "./log.ts";
 
-export { ROOT_CONVERSATION_ID };
-
 const DAY = 24 * 60 * 60 * 1000;
 /** Archived sessions untouched this long lose their workspace, if nothing in it is unpushed. */
 export const CLEANUP_AFTER_MS = 7 * DAY;
 const BACKUPS_KEPT = 14;
 const UPLOADS_KEPT_MS = DAY;
-const DATABASE_FILE = "pigui.sqlite";
-const BACKUPS_DIR = "backups";
 
 export type MaintenanceDeps = {
 	harness: () => Harness;
 	log: Logger;
 	now: () => number;
-	/** The data directory: holds pigui.sqlite, with the backups directory beside it. */
-	dataDir: string;
-	/** Where attachments live; stale files are pruned only when a wiring provides the directory. */
-	uploadsDir?: string;
-	/** A session's own directories: its workspace (a repository session's clone, and every session's attachments) and its scratch. */
-	dirs: (id: number) => { workspace: string; scratch: string };
+	/** The database file the sweep backs up. */
+	databaseFile: string;
+	/** Where the dated backup copies are kept. */
+	backupDir: string;
+	/** Where attachments live; stale files are pruned each sweep. */
+	uploadsDir: string;
+	/** A session's workspace: a repository session's clone, and every session's attachments. */
+	workspace: (id: number) => string;
+	/** A session's scratch directory (its commands' home and tmp), removed with its workspace. */
+	scratch: (id: number) => string;
 };
 
 /** A path with its symlinks resolved where it exists, so two spellings of one directory compare equal. */
@@ -114,7 +114,8 @@ export class Maintenance {
 	 */
 	async #clean(doc: Readonly<SessionDoc>, chosen: readonly string[], context: Context): Promise<boolean> {
 		const { id } = doc;
-		const { workspace, scratch } = this.#deps.dirs(id);
+		const workspace = this.#deps.workspace(id);
+		const scratch = this.#deps.scratch(id);
 		if ((await holdsAny(workspace, chosen)) || (await holdsAny(scratch, chosen))) return false;
 		if (doc.place === "repo" && !(await this.#pushed(workspace, doc))) return false;
 		await rm(workspace, { recursive: true, force: true });
@@ -151,27 +152,24 @@ export class Maintenance {
 
 	/** A consistent copy of the database through SQLite's online backup, beside the last few. */
 	async backup(): Promise<string> {
-		const backupDir = join(this.#deps.dataDir, BACKUPS_DIR);
-		await mkdir(backupDir, { recursive: true });
+		await mkdir(this.#deps.backupDir, { recursive: true });
 		const name = `pigui-${new Date(this.#deps.now()).toISOString().slice(0, 10)}.sqlite`;
-		const target = join(backupDir, name);
-		const source = new DatabaseSync(join(this.#deps.dataDir, DATABASE_FILE), { readOnly: true });
+		const target = join(this.#deps.backupDir, name);
+		const source = new DatabaseSync(this.#deps.databaseFile, { readOnly: true });
 		try {
 			await backup(source, target);
 		} finally {
 			source.close();
 		}
-		const backups = (await readdir(backupDir)).filter((file) => /^pigui-\d{4}-\d{2}-\d{2}\.sqlite$/.test(file)).sort();
-		for (const old of backups.slice(0, Math.max(0, backups.length - BACKUPS_KEPT))) await rm(join(backupDir, old), { force: true });
+		const backups = (await readdir(this.#deps.backupDir)).filter((file) => /^pigui-\d{4}-\d{2}-\d{2}\.sqlite$/.test(file)).sort();
+		for (const old of backups.slice(0, Math.max(0, backups.length - BACKUPS_KEPT))) await rm(join(this.#deps.backupDir, old), { force: true });
 		return target;
 	}
 
 	async #pruneUploads(): Promise<void> {
-		const uploadsDir = this.#deps.uploadsDir;
-		if (uploadsDir === undefined) return;
-		const files = await readdir(uploadsDir).catch(() => [] as string[]);
+		const files = await readdir(this.#deps.uploadsDir).catch(() => [] as string[]);
 		for (const file of files) {
-			const path = join(uploadsDir, file);
+			const path = join(this.#deps.uploadsDir, file);
 			const info = await stat(path).catch(() => undefined);
 			if (info !== undefined && this.#deps.now() - info.mtimeMs > UPLOADS_KEPT_MS) await rm(path, { force: true });
 		}

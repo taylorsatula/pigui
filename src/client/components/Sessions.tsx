@@ -51,14 +51,14 @@ async function setArchived(row: SessionRow, archived: boolean, open: boolean): P
 		showToast({ message: describeFailure(error).message });
 		return;
 	}
-	if (archived && open) navigate("#/");
+	if (archived && open) navigate({ kind: "new" });
 	showToast({
 		message: archived ? "Session archived." : "Session restored.",
 		action: {
 			label: "Undo",
 			run: () => {
 				void api.archive(row.id, !archived).then(() => {
-					if (archived && open) navigate(`#/s/${row.id}`);
+					if (archived && open) navigate({ kind: "session", id: row.id });
 				});
 			},
 		},
@@ -173,7 +173,7 @@ function Picker(): JSX.Element {
 						class="link"
 						onClick={() => {
 							close();
-							navigate("#/");
+							navigate({ kind: "new" });
 						}}
 					>
 						<Icon name="plus" size={20} /> New

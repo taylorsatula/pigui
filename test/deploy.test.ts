@@ -4,6 +4,7 @@ import { chmodSync, cpSync, existsSync, mkdirSync, mkdtempSync, readdirSync, rmS
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
+import { pathWithout } from "./path.ts";
 
 const script = join(import.meta.dirname, "..", "deploy", "install.sh");
 
@@ -201,20 +202,7 @@ function onPremDryRun(system: "Darwin" | "Linux", args: string[], { prepare, tai
 	}
 	// Without a stub for tailscale, hide any real one on this computer's PATH, so the dry run cannot answer for the script.
 	const hide = hideTailscale || tailscale === undefined;
-	// Drop every directory holding a tailscale binary, but keep the rest of its contents reachable: symlink everything
-	// else from it into bin, so coreutils and bash survive on a machine where they share a directory with tailscale.
-	const pathDirs = (process.env.PATH ?? "").split(":");
-	if (hide) {
-		for (const dir of pathDirs) {
-			if (!existsSync(join(dir, "tailscale"))) continue;
-			for (const entry of readdirSync(dir)) {
-				if (entry === "tailscale" || existsSync(join(bin, entry))) continue;
-				try { symlinkSync(join(dir, entry), join(bin, entry)); } catch { /* a dangling or duplicate entry is fine to skip */ }
-			}
-		}
-	}
-	const kept = hide ? pathDirs.filter((dir) => !existsSync(join(dir, "tailscale"))) : pathDirs;
-	const path = `${bin}:${kept.join(":")}`;
+	const path = hide ? pathWithout(bin, "tailscale") : `${bin}:${process.env.PATH ?? ""}`;
 	try {
 		prepare?.(home);
 		const node = spawnSync("bash", ["-c", "command -v node"], { encoding: "utf8", env: { ...process.env, PATH: path } }).stdout.trim();

@@ -40,8 +40,18 @@ Notifications reach the rest of the server through a small port (`Notifications`
 the concrete class, so tools and the supervisor depend on the interface, not the pipeline. `callers.ts` parses a
 `/proc/net/tcp{,6}` row with an unparseable uid as *unidentifiable* and refuses it (the reference admitted it as a
 stranger, which on a server admits it — wrong direction for the trust model). `config.ts` treats any spelling of zero
-dollars (`0`, `0.0`, whitespace) as no spend cap. These are the whole class of intentional deviations; the rest is
-parity.
+dollars (`0`, `0.0`, whitespace) as no spend cap.
+
+**Cleanups adopted from the reference.** A later pass took the reference's better shapes where they cost nothing.
+`Delivery` and `Maintenance` take only what they use (`harness`/`host`/`workspace`/`now`/`log`, and explicit
+`databaseFile`/`backupDir`/`uploadsDir`/`workspace`/`scratch`) instead of the whole `AgentServices` bag or a `dataDir`
+they re-derive paths from. A repository's git identity, `.git/info/exclude`, attachments directory and `startCommit`
+are prepared in the `branch` setup step, and `startCommit` lands in the same commit that advances the step to `start`,
+so a crash between the two cannot leave the step ahead of the record. The plan-approval flip to `implementing` happens
+once, in the answer commit; the tool's resume path no longer repeats it. Dead client exports (`clearDraft`,
+`setPickerOpen`, `shrinkPhoto`'s unused dimensions) are gone, and `navigate` takes a `Route` rather than a hash string.
+The installer tests hide a program through one shared helper (`test/path.ts`) that symlinks the rest of its directory
+into the stub bin, so hiding docker no longer hides bash on a merged-/usr machine.
 
 ## Data model
 

@@ -34,8 +34,3 @@ export function saveDraft(key: string, draft: Draft): void {
 		// Storage can be unavailable (private browsing); the draft then lives only in memory.
 	}
 }
-
-/** Drop the draft (after its send succeeded); the request ID goes with it, since the server answered. */
-export function clearDraft(key: string): void {
-	saveDraft(key, EMPTY);
-}

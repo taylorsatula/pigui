@@ -120,10 +120,6 @@ export function setMissing(missing: boolean): void {
 	store.set({ missing });
 }
 
-export function setPickerOpen(pickerOpen: boolean): void {
-	store.set({ pickerOpen });
-}
-
 /** Re-render when the selected part of the state changes. */
 export function useStore<T>(select: (state: State) => T): T {
 	const [value, setValue] = useState(() => select(store.get()));
@@ -136,9 +132,9 @@ export function useStore<T>(select: (state: State) => T): T {
 	return value;
 }
 
-/** Point the page at another route, which is a hash the router parses. */
-export function navigate(hash: string): void {
-	location.hash = hash;
+/** Point the page at another route; the hash it writes is what the router parses. */
+export function navigate(route: Route): void {
+	location.hash = route.kind === "new" ? "#/" : route.agent === undefined ? `#/s/${route.id}` : `#/s/${route.id}/agent/${route.agent}`;
 }
 
 let toastTimer: ReturnType<typeof setTimeout> | undefined;
