@@ -6,7 +6,6 @@ import { createHash } from "node:crypto";
 import { copyFile, mkdir, readdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { deflateSync } from "node:zlib";
-import { build } from "esbuild";
 import { build as viteBuild } from "vite";
 
 const root = join(import.meta.dirname, "..");
@@ -120,17 +119,21 @@ const buildId = hash.digest("hex").slice(0, 12);
 const shell = ["/", ...emitted.filter((file) => !file.endsWith(".map")).map((file) => `/${file}`)];
 
 // The service worker precaches the shell and names its cache after the build, so any change replaces it.
-await build({
-	entryPoints: [join(root, "src", "sw", "sw.ts")],
-	outfile: join(out, "sw.js"),
-	bundle: true,
-	format: "iife",
-	platform: "browser",
-	target: ["safari16", "chrome110"],
-	minify: true,
+await viteBuild({
+	configFile: false,
 	define: {
 		BUILD_ID: JSON.stringify(buildId),
 		SHELL: JSON.stringify(shell),
+	},
+	build: {
+		outDir: out,
+		emptyOutDir: false,
+		target: ["safari16", "chrome110"],
+		minify: true,
+		rollupOptions: {
+			input: join(root, "src", "sw", "sw.ts"),
+			output: { format: "iife", entryFileNames: "sw.js" },
+		},
 	},
 	logLevel: "warning",
 });
