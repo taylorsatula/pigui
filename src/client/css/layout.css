@@ -1,20 +1,28 @@
 @layer components {
 /* ---- Layout */
 
+/* The app is a fixed-height shell: the bars are plain flex children and the transcript (or form) scrolls inside it.
+   Nothing is viewport-anchored, so iOS has no sticky/fixed geometry to desync hit-testing against. */
 .app {
 	display: flex;
-	min-height: 100dvh;
+	height: var(--viewport-height, 100dvh);
+	overflow: hidden;
 }
 
 .main {
 	flex: 1;
 	min-width: 0;
+	display: flex;
+	flex-direction: column;
+	min-height: 0;
 }
 
 .session {
 	display: flex;
 	flex-direction: column;
-	min-height: 100dvh;
+	height: 100%;
+	min-height: 0;
+	overflow: hidden;
 	padding-left: var(--safe-left);
 	padding-right: var(--safe-right);
 }
@@ -32,12 +40,8 @@
 	padding-right: calc(var(--gutter) + var(--inset));
 }
 
-/* The title bar stays in view while the transcript scrolls. */
 .pinned,
 .new-session > .topbar {
-	position: sticky;
-	top: 0;
-	z-index: 5;
 	background: var(--bar);
 	border-bottom: var(--hairline) solid var(--separator);
 }
