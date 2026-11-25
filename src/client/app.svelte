@@ -4,6 +4,7 @@
 	import { api } from "./api.ts";
 	import AgentView from "./components/AgentView.svelte";
 	import NewSession from "./components/NewSession.svelte";
+	import Screensaver from "./components/Screensaver.svelte";
 	import SessionPicker from "./components/SessionPicker.svelte";
 	import SessionView from "./components/SessionView.svelte";
 	import Toasts from "./components/Toasts.svelte";
@@ -41,6 +42,7 @@
 	});
 
 	const session = $derived(app.route.kind === "session" ? app.route.id : undefined);
+	const implementing = $derived(session !== undefined && app.session?.workflow === "implementing");
 	const agent = $derived(app.route.kind === "session" ? app.route.agent : undefined);
 	$effect(() => {
 		live.follow(session, agent);
@@ -59,4 +61,5 @@
 	</main>
 	<SessionPicker />
 	<Toasts />
+	<Screensaver active={implementing} />
 </div>

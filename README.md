@@ -64,6 +64,8 @@ npm run build        # esbuild bundle of the app + service worker, fonts, drawn 
 
 The server runs its TypeScript directly (Node's type stripping); there is no server build step.
 
+The screensaver is `/girl.gif` (500x500, lower right, after five idle minutes in a session whose plan is approved and not yet reported; any input dismisses it). Drop the gif at `src/client/public/girl.gif`; without it the screensaver disables itself.
+
 ## Run fake mode
 
 Fake mode runs the complete product with no model credentials and no GitHub access, on a free port in a temporary

@@ -275,10 +275,10 @@ function delegation(context: readonly Message[], memory: boolean): AssistantMess
 		const [verb = "", first = "", second = "", ...rest] = line.trim().split(" ");
 		// "fg" and "bg" force the run_in_background parameter; without one the parameter is omitted, exercising the default.
 		const background = second === "bg" ? true : second === "fg" ? false : undefined;
-		const optional = background === undefined ? {} : { run_in_background: background };
+		const optional = <T extends Record<string, unknown>>(base: T): T & { run_in_background?: boolean } => (background === undefined ? base : { ...base, run_in_background: background });
 		const description = `Task ${at}`;
-		if (verb === "agent") return [call("delegate", AGENT, { subagent_type: first, description, prompt: rest.join(" "), ...optional })];
-		if (verb === "resume") return [call("delegate", AGENT, { resume: Number(first), description, prompt: rest.join(" "), ...optional })];
+		if (verb === "agent") return [call("delegate", AGENT, optional({ subagent_type: first, description, prompt: rest.join(" ") }))];
+		if (verb === "resume") return [call("delegate", AGENT, optional({ resume: Number(first), description, prompt: rest.join(" ") }))];
 		if (verb === "steer") return [call("delegate", STEER, { agent_id: Number(first), message: [second, ...rest].join(" ") })];
 		if (verb === "report") {
 			const parts = { headline: "Delegated the work.", summary: "", outcome: "complete", endState: [], changes: [], checks: [], deviations: [], notes: [], learned: "" };
