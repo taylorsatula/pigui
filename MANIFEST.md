@@ -49,7 +49,7 @@ the OnPrem installer.
   and credentials. picloud/pigui contains no provider code. GitHub access goes through `gh` and `git` shell-outs.
 - **Everything pigui remembers is a Durable document** committed with the agent's own state; the drawer,
   notifications and maintenance read only these documents. No second store.
-- **Client:** Preact + `marked` + `DOMPurify`, esbuild (no heavier toolchain). Serif/sans/mono three-face system.
+- **Client:** Svelte 5 + Vite (no SvelteKit; runes only, no component `<style>` blocks). `marked` + `DOMPurify` stay, lazy-loaded. Serif/sans/mono three-face system.
 
 ## 3. Sessions and workspaces (A4.1)
 
@@ -489,20 +489,19 @@ touch; `index.html` with `viewport-fit=cover`, `interactive-widget=resizes-conte
 `theme-color` per color scheme; `apple-mobile-web-app-capable`. `start_url` `/`, display standalone.
 
 ### 14.2 Service worker (`src/sw/sw.ts`)
-- Cache `pigui-shell-${BUILD_ID}`: precaches `/`, `/app.js`, `/app.css`, the manifest, icons and the font files;
+- Cache `pigui-shell-${BUILD_ID}`: precaches `/` and every file the build emits (the hashed CSS asset, the manifest, icons, fonts), minus sourcemaps;
   `install` → `skipWaiting`; `activate` → deletes other caches → `clients.claim`.
-- `fetch`: network-first for same-origin GETs that are not `/api/*` (never caches the API); re-caches only SHELL
-  keys; offline → cached shell; an uncached miss is `Response.error()`. No dedicated offline page.
+- `fetch`: network-first for same-origin GETs that are not `/api/*` (never caches the API); re-caches any same-origin GET that succeeds; offline → cached shell; an uncached miss is `Response.error()`. No dedicated offline page.
 - `push`: parses `{title, body, url, tag}` (default: pigui/""/"/"/"pigui"), shows the notification with
   `tag`, icon/badge `/icons/icon-192.png`, `data:{url}`.
 - `notificationclick`: closes; focuses the first window with `{type:"open", url}` posted, else `openWindow(url)`.
 
 ### 14.3 Routes (hash)
 `#/` → New session; `#/s/:id` → session view; `#/s/:id/agent/:n` → agent viewer (report cards suppressed).
-Routing is a hash regex in `store.ts`; unknown → new.
+Routing is a hash regex in `store.svelte.ts`; unknown → new.
 
 ### 14.4 Views and components
-- **Session picker (☰)** (Sessions.tsx): a dialog over the page (dimmed 0.6, blurred 3 px), laid out as macOS Finder
+- **Session picker (☰)** (SessionPicker.svelte / SessionsButton.svelte): a dialog over the page (dimmed 0.6, blurred 3 px), laid out as macOS Finder
   list view: sortable column headers (Name/Where/Modified/Status, newest first default), striped rows, a status-coloured
   dot where Finder puts an icon (cyan working, yellow its turn, orange warning, red error, empty ring idle), "Today at
   …" dates, the open session filled in ink as the selection, arrow-key navigation, 44 pt rows on phone; done/archived/
@@ -511,26 +510,26 @@ Routing is a hash regex in `store.ts`; unknown → new.
   the open session navigates to New session with an Undo toast. A status bar counts them and holds the memory-off
   notice and "Turn on notifications". Escape, Close, or a tap outside closes it. Focus returns properly for screen
   readers.
-- **New session** (NewSession.tsx): repository choice (default last used) + branch choice (default: a new branch from
+- **New session** (NewSession.svelte): repository choice (default last used) + branch choice (default: a new branch from
   the repo's default branch), the composer; OnPrem adds a directory field with starred directories and recents.
-- **Session view** (SessionView.tsx): title bar (title, one-line status with spend "$<n>" once above zero), the
+- **Session view** (SessionView.svelte): title bar (title, one-line status with spend "$<n>" once above zero), the
   transcript, the composer; the report card carries Push/Open PR/View PR/Keep working buttons; failure banners with a
   next step (Continue, Raise to $X and continue, Retry setup).
-- **Agents panel** (Agents.tsx): button with a count, a panel listing agents with a Stop button each; a running row
+- **Agents panel** (AgentsButton.svelte / AgentsPanel.svelte / AgentView.svelte): button with a count, a panel listing agents with a Stop button each; a running row
   shows the tool the agent is on and the last line it printed (or "thinking"/"writing").
-- **Diff sheet** (Diff.tsx): grouped by file, added/removed counts, unified patch; binary/too-large files listed
+- **Diff sheet** (DiffSheet.svelte): grouped by file, added/removed counts, unified patch; binary/too-large files listed
   without content; uncommitted count noted separately; bottom sheet with grabber, Escape/backdrop/drag-to-close with
   iOS-style momentum; on wide screens a centred dialog.
-- **Transcript** (Transcript.tsx): the agent's prose as sanitized markdown (marked + DOMPurify); thinking inline
+- **Transcript** (Transcript.svelte): the agent's prose as sanitized markdown (marked + DOMPurify); thinking inline
   (quiet italic) while running, folded when done; work stretches as above; cards (questions/plan/report) inline;
   history paging; compaction rows; agent-result notes.
-- **Composer** (Composer.tsx): an input pill with an attach button and a circular 44 pt send button that becomes
+- **Composer** (Composer.svelte): an input pill with an attach button and a circular 44 pt send button that becomes
   Stop while a run is active and nothing is typed; `@`/`#` pickers (8 subsequence-matched candidates; Return takes the
   first match on keyboard devices; Escape closes); a placeholder that says what sending will do now ("Answer in your
   own words…", "Steer Pi while it works…"); drafts saved as typed (localStorage `pigui.drafts`, per key, with
   attachments and the in-flight requestId); Return sends with pointer keyboards (`(hover:hover) and (pointer:fine)`),
   Shift+Return newlines, ⌘/Ctrl+Return always, never while composing an IME; photos resized (≤ 2048 px, JPEG q0.85).
-- **Speak** (Speak.tsx/speech.ts): a speaker under each reply (agent's text in one turn, consecutive blocks read as
+- **Speak** (Speak.svelte/speech.ts): a speaker under each reply (agent's text in one turn, consecutive blocks read as
   one); on the report card it reads headline, summary, departures and notes. Tap → the session's model rewrites the
   reply to a speakable script (streamed NDJSON, `SPEECH_SEGMENT_CHARS = 200` per segment, sentence-split, thinking
   off), Kokoro-82M (q8) synthesizes on-CPU (voice `af_heart`, one at a time, segments trimmed of padding silence),
