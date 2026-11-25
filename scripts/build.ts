@@ -135,7 +135,7 @@ await viteBuild({
 			output: { format: "iife", entryFileNames: "sw.js" },
 		},
 	},
-	logLevel: "warning",
+	logLevel: "warn",
 });
 
 process.stdout.write(`Built the app into ${out} (build ${buildId}).\n`);
