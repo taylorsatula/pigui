@@ -70,9 +70,12 @@ export function keepPosition(): () => void {
 }
 
 /**
- * Track scrolling and the visible viewport, which shrinks when the keyboard opens. `--viewport-height` sizes the
- * shell; iOS before 27.1 overlays the keyboard without resizing the page, so `dvh` cannot. Scrolls are caught on the
- * document in the capture phase, because scroll does not bubble but capture still sees the transcript's own scrolls.
+ * Track the visible viewport, which iOS shrinks and pans when the keyboard opens: the keyboard overlays the page
+ * instead of resizing the layout, so the shell must be sized from `visualViewport.height` and shifted down by
+ * `visualViewport.offsetTop` to exactly cover the visible strip, or it stays pinned to the layout top with a void
+ * before the keyboard. The margin keeps fixed-position descendants anchored to the viewport. Scrolls are caught on
+ * the document in the capture phase, because scroll does not bubble but capture still sees the transcript's scrolls;
+ * the visual viewport fires its own scroll when iOS pans it, which only it observes.
  */
 export function watchViewport(): () => void {
 	const root = document.documentElement;
@@ -83,16 +86,21 @@ export function watchViewport(): () => void {
 	};
 	const onResize = () => {
 		// Pinch-zoom also shrinks the visual viewport; that is not less room.
-		if ((visual?.scale ?? 1) <= 1) root.style.setProperty("--viewport-height", `${visual?.height ?? window.innerHeight}px`);
+		if ((visual?.scale ?? 1) <= 1) {
+			root.style.setProperty("--viewport-height", `${visual?.height ?? window.innerHeight}px`);
+			root.style.setProperty("--viewport-offset", `${visual?.offsetTop ?? 0}px`);
+		}
 		followEnd();
 	};
 	onResize();
 	document.addEventListener("scroll", onScroll, { capture: true, passive: true });
 	window.addEventListener("resize", onResize);
 	visual?.addEventListener("resize", onResize);
+	visual?.addEventListener("scroll", onResize, { passive: true });
 	return () => {
 		document.removeEventListener("scroll", onScroll, { capture: true });
 		window.removeEventListener("resize", onResize);
 		visual?.removeEventListener("resize", onResize);
+		visual?.removeEventListener("scroll", onResize);
 	};
 }
