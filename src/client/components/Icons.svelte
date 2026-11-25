@@ -10,6 +10,7 @@
 		check: "M5 12.5l4.5 4.5L19 7.5",
 		close: "M6 6l12 12M18 6L6 18",
 		minus: "M6 12h12",
+		stop: "M8 8h8v8H8z",
 		// A plus over a minus, centred on the icon's middle as the others are, and as wide as their lighter parts.
 		diff: "M12 4.5v9M7 9h10M7 19.5h10",
 		archive: "M4 7h16v13H4zM3 3h18v4H3zM10 11h4",
