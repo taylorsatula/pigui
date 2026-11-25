@@ -11,7 +11,8 @@ import {
 	NUDGE_ENTRY,
 	type SessionDoc,
 } from "../shared/session.ts";
-import { buildBlocks, turnStart, type Block } from "./transcript.ts";
+import { buildBlocks, turnStart, type Block, type CallView } from "./transcript.ts";
+type CallSpec = Pick<CallView, "id" | "name" | "status" | "output" | "diagnostics" | "diff">;
 
 const TS = 1_700_000_000_000;
 
@@ -279,5 +280,54 @@ describe("turnStart", () => {
 	it("is -1 when no turn start is loaded", () => {
 		expect(turnStart([text])).toBe(-1);
 		expect(turnStart([])).toBe(-1);
+	});
+});
+
+describe("diagnostics and diffs", () => {
+	const editCall = (over: Record<string, unknown> = {}, details?: Record<string, unknown>) => [
+		entryItem(
+			entry(3, "pi.assistant", {
+				model: [assistantMessage([{ type: "toolCall", id: "c1", name: "edit", arguments: { path: "a.ts" } }])],
+			}),
+		),
+		entryItem(entry(4, "pi.toolResult", { model: [toolResultMessage("c1", "edit", "Successfully replaced 1 block(s) in a.ts.", { ...over, ...(details === undefined ? {} : { details }) })] })),
+	];
+
+	it("splits pi-durable's trailing <harness> block off the output as diagnostics", () => {
+		const items = editCall({ content: [{ type: "text", text: "Successfully replaced 1 block(s) in a.ts." }, { type: "text", text: "<harness>\n[warning] Output truncated: 10 lines, 100 bytes dropped\n</harness>" }] });
+		const blocks = buildBlocks(viewOf(items), undefined, false);
+		const work = blocks[0] as Extract<Block, { kind: "work" }>;
+		const call = (work.items[0] as Extract<Block, { kind: "work" }>["items"][number] & { call: CallSpec }).call;
+		expect(call.output).toBe("Successfully replaced 1 block(s) in a.ts.");
+		expect(call.diagnostics).toBe("[warning] Output truncated: 10 lines, 100 bytes dropped");
+	});
+
+	it("leaves output untouched when there is no <harness> block", () => {
+		const blocks = buildBlocks(viewOf(editCall()), undefined, false);
+		const work = blocks[0] as Extract<Block, { kind: "work" }>;
+		const call = (work.items[0] as Extract<Block, { kind: "work" }>["items"][number] & { call: CallSpec }).call;
+		expect(call.output).toBe("Successfully replaced 1 block(s) in a.ts.");
+		expect(call.diagnostics).toBeUndefined();
+	});
+
+	it("carries the edit unified diff from the tool result's details", () => {
+		const diff = "@@ -1 +1 @@\n-old\n+new\n";
+		const items = editCall({}, { diff, patch: "patch" });
+		const blocks = buildBlocks(viewOf(items), undefined, false);
+		const work = blocks[0] as Extract<Block, { kind: "work" }>;
+		const call = (work.items[0] as Extract<Block, { kind: "work" }>["items"][number] & { call: CallSpec }).call;
+		expect(call.diff).toBe(diff);
+	});
+});
+
+describe("identity", () => {
+	it("returns the identical array when called again with unchanged inputs", () => {
+		const items = [
+			entryItem(entry(3, "pi.assistant", { model: [assistantMessage([{ type: "text", text: "Done." }])] })),
+		];
+		const view = viewOf(items);
+		const first = buildBlocks(view, undefined, false);
+		expect(buildBlocks(view, undefined, false)).toBe(first);
+		expect(buildBlocks(view, undefined, true)).not.toBe(first);
 	});
 });

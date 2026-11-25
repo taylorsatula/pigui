@@ -27,9 +27,18 @@ function load(): Promise<Libs> {
 	return libs;
 }
 
+// Identical text renders identically; during streaming the same text recurs between tokens' renders, and a long session re-renders it on every update.
+const CACHE_MAX = 200;
+const cache = new Map<string, string>();
+
 export async function renderMarkdown(text: string): Promise<string> {
+	const hit = cache.get(text);
+	if (hit !== undefined) return hit;
 	const { marked, DOMPurify } = await load();
-	return DOMPurify.sanitize(marked.parse(text, { async: false }), SANITIZE);
+	const rendered = DOMPurify.sanitize(marked.parse(text, { async: false }), SANITIZE);
+	if (cache.size >= CACHE_MAX) cache.delete(cache.keys().next().value as string);
+	cache.set(text, rendered);
+	return rendered;
 }
 
 export async function renderInline(text: string): Promise<string> {

@@ -10,6 +10,7 @@
 	import { api, describeFailure } from "../api.ts";
 	import { exitMs, swipeDown } from "../motion.ts";
 	import Icon from "./Icons.svelte";
+	import Patch from "./Patch.svelte";
 
 	let { session, onClose }: { session: number; onClose: () => void } = $props();
 
@@ -57,10 +58,6 @@
 	const added = $derived(diff?.files.reduce((sum, file) => sum + file.added, 0) ?? 0);
 	const removed = $derived(diff?.files.reduce((sum, file) => sum + file.removed, 0) ?? 0);
 </script>
-
-{#snippet patch(patch: string)}
-	<pre class="patch"><code>{#each patch.replace(/\n$/, "").split("\n") as line, index (index)}<span class={line.startsWith("+") ? "add" : line.startsWith("-") ? "del" : line.startsWith("@@") ? "hunk" : ""}>{line}{"\n"}</span>{/each}</code></pre>
-{/snippet}
 
 {#snippet counts(added: number, removed: number)}
 	<span class="diff-counts"><span class={`add ${added === 0 ? "zero" : ""}`}>+{added}</span> <span class={`del ${removed === 0 ? "zero" : ""}`}>−{removed}</span></span>
@@ -114,7 +111,7 @@
 						<span class="diff-path">{file.from === undefined ? file.path : `${file.from} → ${file.path}`}</span>
 						{#if file.binary}<span class="diff-counts">binary</span>{:else}{@render counts(file.added, file.removed)}{/if}
 					</summary>
-					{#if file.binary}<p class="diff-note">A binary file.</p>{:else}{@render patch(file.patch)}{/if}
+					{#if file.binary}<p class="diff-note">A binary file.</p>{:else}<Patch text={file.patch} />{/if}
 					{#if file.truncated}<p class="diff-note">The rest of this file's changes are too long to show here.</p>{/if}
 				</details>
 			{/each}

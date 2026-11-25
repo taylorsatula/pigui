@@ -149,8 +149,7 @@
 	--w-strong: 560;
 	--ink-shadow: 0 0 1px color-mix(in srgb, currentColor 22%, transparent);
 	/* The title bar and composer bar: the paper showing through, frosted. */
-	--bar: color-mix(in srgb, var(--bg) 90%, transparent);
-	--bar-blur: saturate(140%) blur(16px);
+	--bar: var(--bg);
 }
 
 /* Dark is for working with the screen turned low at night: a page all but black, so an OLED screen leaves nearly every

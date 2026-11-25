@@ -76,6 +76,11 @@ button:disabled {
 	border-radius: var(--radius-full);
 }
 
+/* The agent viewer's back chevron is a link, not a disc: a rounded square reads as navigation. */
+.icon-button.back {
+	border-radius: var(--radius-s);
+}
+
 :is(.link, .icon-button):active:not(:disabled),
 details > summary:active {
 	opacity: 0.5;

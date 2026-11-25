@@ -32,7 +32,7 @@ None of this touches GitHub until you tap. The agent commits; the server deliver
   `recall_history`. Pi Durable's own compaction remains as a backstop. A session can run for hours across many context
   windows without losing the plot.
 - **Built-in subagent support.** Pi can hand work to subagents — separate Pis with their own prompt, tools and model,
-  working in a conversation of their own. Foreground (the default) or background, steering a running agent, or
+  working in a conversation of their own. Background (the default) or foreground with `run_in_background: false`, steering a running agent, or
   resuming a finished one. Their spend counts toward the session's cap; they are listed in an Agents panel with a Stop
   button. pigui ships four:
   - `scout` — read-only investigator with a fixed report shape, for establishing facts in a codebase.
@@ -63,6 +63,8 @@ npm run build        # esbuild bundle of the app + service worker, fonts, drawn 
 ```
 
 The server runs its TypeScript directly (Node's type stripping); there is no server build step.
+
+The screensaver is `/girl.gif` (500x500, lower right, after five idle minutes in a session whose plan is approved and not yet reported; any input dismisses it). Drop the gif at `src/client/public/girl.gif`; without it the screensaver disables itself.
 
 ## Run fake mode
 

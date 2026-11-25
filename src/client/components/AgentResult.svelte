@@ -8,7 +8,7 @@
 	// lines until it is opened to the whole answer.
 	import type { AgentResultData } from "../../shared/session.ts";
 	import Icon from "./Icons.svelte";
-	import Markdown from "./Markdown.svelte";
+	import ReportBody from "./ReportBody.svelte";
 
 	let { data }: { data: AgentResultData } = $props();
 
@@ -25,5 +25,5 @@
 		</span>
 		<span class="agent-preview">{preview}</span>
 	</summary>
-	<Markdown text={data.text} class="agent" />
+	<ReportBody text={data.text} class="agent" />
 </details>

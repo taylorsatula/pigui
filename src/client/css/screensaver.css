@@ -1,0 +1,25 @@
+@layer components {
+/* The screensaver: a fixed welcome in the lower right, above every sheet and toast. Taps fall through to the page; the
+   window-capture listener dismisses it all the same. */
+.screensaver {
+	position: fixed;
+	inset: 0;
+	z-index: 40;
+	pointer-events: none;
+}
+
+.screensaver img {
+	position: absolute;
+	right: 0;
+	bottom: 0;
+	width: 500px;
+	height: 500px;
+}
+
+@media (max-width: 520px) {
+	.screensaver img {
+		width: 70vmin;
+		height: 70vmin;
+	}
+}
+}

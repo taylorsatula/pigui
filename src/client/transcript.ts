@@ -37,6 +37,10 @@ export type CallView = {
 	args: Record<string, unknown>;
 	status: "running" | "waiting" | "done" | "failed";
 	output?: string;
+	/** pi-durable's rendered diagnostics (truncation, tool errors), split off the output and shown as a note. */
+	diagnostics?: string;
+	/** The unified diff an `edit` tool result carries in its details. */
+	diff?: string;
 };
 
 export type Block = (
@@ -63,8 +67,13 @@ export type Block = (
 	at?: number;
 };
 
-function resultText(message: ToolResultMessage): string {
-	return message.content.flatMap((block) => (block.type === "text" ? [block.text] : ["[image]"])).join("\n");
+/** The text the call produced, and pi-durable's trailing <harness> diagnostics block, kept apart so neither leaks into the other. */
+function splitResult(message: ToolResultMessage): { text: string; diagnostics?: string } {
+	const last = message.content.at(-1);
+	const match = last?.type === "text" ? /^<harness>\n([\s\S]*)\n<\/harness>$/.exec(last.text) : null;
+	const blocks = match === null ? message.content : message.content.slice(0, -1);
+	const text = blocks.flatMap((block) => (block.type === "text" ? [block.text] : ["[image]"])).join("\n");
+	return match === null ? { text } : { text, diagnostics: match[1] };
 }
 
 function userText(entry: EntryRecord): string {
@@ -78,7 +87,7 @@ function entryTime(entry: EntryRecord): number | undefined {
 	return entry.model?.[0]?.timestamp;
 }
 
-type Details = { card?: QuestionCard | PlanCard; answer?: CardAnswer; report?: StoredReport };
+type Details = { card?: QuestionCard | PlanCard; answer?: CardAnswer; report?: StoredReport; diff?: string; patch?: string };
 
 const NOTES: Record<CompactionNoteData["note"], string> = {
 	"handoff-request": "Asked Pi for a handoff note before compacting the context",
@@ -92,8 +101,11 @@ function compactionBlock(key: string, entry: EntryRecord): Block {
 }
 
 /** `running`: a run is under way, so the newest reply may not be finished even while nothing streams. */
+// The whole rebuild is pure in its three inputs, so one entry of memo is enough to hand back the identical array when asked twice.
+let memo: { view: TranscriptView; session: SessionDoc | undefined; running: boolean; result: Block[] } | undefined;
 export function buildBlocks(view: TranscriptView | undefined, session: SessionDoc | undefined, running: boolean): Block[] {
 	if (view === undefined) return [];
+	if (memo !== undefined && memo.view === view && memo.session === session && memo.running === running) return memo.result;
 	const live = view.docs["pi.live"] as LiveState | undefined;
 	const results = new Map<string, { message: ToolResultMessage; details: Details | undefined }>();
 	for (const item of view.items) {
@@ -118,7 +130,9 @@ export function buildBlocks(view: TranscriptView | undefined, session: SessionDo
 	// Each block takes the latest time seen, so an entry without one is dated with the one before it.
 	let now: number | undefined;
 	const add = (block: Block) => {
-		blocks.push(now === undefined ? block : { ...block, at: now });
+		// Blocks are built fresh here, so stamp `at` in place rather than cloning every block a second time.
+		if (now !== undefined) (block as { at?: number }).at = now;
+		blocks.push(block);
 	};
 	// Thinking and calls gather into one stretch of work until the agent writes prose or something else interrupts.
 	let work: WorkItem[] | undefined;
@@ -157,9 +171,13 @@ export function buildBlocks(view: TranscriptView | undefined, session: SessionDo
 			const slot = slots.get(block.id);
 			const status: CallView["status"] =
 				result !== undefined ? (result.message.isError ? "failed" : "done") : slot?.status === "sleeping" || slot?.status === "waiting" ? "waiting" : "running";
-			const output = result !== undefined ? resultText(result.message) : slot?.output;
+			const split = result !== undefined ? splitResult(result.message) : undefined;
+			const output = split?.text ?? slot?.output;
 			const call: CallView = { id: block.id, name: block.name, args: block.arguments, status };
-			addWork({ kind: "call", key: blockKey, call: output === undefined ? call : { ...call, output } });
+			if (output !== undefined) call.output = output;
+			if (split?.diagnostics !== undefined) call.diagnostics = split.diagnostics;
+			if (result?.details?.diff !== undefined) call.diff = result.details.diff;
+			addWork({ kind: "call", key: blockKey, call });
 		});
 		if (message.stopReason === "error" || message.stopReason === "aborted") {
 			flush();
@@ -234,7 +252,9 @@ export function buildBlocks(view: TranscriptView | undefined, session: SessionDo
 	}
 	const partial = live?.generation?.message as AssistantMessage | undefined;
 	if (partial !== undefined) assistant("streaming", partial, true);
-	return withSpeakers(withLiveWork(blocks, running && session?.card === undefined), running);
+	const result = withSpeakers(withLiveWork(blocks, running && session?.card === undefined), running);
+	memo = { view, session, running, result };
+	return result;
 }
 
 /** What starts a turn of work: the person writing, an automatic continuation, a card they answered, or an agent's answer. */
@@ -251,7 +271,7 @@ export function turnStart(blocks: readonly Block[]): number {
  */
 function withLiveWork(blocks: readonly Block[], working: boolean): Block[] {
 	const start = turnStart(blocks);
-	return blocks.map((block, index) => (block.kind === "work" && working && index > start ? { ...block, live: true } : block));
+	return blocks.map((block, index) => (block.kind === "work" && working && index > start && !block.live ? { ...block, live: true } : block));
 }
 
 /**
@@ -295,7 +315,7 @@ function cardBlock(
 	const details = result?.details;
 	if (name === "file_report") {
 		if (details?.report !== undefined) add({ kind: "report", key, report: reportOf(details.report), latest: result?.message === lastReport?.message });
-		else if (result?.message.isError === true) add({ kind: "notice", key, tone: "info", text: resultText(result.message) });
+		else if (result?.message.isError === true) add({ kind: "notice", key, tone: "info", text: splitResult(result.message).text });
 		return;
 	}
 	const pending = session?.card?.id === callId ? session.card : undefined;

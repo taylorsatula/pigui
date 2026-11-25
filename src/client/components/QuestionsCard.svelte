@@ -22,6 +22,14 @@
 		selected = { ...selected, [questionId]: next };
 	};
 
+	// Typed freeform and a chosen option are mutually exclusive answers: typing un-chooses, and the options dim until the note is empty again.
+	const noteInput = (questionId: string, text: string) => {
+		notes = { ...notes, [questionId]: text };
+		if (text.trim() !== "") selected = { ...selected, [questionId]: [] };
+	};
+
+	const typed = (questionId: string): boolean => (notes[questionId] ?? "").trim() !== "";
+
 	const submit = async () => {
 		busy = true;
 		const answers: QuestionAnswer[] = card.questions.map((question) => {
@@ -53,7 +61,7 @@
 		{@const name = `${card.id}-${question.id}`}
 		{@const chosen = chosenFor(question.id)}
 		{@const given = answered?.kind === "questions" ? answered.answers.find((item) => item.questionId === question.id)?.text : undefined}
-		<fieldset class="question" disabled={!pending || busy}>
+		<fieldset class="question" class:freeform={typed(question.id)} disabled={!pending || busy}>
 			<legend>{question.prompt}</legend>
 			{#each question.options as option (option.id)}
 				<label class={`option ${chosen.includes(option.id) ? "chosen" : ""}`}>
@@ -80,7 +88,7 @@
 						placeholder="Your own answer"
 						aria-label={`Your own answer to: ${question.prompt}`}
 						value={notes[question.id] ?? ""}
-						oninput={(event) => (notes = { ...notes, [question.id]: event.currentTarget.value })}
+						oninput={(event) => noteInput(question.id, event.currentTarget.value)}
 					></textarea>
 				{:else}
 					<button type="button" class="link" onclick={() => (noting = { ...noting, [question.id]: true })}>

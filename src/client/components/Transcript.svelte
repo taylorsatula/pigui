@@ -95,7 +95,7 @@
 	});
 </script>
 
-<div class="transcript" role="log" aria-live="polite" aria-relevant="additions">
+<div class="transcript" role="log">
 	{#each rows as row (row.key)}
 		{#if row.type === "day"}
 			<h2 class="day">{dayHeading(row.at)}</h2>

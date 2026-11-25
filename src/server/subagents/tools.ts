@@ -58,14 +58,14 @@ const AgentParameters = obj({
 	subagent_type: opt(str({ minLength: 1, maxLength: 100, description: "The agent to start, by name, as listed under <subagents>. With resume it may be left out; given, it must be that agent's type." })),
 	description: str({ minLength: 1, maxLength: 80, description: "Three to five words on what the agent will do, shown to the person" }),
 	prompt: str({ minLength: 1, maxLength: 100_000, description: "The task, self-contained; with resume, the next message to the agent" }),
-	run_in_background: opt(bool({ description: "Default false: the call waits and returns the agent's answer. true: it returns at once, and the full answer arrives later as a message." })),
+	run_in_background: opt(bool({ description: "Default true: it returns at once, and the full answer arrives later as a message. false: the call waits and returns the agent's answer." })),
 	resume: opt(int({ minimum: 1, description: "The id of an agent whose run has ended (done, failed or stopped): its conversation goes on with prompt, after waiting its turn like a new agent" })),
 });
 
 const AGENT_DESCRIPTION = `Start an agent: a separate Pi, defined by the person with its own prompt, tools and model, that works on one task in a conversation of its own and answers when it is done. The agents you can start are listed under <subagents>. Use one when a task matches an agent's description, to run independent work in parallel, or to keep a long exploration out of your own context; for a known file or a single command, use your own tools.
 - The agent has not seen this conversation. Brief it like a colleague who just walked in: what you are trying to do and why, what you have learned or ruled out, the files and lines involved, whether it should change anything or only look, and how long its answer should be.
-- In the foreground (the default) the call waits and returns the agent's full answer. Use it when your next step depends on that answer.
-- With run_in_background the call returns at once with the agent's id, and its full answer arrives later as a message. Never sleep, poll or guess at its result meanwhile: go on with other work, or end your turn if there is none. Your report waits until every agent has answered.
+- In the background (the default) the call returns at once with the agent's id, and its full answer arrives later as a message. Never sleep, poll or guess at its result meanwhile: go on with other work, or end your turn if there is none. Your report waits until every agent has answered.
+- With run_in_background: false the call waits and returns the agent's full answer. Use it only when your next step depends on that answer.
 - Several Agent calls in one round run at once; beyond the session's limit they wait their turn, oldest first.
 - An answer says what the agent meant to do: check changes it says it made before you rely on them. The person does not see it, so say what matters in your own words.
 - resume continues an agent whose run has ended: its conversation, and all it learned, carry forward. To reach one while it runs, use ${STEER}.`;
@@ -225,7 +225,7 @@ export function subagentTools(host: ToolsHost, task: AgentTask) {
 		replay: "safe",
 		async execute(args, api, context) {
 			if (api.wake !== undefined && api.checkpoint !== undefined) return collectAnswer(api, api.checkpoint, context);
-			const background = args.run_in_background === true;
+			const background = args.run_in_background !== false;
 			const outcome = await openDispatch(api, args, background, context);
 			if ("refused" in outcome) return errorResult(outcome.refused);
 			const made = outcome.made;

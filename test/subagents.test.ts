@@ -87,6 +87,12 @@ describe("a subagent's run", () => {
 		assert.equal(done.outcome?.kind, "replied");
 	});
 
+	test("an agent delegated to without run_in_background dispatches in the background by default", async () => {
+		const id = await server.createSession(delegate("agent probe look around"));
+		const doc = await server.until(id, (doc) => rows(doc).length > 0, "the agent to be dispatched");
+		assert.equal(rows(doc)[0]?.background, true);
+	});
+
 	test("an agent sees the project's instructions and skills as its session does, and only its own tools", async () => {
 		const id = await server.createSession(delegate("agent probe fg tell me"));
 		const done = await server.settled(id);

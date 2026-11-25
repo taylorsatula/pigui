@@ -82,6 +82,12 @@
 	transition: none;
 }
 
+/* Freeform text typed: the options are not answers right now. */
+.question.freeform .option {
+	opacity: 0.35;
+	pointer-events: none;
+}
+
 .option.chosen .option-label {
 	font-weight: var(--w-ui);
 }
