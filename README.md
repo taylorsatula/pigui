@@ -192,8 +192,9 @@ pigui loads the same files the Pi CLI does, so what you already use works here w
 ## Layout
 
 `src/shared` — every shape both sides use. `src/server` — the app: sessions, agent subsystem (`src/server/agent`),
-delivery, memory, speech, subagents, sandbox. `src/client` — the phone PWA (Preact, markdown sanitized with
-DOMPurify). `src/sw` — the service worker. `test` — node:test against the real server in fake mode. `e2e` —
+delivery, memory, speech, subagents, sandbox. The web UI is being rebuilt from the ground up on the `svelte-rewrite`
+branch (Svelte 5); until it lands, `src/client` and `src/sw` do not exist and `npm run build` builds only the sandbox
+launcher. `test` — node:test against the real server in fake mode. `e2e` —
 Playwright. `deploy` — the installer, the Dockerfile pieces and the models script. `MANIFEST.md` — the functional
 specification this reimplementation was built to; `DECISIONS.md` — the design choices and why.
 
