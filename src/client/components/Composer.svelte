@@ -238,9 +238,7 @@
 			onblur={() => setTimeout(() => (trigger = undefined), 150)}
 		></textarea>
 		{#if showStop}
-			<button type="button" class="icon-button send stop" aria-label="Stop" onclick={() => void onStop?.()}>
-				<Icon name="stop" size={18} />
-			</button>
+			<button type="button" class="halt" onclick={() => void onStop?.()}>[ HALT WORK ]</button>
 		{:else}
 			<button type="submit" class="icon-button send" aria-label="Send" disabled={empty || sending || uploading > 0 || disabled}>
 				<Icon name="send" size={18} />

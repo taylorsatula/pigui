@@ -51,9 +51,9 @@ test.describe("agents", () => {
 		await expect(page.locator(".work.live .call-command").first()).toHaveText("$ sleep 0.2");
 		await expect(page.getByRole("textbox")).toHaveCount(0);
 		await noHorizontalScroll(page);
-		await page.getByRole("button", { name: "Stop" }).tap();
+		await page.getByRole("button", { name: "[ HALT WORK ]" }).tap();
 		await expect(page.locator(".session-status")).toHaveText("Stopped");
-		await expect(page.getByRole("button", { name: "Stop" })).toHaveCount(0);
+		await expect(page.getByRole("button", { name: "[ HALT WORK ]" })).toHaveCount(0);
 
 		// Back in the session, the second has started; Stop in the panel ends it.
 		await page.getByRole("link", { name: "Back to the session" }).tap();

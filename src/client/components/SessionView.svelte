@@ -165,6 +165,7 @@
 				onStop={async () => {
 					try {
 						await api.stop(id);
+						showToast({ message: "Halted. Pi and every agent it started were stopped; it will not resume on its own." });
 					} catch (error) {
 						showToast({ message: describeFailure(error).message });
 					}

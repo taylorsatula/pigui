@@ -55,7 +55,7 @@ test.describe("the tap flow", () => {
 		await expect(live.locator(".live-call").nth(2)).toBeVisible({ timeout: 15_000 });
 		await expect(live.locator(".live-call").first().locator(".call-command")).toHaveText("$ echo turn 0");
 		await expect(live.locator(".live-call").first().locator(".tail")).toHaveText("turn 0");
-		await page.getByRole("button", { name: "Stop" }).tap();
+		await page.getByRole("button", { name: "[ HALT WORK ]" }).tap();
 		const folded = page.locator("details.work").last();
 		await expect(folded).toBeVisible();
 		await expect(folded).not.toHaveAttribute("open");
@@ -71,7 +71,7 @@ test.describe("the tap flow", () => {
 		await expect(page.locator(".is-person .said")).toHaveText("Keep going [spin]", { timeout: 15_000 });
 		await expect(page.locator(".live-call .call-command").first()).toHaveText("$ echo turn 0");
 		await expect(page.getByRole("button", { name: "Load earlier messages" })).toHaveCount(0);
-		await page.getByRole("button", { name: "Stop" }).tap();
+		await page.getByRole("button", { name: "[ HALT WORK ]" }).tap();
 	});
 
 	test("a waiting card is answered by typing in the composer", async ({ page }) => {
