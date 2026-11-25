@@ -101,8 +101,11 @@ function compactionBlock(key: string, entry: EntryRecord): Block {
 }
 
 /** `running`: a run is under way, so the newest reply may not be finished even while nothing streams. */
+// The whole rebuild is pure in its three inputs, so one entry of memo is enough to hand back the identical array when asked twice.
+let memo: { view: TranscriptView; session: SessionDoc | undefined; running: boolean; result: Block[] } | undefined;
 export function buildBlocks(view: TranscriptView | undefined, session: SessionDoc | undefined, running: boolean): Block[] {
 	if (view === undefined) return [];
+	if (memo !== undefined && memo.view === view && memo.session === session && memo.running === running) return memo.result;
 	const live = view.docs["pi.live"] as LiveState | undefined;
 	const results = new Map<string, { message: ToolResultMessage; details: Details | undefined }>();
 	for (const item of view.items) {
@@ -127,7 +130,9 @@ export function buildBlocks(view: TranscriptView | undefined, session: SessionDo
 	// Each block takes the latest time seen, so an entry without one is dated with the one before it.
 	let now: number | undefined;
 	const add = (block: Block) => {
-		blocks.push(now === undefined ? block : { ...block, at: now });
+		// Blocks are built fresh here, so stamp `at` in place rather than cloning every block a second time.
+		if (now !== undefined) (block as { at?: number }).at = now;
+		blocks.push(block);
 	};
 	// Thinking and calls gather into one stretch of work until the agent writes prose or something else interrupts.
 	let work: WorkItem[] | undefined;
@@ -247,7 +252,9 @@ export function buildBlocks(view: TranscriptView | undefined, session: SessionDo
 	}
 	const partial = live?.generation?.message as AssistantMessage | undefined;
 	if (partial !== undefined) assistant("streaming", partial, true);
-	return withSpeakers(withLiveWork(blocks, running && session?.card === undefined), running);
+	const result = withSpeakers(withLiveWork(blocks, running && session?.card === undefined), running);
+	memo = { view, session, running, result };
+	return result;
 }
 
 /** What starts a turn of work: the person writing, an automatic continuation, a card they answered, or an agent's answer. */
@@ -264,7 +271,7 @@ export function turnStart(blocks: readonly Block[]): number {
  */
 function withLiveWork(blocks: readonly Block[], working: boolean): Block[] {
 	const start = turnStart(blocks);
-	return blocks.map((block, index) => (block.kind === "work" && working && index > start ? { ...block, live: true } : block));
+	return blocks.map((block, index) => (block.kind === "work" && working && index > start && !block.live ? { ...block, live: true } : block));
 }
 
 /**

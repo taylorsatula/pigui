@@ -11,9 +11,15 @@ function scroller(): Element {
 	return document.scrollingElement ?? document.documentElement;
 }
 
-/** Scroll to the very bottom if the person is following, so the last lines sit above the composer. */
+let frame = 0;
+
+/** Scroll to the very bottom if the person is following, so the last lines sit above the composer. Batched into one frame. */
 export function followEnd(): void {
-	if (following) window.scrollTo(0, scroller().scrollHeight);
+	if (!following || frame !== 0) return;
+	frame = requestAnimationFrame(() => {
+		frame = 0;
+		if (following) window.scrollTo(0, scroller().scrollHeight);
+	});
 }
 
 /** The person acted at the bottom (opened a session, sent a message): show the end whatever they were reading. */

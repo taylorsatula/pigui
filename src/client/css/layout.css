@@ -39,8 +39,6 @@
 	top: 0;
 	z-index: 5;
 	background: var(--bar);
-	-webkit-backdrop-filter: var(--bar-blur);
-	backdrop-filter: var(--bar-blur);
 	border-bottom: var(--hairline) solid var(--separator);
 }
 

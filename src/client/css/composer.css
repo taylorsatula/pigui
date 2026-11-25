@@ -10,8 +10,6 @@
 	padding-top: 6px;
 	padding-bottom: max(8px, var(--safe-bottom));
 	background: var(--bar);
-	-webkit-backdrop-filter: var(--bar-blur);
-	backdrop-filter: var(--bar-blur);
 	border-top: var(--hairline) solid var(--separator);
 }
 

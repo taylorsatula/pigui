@@ -319,3 +319,15 @@ describe("diagnostics and diffs", () => {
 		expect(call.diff).toBe(diff);
 	});
 });
+
+describe("identity", () => {
+	it("returns the identical array when called again with unchanged inputs", () => {
+		const items = [
+			entryItem(entry(3, "pi.assistant", { model: [assistantMessage([{ type: "text", text: "Done." }])] })),
+		];
+		const view = viewOf(items);
+		const first = buildBlocks(view, undefined, false);
+		expect(buildBlocks(view, undefined, false)).toBe(first);
+		expect(buildBlocks(view, undefined, true)).not.toBe(first);
+	});
+});
