@@ -105,3 +105,9 @@ export function shortDir(dir: string, home: string | undefined): string {
 	if (dir === home) return "~";
 	return dir.startsWith(`${home}/`) ? `~${dir.slice(home.length)}` : dir;
 }
+
+/** Whether what the person typed names `dir`: as stored, or as the app shows it, a trailing slash aside. */
+export function names(typed: string, dir: string, home: string): boolean {
+	const given = typed.trim().replace(/(.)\/+$/, "$1");
+	return given === dir || given === shortDir(dir, home);
+}
