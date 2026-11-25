@@ -4,6 +4,8 @@
 .setup-form {
 	--inset: 16px;
 	flex: 1;
+	min-height: 0;
+	overflow-y: auto;
 	padding-top: 20px;
 	padding-bottom: 16px;
 	display: flex;

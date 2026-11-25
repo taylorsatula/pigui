@@ -8,7 +8,7 @@
 	import { dayHeading, sameDay } from "../format.ts";
 	import { live } from "../live.ts";
 	import { turnStart, type Block } from "../transcript.ts";
-	import { followEnd, keepPosition, pinToEnd, stopFollowing } from "../viewport.ts";
+	import { followEnd, keepPosition, pinToEnd, registerScroller, stopFollowing } from "../viewport.ts";
 	import AgentResult from "./AgentResult.svelte";
 	import { type CardActions, type DeliveryActions } from "./cards.ts";
 	import Icon from "./Icons.svelte";
@@ -23,12 +23,20 @@
 	/** Absent where nothing can be answered or delivered, as in an agent's conversation. */
 	let { blocks, session, running, cards, delivery }: { blocks: Block[]; session: SessionDoc | undefined; running: boolean; cards?: CardActions; delivery?: DeliveryActions } = $props();
 
+	let root: HTMLDivElement | undefined = $state();
 	let loading = $state(false);
 	// While earlier messages load, what was on screen stays where it is; the first message tells when they arrived.
 	let anchor: { firstKey: string | undefined; restore: () => void } | undefined;
 	let failedOn: Block[] | undefined;
 
 	const firstKey = $derived(blocks.find((block) => block.kind !== "earlier" && block.kind !== "gap")?.key);
+
+	// The transcript is the app's one scroller; viewport.ts follows it rather than the window.
+	$effect(() => {
+		const element = root;
+		registerScroller(element ?? null);
+		return () => registerScroller(null);
+	});
 
 	$effect(() => {
 		pinToEnd();
@@ -95,7 +103,7 @@
 	});
 </script>
 
-<div class="transcript" role="log">
+<div class="transcript" role="log" bind:this={root}>
 	{#each rows as row (row.key)}
 		{#if row.type === "day"}
 			<h2 class="day">{dayHeading(row.at)}</h2>
