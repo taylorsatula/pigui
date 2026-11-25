@@ -58,12 +58,11 @@
 	let sort = $state<Sort>({ column: "modified", ascending: false });
 	let notifications = $state(pushSupported() ? Notification.permission : "unsupported");
 	// Per component creation: the 12 h staleness boundary does not need finer grain.
-	const now = Date.now();
-	const rows = Object.values(app.index?.rows ?? {});
-	const home = app.bootstrap?.onPrem?.home;
+	const rows = $derived(Object.values(app.index?.rows ?? {}));
+	const home = $derived(app.bootstrap?.onPrem?.home);
 	const current = $derived(app.route.kind === "session" ? app.route.id : undefined);
-	const underWay = $derived(sorted(rows.filter((row) => active(row, now)), sort, home));
-	const inactive = $derived(sorted(rows.filter((row) => !active(row, now)), sort, home));
+	const underWay = $derived(sorted(rows.filter((row) => active(row, Date.now())), sort, home));
+	const inactive = $derived(sorted(rows.filter((row) => !active(row, Date.now())), sort, home));
 	// The folder starts open when the open session is in it, so the selection is in view.
 	// svelte-ignore state_referenced_locally
 	let folderOpen = $state(inactive.some((row) => row.id === current));
