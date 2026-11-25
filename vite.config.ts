@@ -6,6 +6,12 @@ import { defineConfig } from "vite";
 export default defineConfig({
 	root: "src/client",
 	plugins: [svelte()],
+	server: {
+		// The app talks to pigui's own server; in dev, proxy /api to it (default the pigui port, override with PIGUI_DEV_API).
+		proxy: {
+			"/api": { target: process.env.PIGUI_DEV_API ?? "http://localhost:8787", changeOrigin: true },
+		},
+	},
 	build: {
 		outDir: join(import.meta.dirname, "dist", "public"),
 		emptyOutDir: true,

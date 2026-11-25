@@ -17,7 +17,8 @@ matchMedia("(prefers-color-scheme: dark)").addEventListener("change", () => {
 const target = document.getElementById("app");
 if (target !== null) mount(App, { target });
 
-if ("serviceWorker" in navigator) {
+// The service worker exists only in the built app; the dev server has none.
+if ("serviceWorker" in navigator && import.meta.env.PROD) {
 	void navigator.serviceWorker.register("/sw.js", { scope: "/" }).catch(() => undefined);
 	// A tapped notification asks an open app to show its session.
 	navigator.serviceWorker.addEventListener("message", (event: MessageEvent<{ type?: string; url?: string }>) => {
