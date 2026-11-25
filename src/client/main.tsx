@@ -1,4 +1,5 @@
 import { render } from "preact";
+import "./app.css";
 import { App } from "./app.tsx";
 import { navigate, routeFromHash } from "./store.ts";
 

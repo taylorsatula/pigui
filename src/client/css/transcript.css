@@ -1,0 +1,420 @@
+@layer components {
+/* ---- Transcript */
+
+.transcript {
+	--inset: 16px;
+	flex: 1;
+	display: flex;
+	flex-direction: column;
+	gap: 10px;
+	padding-top: 8px;
+	padding-bottom: 16px;
+	min-width: 0;
+	/* Loading earlier messages keeps the reading position by hand, the same way in every browser. */
+	overflow-anchor: none;
+}
+
+.entry {
+	min-width: 0;
+}
+
+/* The speaker sits close under the reply it reads. */
+.entry.is-speak {
+	margin-top: -8px;
+}
+
+/* A new turn from the person opens with more room above it. */
+.entry.is-person:not(:first-child) {
+	margin-top: 14px;
+}
+
+/* Where a session runs into a new day: its date, centred. */
+.day {
+	display: flex;
+	align-items: center;
+	gap: 12px;
+	margin: 16px 0 6px;
+	font-family: var(--mono);
+	font-size: var(--label);
+	font-weight: 400;
+	text-transform: uppercase;
+	letter-spacing: var(--label-tracking);
+	color: var(--text-2);
+	line-height: var(--leading-tight);
+	justify-content: center;
+}
+
+/* The person's words, in the serif where the agent's are in the sans: each instruction heads the reply under it. */
+.said {
+	margin: 0;
+	font-size: 1.0625rem;
+	font-weight: var(--w-ui);
+	color: var(--person);
+	white-space: pre-wrap;
+	font-family: var(--serif);
+}
+
+.context-chips,
+.attachments {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 4px 12px;
+	margin-top: 6px;
+}
+
+/* A reference or a file: recorded, so monospace, and quiet. */
+.chip {
+	display: inline-flex;
+	align-items: center;
+	gap: 4px;
+	font-family: var(--mono);
+	font-size: var(--record);
+	color: var(--text-2);
+	max-width: 100%;
+}
+
+/* A full 44 pt target that does not make the chip taller: the margins give back what the target adds. */
+.chip-remove {
+	margin: -14px -12px -14px -8px;
+	padding: 0;
+	color: var(--text-2);
+}
+
+/* ---- Prose: the agent's Markdown, set to be read. */
+
+.markdown {
+	font-size: var(--prose);
+	min-width: 0;
+	hanging-punctuation: first;
+}
+
+/* About seventy characters a line at most: past that, the eye loses its way back to the next line. */
+.markdown.agent,
+.said,
+.lede {
+	max-width: 34em;
+}
+
+.markdown > :first-child {
+	margin-top: 0;
+}
+
+.markdown > :last-child {
+	margin-bottom: 0;
+}
+
+.markdown :is(p, ul, ol, pre, blockquote, table) {
+	margin: 0.7em 0;
+}
+
+.markdown :is(h1, h2, h3, h4, h5, h6) {
+	margin: 1.2em 0 0.4em;
+	font-size: 1em;
+	font-weight: var(--w-display);
+	line-height: var(--leading-tight);
+	font-family: var(--serif);
+	text-wrap: balance;
+}
+
+.markdown h1 {
+	font-size: 1.3em;
+}
+
+.markdown h2 {
+	font-size: 1.15em;
+}
+
+.markdown :is(ul, ol) {
+	padding-left: 1.4em;
+}
+
+.markdown ul {
+	list-style: "–  ";
+}
+
+.markdown li + li {
+	margin-top: 0.25em;
+}
+
+.markdown li::marker {
+	color: var(--text-2);
+}
+
+.markdown blockquote {
+	margin-left: 0;
+	margin-right: 0;
+	padding-left: 12px;
+	border-left: 2px solid var(--separator);
+	color: var(--text-2);
+	font-style: italic;
+}
+
+.markdown hr {
+	border: none;
+	border-top: var(--hairline) solid var(--separator);
+	margin: 1.2em 0;
+}
+
+.markdown strong {
+	font-weight: var(--w-strong);
+}
+
+.markdown pre,
+.io {
+	background: var(--code);
+	border-radius: var(--radius-s);
+	padding: 10px 12px;
+	overflow-x: auto;
+	max-width: 100%;
+	font-size: var(--record);
+	line-height: var(--leading-code);
+	font-family: var(--mono);
+	font-variant-numeric: normal;
+	white-space: pre;
+}
+
+/* Inline code needs no box: the monospace already sets it apart. */
+.markdown code {
+	font-family: var(--mono);
+	/* The mono runs a little large beside its sans; this brings it back to the line's size. */
+	font-size: 0.86em;
+	font-variant-numeric: normal;
+}
+
+.markdown pre code {
+	font-size: inherit;
+}
+
+/* Tables ruled as a ledger: across, never down. */
+.markdown table {
+	display: block;
+	overflow-x: auto;
+	border-collapse: collapse;
+	font-size: var(--subhead);
+	font-variant-numeric: lining-nums tabular-nums;
+}
+
+.markdown th,
+.markdown td {
+	border-bottom: var(--hairline) solid var(--separator);
+	padding: 6px 12px 6px 0;
+	text-align: left;
+	vertical-align: top;
+}
+
+.markdown th {
+	font-family: var(--mono);
+	font-size: var(--label);
+	font-weight: 400;
+	text-transform: uppercase;
+	letter-spacing: var(--label-tracking);
+	color: var(--text-2);
+	border-bottom-color: var(--rule);
+}
+
+.agent.streaming > :last-child::after {
+	content: "";
+	display: inline-block;
+	width: 0.5em;
+	height: 1em;
+	margin-left: 2px;
+	vertical-align: -0.12em;
+	background: var(--working);
+	animation: blink 1.1s steps(1, end) infinite;
+}
+
+/* The speaker under a finished reply: quiet, its icon in line with the text and close under it. The margins give back
+   what the 44 pt target adds around the icon. While it reads it is a stop button, outlined rather than filled to stay
+   quiet; its ring is the preparing spinner's, come to rest. */
+.speak {
+	margin: -4px 0 -6px -13px;
+	color: var(--text-2);
+}
+
+.speak .spinner {
+	width: 18px;
+	height: 18px;
+}
+
+.speak.playing {
+	color: var(--working);
+}
+
+.speak.playing::before {
+	content: "";
+	position: absolute;
+	inset: 13px;
+	border: 1.5px solid currentColor;
+	border-radius: var(--radius-full);
+}
+
+.speak.playing .icon {
+	fill: currentColor;
+}
+
+/* On the report card it ends the title row, without making the row taller. */
+.card-title .speak {
+	margin: -14px -12px -14px auto;
+	text-transform: none;
+}
+
+/* Lines of record: what the agent did, one monospace line each until opened. */
+.work > summary,
+.compaction > summary,
+.call > summary {
+	font-family: var(--mono);
+	font-size: var(--record);
+	color: var(--text-2);
+}
+
+/* The agent's thinking: quieter, smaller and in italic beside its prose, so the two never read as one. */
+.thought {
+	margin: 6px 0 8px;
+	font-size: var(--footnote);
+	font-style: italic;
+	line-height: 1.45;
+	color: var(--text-2);
+	white-space: pre-wrap;
+}
+
+/* ---- Work under way, as Pi's terminal shows it: thinking inline, each call a tinted block with what it runs and the
+   last lines it printed. */
+
+.work.live {
+	display: flex;
+	flex-direction: column;
+	gap: 8px;
+}
+
+.work.live .thought {
+	margin: 0;
+}
+
+.live-call {
+	background: var(--code);
+	border-radius: var(--radius-s);
+	padding: 0 12px;
+	min-width: 0;
+}
+
+.live-call > .call > summary {
+	color: var(--text);
+}
+
+.live-call.failed > .call > summary {
+	color: var(--error);
+}
+
+/* The call under way, marked at its edge in the working colour; a failed one in the error colour. */
+.live-call.running {
+	box-shadow: inset 3px 0 0 var(--working);
+}
+
+.live-call.failed {
+	box-shadow: inset 3px 0 0 var(--error);
+}
+
+/* The command as typed, wrapped rather than cut, up to three lines. */
+.call-command {
+	min-width: 0;
+	padding: 10px 0;
+	font-weight: 500;
+	white-space: pre-wrap;
+	display: -webkit-box;
+	-webkit-box-orient: vertical;
+	-webkit-line-clamp: 3;
+	overflow: hidden;
+}
+
+.prompt {
+	color: var(--text-2);
+}
+
+.tail {
+	margin: -4px 0 0;
+	padding-bottom: 10px;
+	font-family: var(--mono);
+	font-size: var(--label);
+	line-height: var(--leading-code);
+	color: var(--text-2);
+	white-space: pre-wrap;
+}
+
+/* Once the call is open its full output shows, so the tail steps aside. */
+.live-call > .call[open] + .tail {
+	display: none;
+}
+
+.earlier {
+	opacity: 0.7;
+}
+
+.work-summary,
+.call-summary {
+	min-width: 0;
+}
+
+.failed-tag {
+	color: var(--error);
+	font-weight: 400;
+	white-space: nowrap;
+}
+
+/* A stretch's thinking and calls hang from a line under its chevron, in the order they happened. */
+.timeline {
+	display: flex;
+	flex-direction: column;
+	margin: 0 0 6px 6px;
+	border-left: var(--hairline) solid var(--separator);
+	padding-left: 10px;
+}
+
+.call.failed .call-summary {
+	color: var(--error);
+}
+
+/* Lined up with the call's text, past its chevron. */
+.call-body {
+	padding: 0 0 8px 20px;
+	min-width: 0;
+}
+
+.io {
+	margin: 0 0 8px;
+	max-height: 50vh;
+	overflow: auto;
+	white-space: pre-wrap;
+}
+
+.io-label {
+	margin: 4px 0;
+}
+
+.system-note {
+	display: flex;
+	align-items: center;
+	min-height: var(--target);
+	margin: 0;
+	font-family: var(--mono);
+	font-size: var(--record);
+	color: var(--text-2);
+	line-height: var(--leading-tight);
+}
+
+.system-note.error {
+	color: var(--error);
+}
+
+.compaction .markdown {
+	font-size: var(--subhead);
+	padding: 4px 0 12px 20px;
+	color: var(--text-2);
+}
+
+.entry:is(.is-earlier, .is-gap) .link {
+	padding: 0;
+	font-family: var(--mono);
+	font-size: var(--record);
+}
+
+}

@@ -1,0 +1,50 @@
+@layer components {
+/* ---- Banners: what stopped and the next step, above the composer. The words say what happened; the rule at the
+   edge only repeats it. */
+
+.banner {
+	margin: 0 0 8px;
+	padding: 10px 8px 10px 14px;
+	border-left: 3px solid var(--rule);
+	background: var(--fill);
+	border-radius: 0 var(--radius-s) var(--radius-s) 0;
+	display: flex;
+	align-items: center;
+	gap: 8px 12px;
+	flex-wrap: wrap;
+}
+
+.banner.error {
+	border-left-color: var(--error);
+	background: color-mix(in srgb, var(--error) 8%, transparent);
+}
+
+.banner.warn {
+	border-left-color: var(--warn);
+	background: color-mix(in srgb, var(--warn) 8%, transparent);
+}
+
+/* The button moves under the text once the text would be narrower than this. */
+.banner p {
+	margin: 0;
+	flex: 1 1 200px;
+	font-size: var(--subhead);
+	color: var(--text-2);
+}
+
+.banner strong {
+	display: block;
+	font-size: 1rem;
+	font-weight: var(--w-ui);
+	color: var(--text);
+}
+
+.banner.error strong {
+	color: var(--error);
+}
+
+.banner.warn strong {
+	color: var(--warn);
+}
+
+}

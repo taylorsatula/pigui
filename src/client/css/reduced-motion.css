@@ -1,0 +1,45 @@
+@layer components {
+/* Reduced motion: nothing slides, scales, blinks or is drawn in; fades stay, so changes still read as changes. */
+@media (prefers-reduced-motion: reduce) {
+	:is(.primary, .secondary):active:not(:disabled),
+	.send:active:not(:disabled)::before {
+		transform: none;
+	}
+
+	details > summary > .icon:first-child {
+		transition: none;
+	}
+
+	.cursor,
+	.session-status.working::after,
+	.agent.streaming > :last-child::after {
+		animation: none;
+	}
+
+	.sheet,
+	.session-picker,
+	.agents-panel,
+	.toast {
+		transition-property: opacity;
+	}
+
+	@starting-style {
+		.sheet,
+		.session-picker,
+		.agents-panel {
+			transform: none;
+			opacity: 0;
+		}
+
+		.toast {
+			transform: none;
+		}
+	}
+
+	.sheet.closing,
+	.toast.leaving {
+		transform: none;
+		opacity: 0;
+	}
+}
+}

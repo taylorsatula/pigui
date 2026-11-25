@@ -41,6 +41,8 @@ const app = await build({
 	target: ["safari16", "chrome110"],
 	minify: true,
 	sourcemap: true,
+	// The font files are copied to dist/public/fonts by this script; the CSS references them by absolute URL.
+	external: ["/fonts/*"],
 	jsx: "automatic",
 	jsxImportSource: "preact",
 	metafile: true,
@@ -70,7 +72,8 @@ await build({
 	logLevel: "warning",
 });
 
-for (const file of ["index.html", "app.css", "manifest.webmanifest"]) await copyFile(join(client, file), join(out, file));
+// app.css is bundled by esbuild from the import in main.tsx (partials under css/), so only the static shell is copied.
+for (const file of ["index.html", "manifest.webmanifest"]) await copyFile(join(client, file), join(out, file));
 
 // ---- The icons: an ink π on the highlighter's yellow, drawn as PNGs the repository need not carry.
 
