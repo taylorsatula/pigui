@@ -14,6 +14,7 @@
 		"typecheck": "tsc -p tsconfig.json && svelte-check --tsconfig ./src/client/tsconfig.json && tsc -p e2e/tsconfig.json",
 		"start": "node --disable-warning=ExperimentalWarning src/server/main.ts",
 		"fake": "node --disable-warning=ExperimentalWarning scripts/fake.ts",
+		"pretest": "node --disable-warning=ExperimentalWarning scripts/check-install.ts",
 		"test": "node --disable-warning=ExperimentalWarning --test --test-concurrency=4 \"test/**/*.test.ts\"",
 		"e2e": "npm run build && playwright test --trace off",
 		"check": "npm run typecheck && npm run build && npm test && npm run e2e",
