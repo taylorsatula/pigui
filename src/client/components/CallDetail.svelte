@@ -30,11 +30,14 @@
 	import type { CallView } from "../transcript.ts";
 	import Cursor from "./Cursor.svelte";
 	import Icon from "./Icons.svelte";
+	import Markdown from "./Markdown.svelte";
 	import Patch from "./Patch.svelte";
+	import ReportBody from "./ReportBody.svelte";
 
 	let { call, live }: { call: CallView; live: boolean } = $props();
 
 	const bash = $derived(call.name === "bash");
+	const agent = $derived(call.name === "Agent");
 	const editing = $derived(call.name === "edit" && call.diff !== undefined);
 	const writing = $derived(call.name === "write" && typeof call.args.content === "string");
 	const input = $derived(bash ? String(call.args.command ?? "") : json(call.args));
@@ -57,7 +60,10 @@
 			{#if call.status === "running"}<Cursor />{/if}
 		</summary>
 		<div class="call-body">
-			{#if editing}
+			{#if agent}
+				<div class="io-label">Prompt</div>
+				<Markdown class="prompt-prose" text={String(call.args.prompt ?? "")} />
+			{:else if editing}
 				<div class="io-label">Change</div>
 				<Patch text={call.diff ?? ""} />
 			{:else if writing}
@@ -68,8 +74,12 @@
 				<pre class="io">{input}</pre>
 			{/if}
 			{#if call.output !== undefined}
-				<div class="io-label">Output</div>
-				<pre class="io">{call.output === "" ? "(no output)" : call.output}</pre>
+				<div class="io-label">{agent ? "Answer" : "Output"}</div>
+				{#if agent}
+					<ReportBody text={call.output} />
+				{:else}
+					<pre class="io">{call.output === "" ? "(no output)" : call.output}</pre>
+				{/if}
 			{/if}
 			{#if call.diagnostics !== undefined}
 				<p class="harness-note">Harness note: {call.diagnostics}</p>

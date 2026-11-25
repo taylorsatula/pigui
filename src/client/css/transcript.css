@@ -455,3 +455,29 @@
 	white-space: pre-wrap;
 	word-break: break-word;
 }
+
+/* A structured agent answer: one labelled section per `LABEL:` line, in the record face. */
+.report-section {
+	margin: 0 0 6px;
+	padding-top: 8px;
+	border-top: var(--hairline) solid var(--separator);
+}
+
+.report-section:first-child {
+	padding-top: 0;
+	border-top: none;
+}
+
+.report-label {
+	font-family: var(--mono);
+	font-size: var(--label);
+	font-weight: 400;
+	color: var(--text-2);
+	text-transform: uppercase;
+	letter-spacing: var(--label-tracking);
+	margin-bottom: 2px;
+}
+
+.prompt-prose {
+	margin-bottom: 8px;
+}

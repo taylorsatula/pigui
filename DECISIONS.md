@@ -323,3 +323,13 @@ an optional dependency only reached by the on-device models, and builds with `PI
 `src/sandbox/pigui-sandbox.c` compiles where `cc` exists (`npm run build` skips it elsewhere, where pigui falls back
 to a launcher on PATH). It was compiled and exercised at ABI 8 with the system `cc` (write/echo confined, reads
 refused); an earlier pass on a machine without a system C compiler used a pip-installed `ziglang` at ABI 6.
+
+## The 2026-11 issue repairs
+
+**The bundled agent definitions no longer match the reference byte for byte.** The owner approved changing the convention
+so agent answers render as headed Markdown sections instead of a dense `STATUS:`-labelled blob. The report blocks in
+`agents/implementer.md`, `agents/scout.md` and `agents/verifier.md` now instruct one `## ` Markdown section per field
+(`## STATUS`, then the rest in order); the input-contract blocks are unchanged. The renderer splits answers that still
+arrive with bare `LABEL:` lines into labelled sections (`ReportBody.svelte`), so legacy-shaped answers keep rendering well.
+*Alternative rejected:* rely on the UI renderer alone and leave the definitions identical; it would leave the prompt asking
+for an answer shape no Markdown renderer can head.

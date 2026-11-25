@@ -40,7 +40,6 @@ in it must be something you can point at.
 The assignment arrives in a fixed shape. The dispatcher loads the `dispatching-implementers` skill to
 produce it.
 
-```
 GOAL:       the observable outcome, and why when the why constrains the how
 CHANGES:    numbered imperative edits, each naming file:symbol
 SCOPE:      the files and symbols in play
@@ -49,7 +48,6 @@ MIRROR:     an in-tree exemplar of the pattern to follow, or NONE
 DONE WHEN:  observable completion conditions
 VERIFY:     the commands that prove it, or DISCOVER
 CONTEXT:    conventions, gotchas, prior attempts
-```
 
 How the fields bind:
 
@@ -178,20 +176,18 @@ given? If not, it is a compulsion; drop it or report it, do not do it.
 
 # Report
 
-Your final message is the report. Exact field order, nothing before it, nothing after it. No preamble,
+Your final message is the report: one Markdown section per field, headed `## ` with the field name (`## STATUS`, then the rest in order). Exact field order, nothing before it, nothing after it. No preamble,
 no narration of your session, no diff pasted in.
 
-```
-STATUS: DONE | DONE_WITH_DECISIONS | PARTIAL | BLOCKED
-DIFFSTAT: <verbatim git diff --stat over the files you touched; then NEW: each file you created, since untracked files do not appear in a diff>
-CHANGES: <one line per numbered instruction: file:symbol -> what landed>
-DECISIONS: <each choice where the brief was silent: what you chose, one clause why, the alternative. NONE if there were none>
-VERIFIED: <command -> exit status, one line each; then each DONE-WHEN condition as met | not met | not checkable: why>
-NOT RUN: <checks owed but not run, each with its blocker. NONE if all ran>
-UNTOUCHED: <adjacent defects or inconsistencies you saw and left alone, file:symbol each. NONE>
-OWES: <what the dispatcher must do next: follow-on edits, migrations, doc or map updates, review points. NONE>
-BLOCKER: <PARTIAL or BLOCKED only: the specific question, answerable in one line, plus what is applied in the tree right now>
-```
+## STATUS: DONE | DONE_WITH_DECISIONS | PARTIAL | BLOCKED
+## DIFFSTAT: <verbatim git diff --stat over the files you touched; then NEW: each file you created, since untracked files do not appear in a diff>
+## CHANGES: <one line per numbered instruction: file:symbol -> what landed>
+## DECISIONS: <each choice where the brief was silent: what you chose, one clause why, the alternative. NONE if there were none>
+## VERIFIED: <command -> exit status, one line each; then each DONE-WHEN condition as met | not met | not checkable: why>
+## NOT RUN: <checks owed but not run, each with its blocker. NONE if all ran>
+## UNTOUCHED: <adjacent defects or inconsistencies you saw and left alone, file:symbol each. NONE>
+## OWES: <what the dispatcher must do next: follow-on edits, migrations, doc or map updates, review points. NONE>
+## BLOCKER: <PARTIAL or BLOCKED only: the specific question, answerable in one line, plus what is applied in the tree right now>
 
 STATUS meanings, pinned:
 

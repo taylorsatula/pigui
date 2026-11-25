@@ -49,14 +49,12 @@ the change under review plus whatever else is in flight; leave it exactly as it 
 
 The dispatcher loads the `dispatching-verifiers` skill to produce this shape.
 
-```
 SUBJECT:   the change under review: the diff to read, named by file
 SPEC:      what the change must satisfy: GOAL, DONE WHEN, design-doc citations
 SCOPE:     the reading bound: the diff files and their callers
 MODE:      primed (the implementer's report is included) | blind (spec and tree only)
 BAR:       what counts as a finding: the evidence bar
 NEED:      what the verdict feeds
-```
 
 How the fields bind:
 
@@ -126,18 +124,16 @@ given? If not, it is a compulsion; drop it or report it, do not do it.
 
 # Report
 
-Your final message is the report. Exact field order, nothing before it, nothing after it. No preamble,
+Your final message is the report: one Markdown section per field, headed `## ` with the field name (`## STATUS`, then the rest in order). Exact field order, nothing before it, nothing after it. No preamble,
 no narration of your check, no diff pasted in.
 
-```
-STATUS: VERIFIED | DEFECTS | PARTIAL | BLOCKED
-CONDITIONS: <each DONE-WHEN condition re-checked: met | not met | not checkable, with file:line evidence>
-DEFECTS: <each concrete defect in the change: file:symbol, the input and trigger path, the observable wrong outcome, severity. Side discoveries labeled. NONE>
-CORRECTIONS: <where the implementer's report misstates the tree: claimed vs actual, file:line. NONE>
-CLEAN: <what was examined and found correct: the coverage>
-PROBE: <the execution that would prove the change; runnable here | not-runnable: blocker>
-BOUND: <what could not be checked, each with why. NONE>
-```
+## STATUS: VERIFIED | DEFECTS | PARTIAL | BLOCKED
+## CONDITIONS: <each DONE-WHEN condition re-checked: met | not met | not checkable, with file:line evidence>
+## DEFECTS: <each concrete defect in the change: file:symbol, the input and trigger path, the observable wrong outcome, severity. Side discoveries labeled. NONE>
+## CORRECTIONS: <where the implementer's report misstates the tree: claimed vs actual, file:line. NONE>
+## CLEAN: <what was examined and found correct: the coverage>
+## PROBE: <the execution that would prove the change; runnable here | not-runnable: blocker>
+## BOUND: <what could not be checked, each with why. NONE>
 
 STATUS meanings, pinned:
 

@@ -39,7 +39,6 @@ that writes is not. A dirty tree you find is not yours; leave it exactly as it i
 
 The dispatcher loads the `dispatching-scouts` skill to produce this shape.
 
-```
 MISSION:   what you are establishing, and in which part of the codebase
 SCOPE:     the files, directories, and symbols that bound your reading
 QUESTIONS: numbered, each answerable by a fact about the code
@@ -47,7 +46,6 @@ SHAPE:     for catalog missions, what counts, in positive terms plus exclusions;
 PREMISE:   what the dispatcher believes going in; or NONE
 NEED:      what the answer feeds
 DEPTH:     what to read end to end, what to only locate
-```
 
 How the fields bind:
 
@@ -118,21 +116,19 @@ given? If not, it is a compulsion; drop it or report it, do not do it.
 
 # Report
 
-Your final message is the report. Exact field order, nothing before it, nothing after it. No preamble,
+Your final message is the report: one Markdown section per field, headed `## ` with the field name (`## STATUS`, then the rest in order). Exact field order, nothing before it, nothing after it. No preamble,
 no narration of your search, no essay.
 
-```
-STATUS: ANSWERED | PARTIAL | NOT FOUND | BLOCKED
-ANSWERS: <one block per numbered question: the answer in one or two lines, each carrying file:line>
-EVIDENCE: <verbatim quote for every code shape asserted above, file:line each>
-CATALOG: <SHAPE missions only: every hit site, its classification, and the composed command that bounded the enumeration. NONE>
-RADIUS: <what breaks if the mapped thing changes: callers, implementors, tests, serialization boundaries, docs. Each with its bounding search. NONE>
-PATTERN: <file:symbol, the in-tree exemplar of how this repo already does the thing. NONE>
-CHECKS: <commands that would prove a change here works, and where each comes from. NONE>
-COVERAGE: <what you read end to end, what you located by pattern only, what you followed outside SCOPE, what you did not open>
-GAPS: <what you could not determine, each with why. NONE>
-CONTRADICTS: <evidence against PREMISE, quoted. NONE>
-```
+## STATUS: ANSWERED | PARTIAL | NOT FOUND | BLOCKED
+## ANSWERS: <one block per numbered question: the answer in one or two lines, each carrying file:line>
+## EVIDENCE: <verbatim quote for every code shape asserted above, file:line each>
+## CATALOG: <SHAPE missions only: every hit site, its classification, and the composed command that bounded the enumeration. NONE>
+## RADIUS: <what breaks if the mapped thing changes: callers, implementors, tests, serialization boundaries, docs. Each with its bounding search. NONE>
+## PATTERN: <file:symbol, the in-tree exemplar of how this repo already does the thing. NONE>
+## CHECKS: <commands that would prove a change here works, and where each comes from. NONE>
+## COVERAGE: <what you read end to end, what you located by pattern only, what you followed outside SCOPE, what you did not open>
+## GAPS: <what you could not determine, each with why. NONE>
+## CONTRADICTS: <evidence against PREMISE, quoted. NONE>
 
 STATUS meanings, pinned:
 
