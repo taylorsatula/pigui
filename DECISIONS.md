@@ -192,7 +192,17 @@ pigui's own directories are ever removed; a local session's directory never is.
 
 ## The phone app
 
-**Preact + `marked` + `DOMPurify`, esbuild** (no heavier pipeline). HIG mapping: clarity (placeholder says what
+**Svelte 5 + Vite, no SvelteKit** (supersedes the Preact + esbuild choice, 2026-11-24). The web UI was rebuilt from the
+ground up on the `svelte-rewrite` branch; the Preact client was deleted and the 27 Playwright specs are the behavioral
+contract. Runes only (`$state`, `$derived`, `$effect`, `$props`); no Svelte 4 syntax; `svelte-check` clean. No component
+`<style>` blocks: `app.css` (partials under `src/client/css/`, bundled by Vite) is the only stylesheet. `marked` +
+`DOMPurify` stay, lazy-loaded. *Alternatives:* Preact + signals was the runner-up, the smallest delta from the deleted
+code, but the rewrite exists to fix the update model (per-token full re-renders, O(n) derivation), and signals carry
+the same component model forward. Solid has comparable fine-grained reactivity with a smaller ecosystem and JSX again.
+SvelteKit adds a server framework and SSR for an authenticated single-user SPA behind Tailscale that needs neither.
+Vanilla JS and Astro are the wrong shape for a live streaming UI.
+
+HIG mapping: clarity (placeholder says what
 sending will do; one-sentence tool summaries; named failures with next steps), deference (content first; detail folded
 until asked; status and spend as one quiet line), sensible defaults (last repo, new branch from the default,
 recommended options pre-selected), familiar navigation (☰, Finder-style picker), feedback and forgiveness (archive with

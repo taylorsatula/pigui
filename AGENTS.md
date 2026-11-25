@@ -42,6 +42,9 @@ Small is a result, not a goal. Never drop correct behavior, error handling or a 
 ## Write clean TypeScript
 - **TypeScript everywhere:** server, browser client, service worker, tests. Strict mode. No `any` unless it's at a
   library boundary, with a comment saying why.
+- **The browser client is Svelte 5, runes only** (`$state`, `$derived`, `$effect`, `$props`); no Svelte 4 syntax, and
+  `svelte-check` stays clean. No component `<style>` blocks; `app.css` (partials under `src/client/css/`) is the only
+  stylesheet.
 - **Define each shape once.** API payloads, events, document shapes and session states live in shared modules that
   both the server and the client import. Prefer types from `@earendil-works/*` over re-declaring them.
 - **Small modules with one responsibility,** talking through small typed interfaces. A file that keeps growing is
