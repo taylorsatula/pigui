@@ -16,7 +16,7 @@ import { buildBlocks, turnStart, type Block } from "./transcript.ts";
 const TS = 1_700_000_000_000;
 
 const entry = (id: number, kind: string, over: Partial<EntryRecord> = {}): EntryRecord =>
-	({ id: id as EntryRecord["id"], conversationId: "conversation" as EntryRecord["conversationId"], kind, ...over }) as EntryRecord;
+	({ id: id as unknown as EntryRecord["id"], conversationId: "conversation" as unknown as EntryRecord["conversationId"], kind, ...over }) as EntryRecord;
 const userMessage = (content: string, timestamp = TS) => ({ role: "user" as const, content, timestamp });
 const assistantMessage = (content: unknown[], over: Record<string, unknown> = {}): AssistantMessage =>
 	({ role: "assistant", content, timestamp: TS, ...over }) as unknown as AssistantMessage;
