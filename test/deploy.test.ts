@@ -424,7 +424,7 @@ test("as root on a Linux server it installs what it needs, joins the tailnet, an
 	try {
 		const steps = stepsOf(fresh.stdout);
 		assert.deepEqual(steps.slice(0, 2), ["Install what pigui needs (apt)", "Check this computer"], fresh.stderr);
-		assert.match(fresh.stdout, /\[dry run\] env DEBIAN_FRONTEND=noninteractive apt-get install -y ca-certificates curl gnupg git$/m);
+		assert.match(fresh.stdout, /\[dry run\] env DEBIAN_FRONTEND=noninteractive apt-get install -y ca-certificates curl gnupg git ripgrep unzip build-essential$/m);
 		assert.match(fresh.stdout, /as root: pigui runs as root, as a system service, from \/root\/\.pigui/);
 		assert.ok(steps.includes("Fetch pigui (main) into /root/.pigui/app"), "root's home, not the HOME it was given");
 		assert.match(fresh.stdout, /\[dry run\] \S+\/tailscale up --auth-key=tskey-auth-123$/m);

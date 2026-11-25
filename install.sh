@@ -503,7 +503,7 @@ run_onprem() {
 	fi
 	if [[ $AS_ROOT == 1 ]] && command -v apt-get >/dev/null; then
 		step "Install what pigui needs (apt)"
-		apt_install ca-certificates curl gnupg git
+		apt_install ca-certificates curl gnupg git ripgrep unzip build-essential
 		current_node=$(node --version 2>/dev/null | sed 's/^v//' || true)
 		if [[ -n $current_node ]] && version_at_least "$current_node" "$NODE_MINIMUM"; then
 			note "node $current_node"
@@ -1001,7 +1001,7 @@ install_remote_full() {
 
 	step "Install Node.js 22, gh and Tailscale on $REMOTE"
 	run $SSH "$target" "command -v node >/dev/null && node --version | grep -qE '^v(2[2-9]|[3-9][0-9])\.' || (cd /tmp && curl -fsSLO https://nodejs.org/dist/v22.21.1/node-v22.21.1-linux-x64.tar.xz && tar -xJf node-v22.21.1-linux-x64.tar.xz -C /usr/local --strip-components=1 && rm node-v22.21.1-linux-x64.tar.xz)"
-	run $SSH "$target" "DEBIAN_FRONTEND=noninteractive apt-get update -qq && DEBIAN_FRONTEND=noninteractive apt-get install -y -qq git curl ca-certificates gh"
+	run $SSH "$target" "DEBIAN_FRONTEND=noninteractive apt-get update -qq && DEBIAN_FRONTEND=noninteractive apt-get install -y -qq git curl ca-certificates gh ripgrep unzip build-essential"
 	run $SSH "$target" "command -v tailscale >/dev/null || curl -fsSL https://tailscale.com/install.sh | sh"
 
 	step "Copy the GitHub credentials to $REMOTE"

@@ -339,3 +339,18 @@ for an answer shape no Markdown renderer can head.
 **The screensaver is a plain `<img>` lower right, gated on `workflow === "implementing"` alone, dismissed by any input.** After five idle minutes (a capture-phase watch on pointer/key/touch/wheel/scroll re-arming a one-shot timer, `idle.ts`), only in a session whose plan is approved and not yet reported, `girl.gif` (bundled at `src/client/public/girl.gif`, 500x500, lower right) appears above every sheet and toast. "Actively in implementation mode" was read from the first-class `SessionDoc.workflow` field rather than from a run under way: the flag is simpler and survives between runs. Reduced motion suppresses it entirely; a hidden tab never shows it; any input dismisses it and re-arms the wait. If the asset is missing the screensaver disables itself instead of showing a broken image. *Alternatives rejected:* an in-motion run-state condition (stricter than the words, and flickers between runs); a CSS/canvas character (the person supplied `girl.gif` and will upload it); remote footage (CSP forbids it, and the rights question is the person's).
 
 **Svelte 5 stays; the lag was in the per-update hot path, not the framework.** The transcript rebuilt and re-cloned every block per `view-ops` message (~10 Hz during streaming), re-stringified call args per token, re-parsed Markdown per token and forced synchronous layout per update. The repairs: one-entry memo on `buildBlocks` keyed on the three inputs, `at` stamped in place, `live` flips without re-cloning, call args stringified through a `WeakMap`, Markdown renders throttled to ~100 ms with a by-text cache, `followEnd` batched into one rAF per frame, `aria-live` dropped from the log, and the sticky bars use an opaque `--bar` with no `backdrop-filter` (a 10% alpha difference nobody can see, a filter nobody needed). *Rejected:* a rewrite; nothing in the measurements pointed at the framework.
+
+## Fresh-machine testing, and install parity (issue #15)
+
+Both ways a fresh checkout fails were environmental, and both now fail clearly instead of confusingly. `npm test` runs a
+`pretest` guard (`scripts/check-install.ts`) that refuses with "node_modules is missing — run `npm ci` first" when
+`node_modules/@earendil-works` is absent, instead of 16 of 45 test files dying with `ERR_MODULE_NOT_FOUND`. `npm run e2e`
+now has a Playwright `globalSetup` (`e2e/global-setup.ts`) that launches Chromium once and, on the missing-system-libraries
+signature (`error while loading shared libraries` / `libnspr4` / exit 127), throws one error naming `npx playwright
+install --with-deps chromium` instead of 27 identical spec deaths; the Dockerfile stays the runtime image and does not
+run the tests. A GitHub Actions workflow for e2e was considered and left out at the owner's direction. The `install.sh` OnPrem paths (as root, and the remote-full SSH path) now
+install `ripgrep unzip build-essential`, matching the Docker image and `deploy/install.sh`, so the agent has the same
+tools wherever pigui is installed; the OnPrem paths still compile the Landlock launcher without complaint only where a
+C toolchain exists. *Alternatives rejected:* guarding inside the test helpers (fails after the runner starts, per file);
+detecting the signature in the worker fixture (the launch happens inside Playwright, not the fixture); adding e2e to the
+Docker image (it is the runtime image, not a test environment).
