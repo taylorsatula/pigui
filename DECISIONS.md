@@ -311,8 +311,10 @@ under the session's sandbox; their spend counts toward the session cap.
 
 ## Dependencies
 
-Pinned exactly with the lockfile committed: the five `@earendil-works/*` at 1.6.0; `preact`, `marked`, `dompurify`;
-`esbuild`, `typescript` 7, `@types/node`, `@playwright/test`; dev fonts from Fontsource; optional `kokoro-js` and
+Pinned exactly with the lockfile committed: the five `@earendil-works/*` at 1.6.0; `svelte` 5, `marked`, `dompurify`;
+`vite`, `@sveltejs/vite-plugin-svelte`, `svelte-check`, `typescript` 6.0.3 (svelte-check imports the TypeScript 6 API;
+TypeScript 7's native compiler exposes no JS API as of svelte-check 4.7.8), `esbuild` (the service worker only, until
+the cutover), `@types/node`, `@playwright/test`; dev fonts from Fontsource; optional `kokoro-js` and
 `@huggingface/transformers`. `npm audit` reports `sharp` (via `@huggingface/transformers`) with no fix available; it is
 an optional dependency only reached by the on-device models, and builds with `PIGUI_SPEECH=off` prune it.
 
