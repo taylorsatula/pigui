@@ -273,10 +273,12 @@ function delegation(context: readonly Message[], memory: boolean): AssistantMess
 	}
 	const calls = text.split("\n").flatMap((line, at): FauxContentBlock[] => {
 		const [verb = "", first = "", second = "", ...rest] = line.trim().split(" ");
-		const background = second === "bg";
+		// "fg" and "bg" force the run_in_background parameter; without one the parameter is omitted, exercising the default.
+		const background = second === "bg" ? true : second === "fg" ? false : undefined;
+		const optional = background === undefined ? {} : { run_in_background: background };
 		const description = `Task ${at}`;
-		if (verb === "agent") return [call("delegate", AGENT, { subagent_type: first, description, prompt: rest.join(" "), run_in_background: background })];
-		if (verb === "resume") return [call("delegate", AGENT, { resume: Number(first), description, prompt: rest.join(" "), run_in_background: background })];
+		if (verb === "agent") return [call("delegate", AGENT, { subagent_type: first, description, prompt: rest.join(" "), ...optional })];
+		if (verb === "resume") return [call("delegate", AGENT, { resume: Number(first), description, prompt: rest.join(" "), ...optional })];
 		if (verb === "steer") return [call("delegate", STEER, { agent_id: Number(first), message: [second, ...rest].join(" ") })];
 		if (verb === "report") {
 			const parts = { headline: "Delegated the work.", summary: "", outcome: "complete", endState: [], changes: [], checks: [], deviations: [], notes: [], learned: "" };

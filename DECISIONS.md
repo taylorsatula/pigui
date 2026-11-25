@@ -333,3 +333,5 @@ so agent answers render as headed Markdown sections instead of a dense `STATUS:`
 arrive with bare `LABEL:` lines into labelled sections (`ReportBody.svelte`), so legacy-shaped answers keep rendering well.
 *Alternative rejected:* rely on the UI renderer alone and leave the definitions identical; it would leave the prompt asking
 for an answer shape no Markdown renderer can head.
+
+**Subagents dispatch in the background by default.** `Agent` now returns at once unless the caller passes `run_in_background: false`, and the tool description and `<subagents>` guidance say so. The parameter keeps its name with an inverted default: renaming to `run_in_foreground` would break the fake model, the tests and any saved prompts for no behavioural gain. This is a behaviour change for saved prompts that relied on the old foreground default. Pushing a *running* foreground agent to background is deliberately not implemented: Durable fixes ownership at dispatch and has no re-own or early-release primitive, so it needs either a design pass (a release task the park waits on beside the agent task) or an upstream Durable ask; the person deferred it.
