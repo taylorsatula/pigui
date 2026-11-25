@@ -37,6 +37,10 @@ export type CallView = {
 	args: Record<string, unknown>;
 	status: "running" | "waiting" | "done" | "failed";
 	output?: string;
+	/** pi-durable's rendered diagnostics (truncation, tool errors), split off the output and shown as a note. */
+	diagnostics?: string;
+	/** The unified diff an `edit` tool result carries in its details. */
+	diff?: string;
 };
 
 export type Block = (
@@ -63,8 +67,13 @@ export type Block = (
 	at?: number;
 };
 
-function resultText(message: ToolResultMessage): string {
-	return message.content.flatMap((block) => (block.type === "text" ? [block.text] : ["[image]"])).join("\n");
+/** The text the call produced, and pi-durable's trailing <harness> diagnostics block, kept apart so neither leaks into the other. */
+function splitResult(message: ToolResultMessage): { text: string; diagnostics?: string } {
+	const last = message.content.at(-1);
+	const match = last?.type === "text" ? /^<harness>\n([\s\S]*)\n<\/harness>$/.exec(last.text) : null;
+	const blocks = match === null ? message.content : message.content.slice(0, -1);
+	const text = blocks.flatMap((block) => (block.type === "text" ? [block.text] : ["[image]"])).join("\n");
+	return match === null ? { text } : { text, diagnostics: match[1] };
 }
 
 function userText(entry: EntryRecord): string {
@@ -78,7 +87,7 @@ function entryTime(entry: EntryRecord): number | undefined {
 	return entry.model?.[0]?.timestamp;
 }
 
-type Details = { card?: QuestionCard | PlanCard; answer?: CardAnswer; report?: StoredReport };
+type Details = { card?: QuestionCard | PlanCard; answer?: CardAnswer; report?: StoredReport; diff?: string; patch?: string };
 
 const NOTES: Record<CompactionNoteData["note"], string> = {
 	"handoff-request": "Asked Pi for a handoff note before compacting the context",
@@ -157,9 +166,13 @@ export function buildBlocks(view: TranscriptView | undefined, session: SessionDo
 			const slot = slots.get(block.id);
 			const status: CallView["status"] =
 				result !== undefined ? (result.message.isError ? "failed" : "done") : slot?.status === "sleeping" || slot?.status === "waiting" ? "waiting" : "running";
-			const output = result !== undefined ? resultText(result.message) : slot?.output;
+			const split = result !== undefined ? splitResult(result.message) : undefined;
+			const output = split?.text ?? slot?.output;
 			const call: CallView = { id: block.id, name: block.name, args: block.arguments, status };
-			addWork({ kind: "call", key: blockKey, call: output === undefined ? call : { ...call, output } });
+			if (output !== undefined) call.output = output;
+			if (split?.diagnostics !== undefined) call.diagnostics = split.diagnostics;
+			if (result?.details?.diff !== undefined) call.diff = result.details.diff;
+			addWork({ kind: "call", key: blockKey, call });
 		});
 		if (message.stopReason === "error" || message.stopReason === "aborted") {
 			flush();
@@ -295,7 +308,7 @@ function cardBlock(
 	const details = result?.details;
 	if (name === "file_report") {
 		if (details?.report !== undefined) add({ kind: "report", key, report: reportOf(details.report), latest: result?.message === lastReport?.message });
-		else if (result?.message.isError === true) add({ kind: "notice", key, tone: "info", text: resultText(result.message) });
+		else if (result?.message.isError === true) add({ kind: "notice", key, tone: "info", text: splitResult(result.message).text });
 		return;
 	}
 	const pending = session?.card?.id === callId ? session.card : undefined;

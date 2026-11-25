@@ -2,6 +2,18 @@
 	/** How many of a call's last output lines show while its turn runs. */
 	const TAIL_LINES = 4;
 
+	/** Stringified arguments, by identity: call args are immutable, so this pays once per call, not per update. */
+	const stringified = new WeakMap<object, string>();
+	function json(value: unknown): string {
+		if (typeof value !== "object" || value === null) return JSON.stringify(value, null, 2);
+		let out = stringified.get(value);
+		if (out === undefined) {
+			out = JSON.stringify(value, null, 2);
+			stringified.set(value, out);
+		}
+		return out;
+	}
+
 	/** A call's last lines of output, and how many came before them. */
 	function tail(output: string | undefined): { lines: string; earlier: number } {
 		const all = (output ?? "").trimEnd().split("\n");
@@ -18,11 +30,14 @@
 	import type { CallView } from "../transcript.ts";
 	import Cursor from "./Cursor.svelte";
 	import Icon from "./Icons.svelte";
+	import Patch from "./Patch.svelte";
 
 	let { call, live }: { call: CallView; live: boolean } = $props();
 
 	const bash = $derived(call.name === "bash");
-	const input = $derived(bash ? String(call.args.command ?? "") : JSON.stringify(call.args, null, 2));
+	const editing = $derived(call.name === "edit" && call.diff !== undefined);
+	const writing = $derived(call.name === "write" && typeof call.args.content === "string");
+	const input = $derived(bash ? String(call.args.command ?? "") : json(call.args));
 	const shown = $derived(live && (bash || call.status === "failed") ? tail(call.output) : { lines: "", earlier: 0 });
 </script>
 
@@ -42,11 +57,28 @@
 			{#if call.status === "running"}<Cursor />{/if}
 		</summary>
 		<div class="call-body">
-			<div class="io-label">Input</div>
-			<pre class="io">{input}</pre>
+			{#if editing}
+				<div class="io-label">Change</div>
+				<Patch text={call.diff ?? ""} />
+			{:else if writing}
+				<div class="io-label">File</div>
+				<pre class="io file-content">{String(call.args.content)}</pre>
+			{:else if bash}
+				<div class="io-label">Input</div>
+				<pre class="io">{input}</pre>
+			{/if}
 			{#if call.output !== undefined}
 				<div class="io-label">Output</div>
 				<pre class="io">{call.output === "" ? "(no output)" : call.output}</pre>
+			{/if}
+			{#if call.diagnostics !== undefined}
+				<p class="harness-note">Harness note: {call.diagnostics}</p>
+			{/if}
+			{#if !bash}
+				<details class="raw">
+					<summary>Raw input</summary>
+					<pre class="io">{input}</pre>
+				</details>
 			{/if}
 		</div>
 	</details>
