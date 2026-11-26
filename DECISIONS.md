@@ -340,6 +340,21 @@ for an answer shape no Markdown renderer can head.
 
 **Svelte 5 stays; the lag was in the per-update hot path, not the framework.** The transcript rebuilt and re-cloned every block per `view-ops` message (~10 Hz during streaming), re-stringified call args per token, re-parsed Markdown per token and forced synchronous layout per update. The repairs: one-entry memo on `buildBlocks` keyed on the three inputs, `at` stamped in place, `live` flips without re-cloning, call args stringified through a `WeakMap`, Markdown renders throttled to ~100 ms with a by-text cache, `followEnd` batched into one rAF per frame, `aria-live` dropped from the log, and the sticky bars use an opaque `--bar` with no `backdrop-filter` (a 10% alpha difference nobody can see, a filter nobody needed). *Rejected:* a rewrite; nothing in the measurements pointed at the framework.
 
+## Fresh-machine testing, and install parity (issue #15)
+
+Both ways a fresh checkout fails were environmental, and both now fail clearly instead of confusingly. `npm test` runs a
+`pretest` guard (`scripts/check-install.ts`) that refuses with "node_modules is missing — run `npm ci` first" when
+`node_modules/@earendil-works` is absent, instead of 16 of 45 test files dying with `ERR_MODULE_NOT_FOUND`. `npm run e2e`
+now has a Playwright `globalSetup` (`e2e/global-setup.ts`) that launches Chromium once and, on the missing-system-libraries
+signature (`error while loading shared libraries` / `libnspr4` / exit 127), throws one error naming `npx playwright
+install --with-deps chromium` instead of 27 identical spec deaths; the Dockerfile stays the runtime image and does not
+run the tests. A GitHub Actions workflow for e2e was considered and left out at the owner's direction. The `install.sh` OnPrem paths (as root, and the remote-full SSH path) now
+install `ripgrep unzip build-essential`, matching the Docker image and `deploy/install.sh`, so the agent has the same
+tools wherever pigui is installed; the OnPrem paths still compile the Landlock launcher without complaint only where a
+C toolchain exists. *Alternatives rejected:* guarding inside the test helpers (fails after the runner starts, per file);
+detecting the signature in the worker fixture (the launch happens inside Playwright, not the fixture); adding e2e to the
+Docker image (it is the runtime image, not a test environment).
+
 **No viewport-fit=cover.** The iOS status bar (standalone or Safari) is a glass material that blurs the web content beneath it, and its halo reaches past `env(safe-area-inset-top)`, softening the first line of the title bar (observed as a blur over the top line on the session screen). Removing `viewport-fit=cover` keeps the web view below the status bar; the strip it reserves is filled from `theme-color`, which matches `--bg` in both colour schemes, so the seam is invisible. *Alternatives rejected:* a taller topbar inset (device-dependent halo size; guessed clearance); `apple-mobile-web-app-status-bar-style: black` (opaque black in light mode). Trade-off accepted by the person: content no longer bleeds under the notch/Dynamic Island, including the landscape side strips; `env(safe-area-inset-*)` now resolves to 0 and stays in the CSS as a no-op.
 
 **The shell follows the visual viewport, offset and height.** iOS does not resize the layout for the software keyboard; it shrinks and pans the visual viewport, so a shell sized only from `visualViewport.height` stays pinned to the layout top and leaves a void above the keyboard (observed: composer flung to the top edge on keyboard open). `watchViewport` publishes `--viewport-offset` alongside `--viewport-height` and `.app` takes `margin-top: var(--viewport-offset, 0px)`; `visualViewport` scroll events republish both as iOS pans, so the shell exactly covers the visible strip. Margin, not transform, because transforms would make it the containing block for the fixed toasts, sheets and picker.

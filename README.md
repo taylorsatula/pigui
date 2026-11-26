@@ -55,10 +55,12 @@ None of this touches GitHub until you tap. The agent commits; the server deliver
 
 ## Build
 
-Requires Node.js 22.19 or newer and git. Everything else comes from the lockfile.
+Requires Node.js 22.19 or newer and git. Everything else comes from the lockfile, so `npm ci` comes first — before
+`npm test` or `npm run build`. `npm test` refuses to run without it, with one clear line, rather than failing every test
+file that imports an @earendil-works package.
 
 ```bash
-npm ci
+npm ci               # first: without node_modules, npm test refuses with one clear line
 npm run build        # esbuild bundle of the app + service worker, fonts, drawn icons, the Landlock launcher (Linux)
 ```
 
@@ -92,6 +94,7 @@ Real mode without a Pi default model with credentials exits immediately with a m
 ## Test
 
 ```bash
+npm ci          # if you have not yet — npm test refuses without it
 npm test        # node:test against the real server in fake mode, real Durable storage, no mocks
 npm run e2e     # the same flows through the phone app in Chromium (390×844, touch)
 ```
@@ -101,9 +104,17 @@ Pi configuration. Restarting closes the server and opens a new one on the same d
 tested for real. Nothing is mocked; the scripted model is Pi's faux provider with one response factory per request.
 End-to-end tests run the same fake server as a child process per fixture and drive Chromium.
 
-Note: e2e needs Chromium's system libraries (on Debian/Ubuntu: `npx playwright install --with-deps chromium`), and on
-a machine with no system fonts installed at all the suite needs any one system font present or fontconfig finds no
-substitutes for the bundled faces.
+Note: e2e needs Chromium's system libraries, which the lockfile does not install. On a machine without them every spec
+dies at browser launch with something like
+
+```
+.../chrome-headless-shell: error while loading shared libraries: libnspr4.so: cannot open shared object file: No such file or directory
+```
+
+and the process exits with code 127. The run now fails once, in global setup, with the remedy in the message instead of
+27 identical spec deaths. The fix is `npx playwright install --with-deps chromium` (installs libnspr4 and friends via the
+system package manager). The Dockerfile is the runtime image; it does not run the tests. On a machine with no system fonts installed at all the
+suite also needs any one system font present or fontconfig finds no substitutes for the bundled faces.
 
 ## Configuration
 
