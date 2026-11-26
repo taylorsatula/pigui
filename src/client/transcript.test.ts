@@ -12,7 +12,7 @@ import {
 	type SessionDoc,
 } from "../shared/session.ts";
 import { buildBlocks, turnStart, type Block, type CallView } from "./transcript.ts";
-type CallSpec = Pick<CallView, "id" | "name" | "status" | "output" | "diagnostics" | "diff">;
+type CallSpec = Pick<CallView, "id" | "name" | "status" | "output" | "diff">;
 
 const TS = 1_700_000_000_000;
 
@@ -293,13 +293,85 @@ describe("diagnostics and diffs", () => {
 		entryItem(entry(4, "pi.toolResult", { model: [toolResultMessage("c1", "edit", "Successfully replaced 1 block(s) in a.ts.", { ...over, ...(details === undefined ? {} : { details }) })] })),
 	];
 
-	it("splits pi-durable's trailing <harness> block off the output as diagnostics", () => {
+	it("splits pi-durable's trailing <harness> block off the output", () => {
 		const items = editCall({ content: [{ type: "text", text: "Successfully replaced 1 block(s) in a.ts." }, { type: "text", text: "<harness>\n[warning] Output truncated: 10 lines, 100 bytes dropped\n</harness>" }] });
 		const blocks = buildBlocks(viewOf(items), undefined, false);
 		const work = blocks[0] as Extract<Block, { kind: "work" }>;
 		const call = (work.items[0] as Extract<Block, { kind: "work" }>["items"][number] & { call: CallSpec }).call;
 		expect(call.output).toBe("Successfully replaced 1 block(s) in a.ts.");
-		expect(call.diagnostics).toBe("[warning] Output truncated: 10 lines, 100 bytes dropped");
+		expect(JSON.stringify(blocks)).not.toContain("<harness>");
+	});
+
+	it("strips a <harness> block that sits in the middle of the output", () => {
+		const items = editCall({ content: [{ type: "text", text: "before\n<harness>\n[warning] Output truncated: 10 lines, 100 bytes dropped\n</harness>\nafter" }] });
+		const blocks = buildBlocks(viewOf(items), undefined, false);
+		const work = blocks[0] as Extract<Block, { kind: "work" }>;
+		const call = (work.items[0] as Extract<Block, { kind: "work" }>["items"][number] & { call: CallSpec }).call;
+		expect(call.output).not.toContain("<harness>");
+		expect(call.output).toContain("before");
+		expect(call.output).toContain("after");
+		expect(JSON.stringify(work)).not.toContain("<harness>");
+	});
+
+	it("a diagnostics-only validation-failure result leaves no output and no dump", () => {
+		const dump = '{\n  "command": "rm -rf build",\n  "secret": "hunter2"\n}';
+		const items = editCall({
+			content: [{ type: "text", text: `<harness>\n[error] Validation failed for tool "edit":\n  - deviations.0: expected at most 300 characters\n\nReceived arguments:\n${dump}\n</harness>` }],
+		});
+		const blocks = buildBlocks(viewOf(items), undefined, false);
+		const work = blocks[0] as Extract<Block, { kind: "work" }>;
+		const call = (work.items[0] as Extract<Block, { kind: "work" }>["items"][number] & { call: CallSpec }).call;
+		expect(call.output).toBeUndefined();
+		expect(JSON.stringify(blocks)).not.toContain("Received arguments");
+		expect(JSON.stringify(blocks)).not.toContain("hunter2");
+		expect(JSON.stringify(blocks)).not.toContain("<harness>");
+	});
+
+	it("a failed file_report is a one-line human notice, not the payload", () => {
+		const dump = '{\n  "deviations": ["aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"]\n}';
+		const items = [
+			entryItem(entry(3, "pi.assistant", { model: [assistantMessage([{ type: "toolCall", id: "c1", name: "file_report", arguments: {} }])] })),
+			entryItem(
+				entry(4, "pi.toolResult", {
+					model: [
+						toolResultMessage(
+							"c1",
+							"file_report",
+							"",
+							{
+								isError: true,
+								content: [{ type: "text", text: `<harness>\n[error] Validation failed for tool "file_report":\n  - deviations.0: expected at most 300 characters\n\nReceived arguments:\n${dump}\n</harness>` }],
+							},
+						),
+					],
+				}),
+			),
+		];
+		const blocks = buildBlocks(viewOf(items), session(), false);
+		const notice = blocks.find((block) => block.kind === "notice");
+		expect(notice).toMatchObject({ tone: "info", text: "The report was not accepted: deviations.0: expected at most 300 characters" });
+		expect(JSON.stringify(blocks)).not.toContain("<harness>");
+		expect(JSON.stringify(blocks)).not.toContain("Received arguments");
+	});
+
+	it("a failed submit_plan yields a short notice instead of silence", () => {
+		const items = [
+			entryItem(entry(3, "pi.assistant", { model: [assistantMessage([{ type: "toolCall", id: "c1", name: "submit_plan", arguments: {} }])] })),
+			entryItem(
+				entry(4, "pi.toolResult", {
+					model: [
+						toolResultMessage("c1", "submit_plan", "", {
+							isError: true,
+							content: [{ type: "text", text: '<harness>\n[error] Validation failed for tool "submit_plan":\n  - risks.0: expected string, got object\n\nReceived arguments:\n{\n  "risks": [{}]\n}\n</harness>' }],
+						}),
+					],
+				}),
+			),
+		];
+		const blocks = buildBlocks(viewOf(items), session(), false);
+		const notice = blocks.find((block) => block.kind === "notice");
+		expect(notice).toMatchObject({ tone: "info", text: "The plan was not submitted: risks.0: expected string, got object" });
+		expect(JSON.stringify(blocks)).not.toContain("<harness>");
 	});
 
 	it("leaves output untouched when there is no <harness> block", () => {
@@ -307,7 +379,6 @@ describe("diagnostics and diffs", () => {
 		const work = blocks[0] as Extract<Block, { kind: "work" }>;
 		const call = (work.items[0] as Extract<Block, { kind: "work" }>["items"][number] & { call: CallSpec }).call;
 		expect(call.output).toBe("Successfully replaced 1 block(s) in a.ts.");
-		expect(call.diagnostics).toBeUndefined();
 	});
 
 	it("carries the edit unified diff from the tool result's details", () => {

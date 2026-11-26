@@ -423,18 +423,6 @@
 
 }
 
-/* pi-durable's diagnostics for a call: real signal (truncation, tool errors), kept quiet beside the output. */
-.harness-note {
-	margin: 4px 0 8px;
-	padding: 6px 10px;
-	max-width: 100%;
-	white-space: pre-wrap;
-	word-break: break-word;
-	font-family: var(--mono);
-	font-size: var(--record);
-	color: var(--text-2);
-	border-left: 2px solid var(--separator);
-}
 
 /* The raw arguments, for debugging: a quiet disclosure under the readable view. */
 .raw {
