@@ -208,13 +208,12 @@ html {
 	font-optical-sizing: auto;
 	background: var(--bg);
 	color: var(--text);
-	/* clip, not hidden: hidden would make the page a scroll container and stop the header and composer sticking. */
+	/* clip, not hidden: hidden would make the page a scroll container; the shell scrolls internally instead. */
 	overflow-x: clip;
 }
 
 body {
 	margin: 0;
-	min-height: 100dvh;
 	overflow-x: clip;
 	line-height: var(--leading);
 	-webkit-tap-highlight-color: transparent;
