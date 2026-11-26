@@ -518,6 +518,8 @@ function plan(feedback: string | undefined): AssistantMessage {
 function report(messages: readonly Message[], directives: string, memory: boolean): AssistantMessage {
 	const recalled = messages.find((message) => message.role === "toolResult" && message.toolCallId.startsWith("recall:"));
 	const id = recalled === undefined ? undefined : textOf(recalled).match(/build id: (\d+)/)?.[1];
+	// [bad-report] scripts one file_report that fails argument validation, once: the harness rejects it and the round after it files a good report.
+	const bad = directives.includes("[bad-report]") && !messages.some((message) => message.role === "toolResult" && message.toolName === FILE_REPORT && message.isError);
 	return tools(
 		call("report", FILE_REPORT, {
 			headline: "Added shout(), a capitalised greeting, with a test.",
@@ -533,7 +535,7 @@ function report(messages: readonly Message[], directives: string, memory: boolea
 				{ change: "Added a test for it", files: ["test/shout.test.ts"] },
 			],
 			checks: [{ command: "node --test test/*.test.ts", result: "passed", detail: "2 tests, 0 failures" }],
-			deviations: [],
+			deviations: bad ? ["x".repeat(400)] : [],
 			notes: id === undefined ? [] : [`The build id from the start of the session was ${id}.`],
 			learned: "Run the tests with `node --test test/*.test.ts`; no install step is needed.",
 			...(memory ? { memory: memoryPart(messages, directives) } : {}),

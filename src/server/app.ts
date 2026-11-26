@@ -13,6 +13,7 @@ import { createNodePhotonImages } from "@earendil-works/pi-durable/images/node";
 import { openNodeSqliteStorage } from "@earendil-works/pi-durable/storage/sqlite/node";
 import { createCodingTools } from "@earendil-works/pi-durable/tools";
 import { piguiAgent } from "./agent/extension.ts";
+import { toolDiagnostics } from "./agent/toolDiagnostics.ts";
 import { projectExtension, skillsExtension } from "./agent/project.ts";
 import { BUNDLED_AGENTS, BUNDLED_SKILLS } from "./agent/resources.ts";
 import type { AgentServices, Faults } from "./agent/services.ts";
@@ -184,6 +185,7 @@ export async function startApp(options: AppOptions): Promise<App> {
 	registry.install(coding);
 	registry.install(createFitImagesExtension(images));
 	registry.install(session);
+	registry.install(toolDiagnostics(services));
 	registry.install(defineExtension({ name: "pigui-sessions", tasks: [sessions.setupTask, notifications.task, maintenance.task] }));
 	registry.install(projectExtension(services));
 	registry.install(skills);

@@ -12,7 +12,7 @@ import {
 	type SessionDoc,
 } from "../shared/session.ts";
 import { buildBlocks, turnStart, type Block, type CallView } from "./transcript.ts";
-type CallSpec = Pick<CallView, "id" | "name" | "status" | "output" | "diagnostics" | "diff">;
+type CallSpec = Pick<CallView, "id" | "name" | "status" | "output" | "diff">;
 
 const TS = 1_700_000_000_000;
 
@@ -293,13 +293,13 @@ describe("diagnostics and diffs", () => {
 		entryItem(entry(4, "pi.toolResult", { model: [toolResultMessage("c1", "edit", "Successfully replaced 1 block(s) in a.ts.", { ...over, ...(details === undefined ? {} : { details }) })] })),
 	];
 
-	it("splits pi-durable's trailing <harness> block off the output as diagnostics", () => {
+	it("splits pi-durable's trailing <harness> block off the output", () => {
 		const items = editCall({ content: [{ type: "text", text: "Successfully replaced 1 block(s) in a.ts." }, { type: "text", text: "<harness>\n[warning] Output truncated: 10 lines, 100 bytes dropped\n</harness>" }] });
 		const blocks = buildBlocks(viewOf(items), undefined, false);
 		const work = blocks[0] as Extract<Block, { kind: "work" }>;
 		const call = (work.items[0] as Extract<Block, { kind: "work" }>["items"][number] & { call: CallSpec }).call;
 		expect(call.output).toBe("Successfully replaced 1 block(s) in a.ts.");
-		expect(call.diagnostics).toBe("[warning] Output truncated: 10 lines, 100 bytes dropped");
+		expect(JSON.stringify(blocks)).not.toContain("<harness>");
 	});
 
 	it("strips a <harness> block that sits in the middle of the output", () => {
@@ -310,10 +310,10 @@ describe("diagnostics and diffs", () => {
 		expect(call.output).not.toContain("<harness>");
 		expect(call.output).toContain("before");
 		expect(call.output).toContain("after");
-		expect(call.diagnostics).toBe("[warning] Output truncated: 10 lines, 100 bytes dropped");
+		expect(JSON.stringify(work)).not.toContain("<harness>");
 	});
 
-	it("cuts pi-ai's Received arguments payload out of the diagnostics", () => {
+	it("a diagnostics-only validation-failure result leaves no output and no dump", () => {
 		const dump = '{\n  "command": "rm -rf build",\n  "secret": "hunter2"\n}';
 		const items = editCall({
 			content: [{ type: "text", text: `<harness>\n[error] Validation failed for tool "edit":\n  - deviations.0: expected at most 300 characters\n\nReceived arguments:\n${dump}\n</harness>` }],
@@ -321,10 +321,10 @@ describe("diagnostics and diffs", () => {
 		const blocks = buildBlocks(viewOf(items), undefined, false);
 		const work = blocks[0] as Extract<Block, { kind: "work" }>;
 		const call = (work.items[0] as Extract<Block, { kind: "work" }>["items"][number] & { call: CallSpec }).call;
-		expect(call.diagnostics).toBe('[error] Validation failed for tool "edit":\n  - deviations.0: expected at most 300 characters');
-		expect(call.diagnostics).not.toContain("Received arguments");
-		expect(call.diagnostics).not.toContain("hunter2");
 		expect(call.output).toBeUndefined();
+		expect(JSON.stringify(blocks)).not.toContain("Received arguments");
+		expect(JSON.stringify(blocks)).not.toContain("hunter2");
+		expect(JSON.stringify(blocks)).not.toContain("<harness>");
 	});
 
 	it("a failed file_report is a one-line human notice, not the payload", () => {
@@ -379,7 +379,6 @@ describe("diagnostics and diffs", () => {
 		const work = blocks[0] as Extract<Block, { kind: "work" }>;
 		const call = (work.items[0] as Extract<Block, { kind: "work" }>["items"][number] & { call: CallSpec }).call;
 		expect(call.output).toBe("Successfully replaced 1 block(s) in a.ts.");
-		expect(call.diagnostics).toBeUndefined();
 	});
 
 	it("carries the edit unified diff from the tool result's details", () => {

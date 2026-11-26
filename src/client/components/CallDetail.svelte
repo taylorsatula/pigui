@@ -81,9 +81,6 @@
 					<pre class="io">{call.output === "" ? "(no output)" : call.output}</pre>
 				{/if}
 			{/if}
-			{#if call.diagnostics !== undefined}
-				<p class="harness-note">Harness note: {call.diagnostics}</p>
-			{/if}
 			{#if !bash}
 				<details class="raw">
 					<summary>Raw input</summary>

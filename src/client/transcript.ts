@@ -37,8 +37,6 @@ export type CallView = {
 	args: Record<string, unknown>;
 	status: "running" | "waiting" | "done" | "failed";
 	output?: string;
-	/** pi-durable's rendered diagnostics (truncation, tool errors), split off the output and shown as a note. */
-	diagnostics?: string;
 	/** The unified diff an `edit` tool result carries in its details. */
 	diff?: string;
 };
@@ -220,7 +218,6 @@ export function buildBlocks(view: TranscriptView | undefined, session: SessionDo
 			const output = split?.text ?? (slot?.output === undefined ? undefined : stripHarness(slot.output));
 			const call: CallView = { id: block.id, name: block.name, args: block.arguments, status };
 			if (output !== undefined) call.output = output;
-			if (split?.diagnostics !== undefined) call.diagnostics = split.diagnostics;
 			if (result?.details?.diff !== undefined) call.diff = result.details.diff;
 			addWork({ kind: "call", key: blockKey, call });
 		});
