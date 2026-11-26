@@ -67,13 +67,58 @@ export type Block = (
 	at?: number;
 };
 
-/** The text the call produced, and pi-durable's trailing <harness> diagnostics block, kept apart so neither leaks into the other. */
-function splitResult(message: ToolResultMessage): { text: string; diagnostics?: string } {
-	const last = message.content.at(-1);
-	const match = last?.type === "text" ? /^<harness>\n([\s\S]*)\n<\/harness>$/.exec(last.text) : null;
-	const blocks = match === null ? message.content : message.content.slice(0, -1);
-	const text = blocks.flatMap((block) => (block.type === "text" ? [block.text] : ["[image]"])).join("\n");
-	return match === null ? { text } : { text, diagnostics: match[1] };
+// pi-durable stores its diagnostics as a trailing text block (<harness>\n[sev] msg\n</harness>), and pi-ai embeds the whole
+// arguments payload in validation errors ("Received arguments:\n{ ... }"). Neither ever renders to the person: harness
+// sections are cut from every text block and gathered as diagnostics, and the payload tail is cut from those.
+const HARNESS = /<harness>[\s\S]*?<\/harness>/g;
+const RECEIVED = /\n\s*Received arguments:/;
+const DIAGNOSTICS_MAX = 300;
+const NOTE_MAX = 140;
+
+/** What the person reads of the diagnostics: the reasons, not the arguments payload, bounded in size. */
+function boundDiagnostics(diagnostics: string): string {
+	const cut = RECEIVED.exec(diagnostics);
+	const kept = (cut === null ? diagnostics : diagnostics.slice(0, cut.index)).trim();
+	return kept.length <= DIAGNOSTICS_MAX ? kept : `${kept.slice(0, DIAGNOSTICS_MAX).trimEnd()}…`;
+}
+
+/** One short human line for a failed call, from its error: never the raw payload. */
+function failureNote(split: { text?: string; diagnostics?: string }, lead: string): string {
+	const source = split.diagnostics ?? split.text ?? "";
+	const lines = source.split("\n").map((line) => line.trim()).filter((line) => line !== "");
+	const bullet = lines.find((line) => line.startsWith("- ")) ?? lines.find((line) => !/^Validation failed/.test(line) && !line.startsWith("[")) ?? lines[0];
+	const reason = (bullet ?? "").replace(/^-\s*/, "").replace(/^\[error\]\s*/, "");
+	if (reason === "") return `${lead}.`;
+	const capped = reason.length <= NOTE_MAX ? reason : `${reason.slice(0, NOTE_MAX).trimEnd()}…`;
+	return `${lead}: ${capped}`;
+}
+
+/** Harness sections out of any text: used for live output the Durable slot streams raw. */
+function stripHarness(text: string): string {
+	return text.replace(HARNESS, "").replace(/\n{3,}/g, "\n\n");
+}
+
+/** The text the call produced, and pi-durable's <harness> diagnostics, kept apart so neither leaks into the other or to the person. */
+function splitResult(message: ToolResultMessage): { text?: string; diagnostics?: string } {
+	const diagnostics: string[] = [];
+	const text = message.content
+		.flatMap((block) => {
+			if (block.type !== "text") return ["[image]"];
+			const kept = block.text
+				.replace(HARNESS, (match) => {
+					const inner = match.slice(match.indexOf(">") + 1, match.lastIndexOf("<")).trim();
+					if (inner !== "") diagnostics.push(inner);
+					return "";
+				})
+				.replace(/\n{3,}/g, "\n\n")
+				.trim();
+			return kept === "" ? [] : [kept];
+		})
+		.join("\n");
+	const joined = diagnostics.join("\n");
+	const shown = text === "" ? undefined : text;
+	const kept = shown === undefined ? {} : { text: shown };
+	return joined === "" ? kept : { ...kept, diagnostics: boundDiagnostics(joined) };
 }
 
 function userText(entry: EntryRecord): string {
@@ -172,7 +217,7 @@ export function buildBlocks(view: TranscriptView | undefined, session: SessionDo
 			const status: CallView["status"] =
 				result !== undefined ? (result.message.isError ? "failed" : "done") : slot?.status === "sleeping" || slot?.status === "waiting" ? "waiting" : "running";
 			const split = result !== undefined ? splitResult(result.message) : undefined;
-			const output = split?.text ?? slot?.output;
+			const output = split?.text ?? (slot?.output === undefined ? undefined : stripHarness(slot.output));
 			const call: CallView = { id: block.id, name: block.name, args: block.arguments, status };
 			if (output !== undefined) call.output = output;
 			if (split?.diagnostics !== undefined) call.diagnostics = split.diagnostics;
@@ -315,12 +360,19 @@ function cardBlock(
 	const details = result?.details;
 	if (name === "file_report") {
 		if (details?.report !== undefined) add({ kind: "report", key, report: reportOf(details.report), latest: result?.message === lastReport?.message });
-		else if (result?.message.isError === true) add({ kind: "notice", key, tone: "info", text: splitResult(result.message).text });
+		else if (result?.message.isError === true) add({ kind: "notice", key, tone: "info", text: failureNote(splitResult(result.message), "The report was not accepted") });
 		return;
 	}
 	const pending = session?.card?.id === callId ? session.card : undefined;
 	const card = (details?.card ?? pending) as QuestionCard | PlanCard | undefined;
-	if (card === undefined) return;
+	// The tool never parked a card (it failed before or while waiting): a short human note rather than silence.
+	if (card === undefined) {
+		if (result?.message.isError === true) {
+			const refused = name === "submit_plan" ? "The plan was not submitted" : "The questions were not sent";
+			add({ kind: "notice", key, tone: "info", text: failureNote(splitResult(result.message), refused) });
+		}
+		return;
+	}
 	const answer = details?.answer;
 	if (card.kind === "questions") {
 		add(answer === undefined ? { kind: "questions", key, card, pending: pending !== undefined } : { kind: "questions", key, card, answer, pending: false });

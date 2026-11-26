@@ -302,6 +302,78 @@ describe("diagnostics and diffs", () => {
 		expect(call.diagnostics).toBe("[warning] Output truncated: 10 lines, 100 bytes dropped");
 	});
 
+	it("strips a <harness> block that sits in the middle of the output", () => {
+		const items = editCall({ content: [{ type: "text", text: "before\n<harness>\n[warning] Output truncated: 10 lines, 100 bytes dropped\n</harness>\nafter" }] });
+		const blocks = buildBlocks(viewOf(items), undefined, false);
+		const work = blocks[0] as Extract<Block, { kind: "work" }>;
+		const call = (work.items[0] as Extract<Block, { kind: "work" }>["items"][number] & { call: CallSpec }).call;
+		expect(call.output).not.toContain("<harness>");
+		expect(call.output).toContain("before");
+		expect(call.output).toContain("after");
+		expect(call.diagnostics).toBe("[warning] Output truncated: 10 lines, 100 bytes dropped");
+	});
+
+	it("cuts pi-ai's Received arguments payload out of the diagnostics", () => {
+		const dump = '{\n  "command": "rm -rf build",\n  "secret": "hunter2"\n}';
+		const items = editCall({
+			content: [{ type: "text", text: `<harness>\n[error] Validation failed for tool "edit":\n  - deviations.0: expected at most 300 characters\n\nReceived arguments:\n${dump}\n</harness>` }],
+		});
+		const blocks = buildBlocks(viewOf(items), undefined, false);
+		const work = blocks[0] as Extract<Block, { kind: "work" }>;
+		const call = (work.items[0] as Extract<Block, { kind: "work" }>["items"][number] & { call: CallSpec }).call;
+		expect(call.diagnostics).toBe('[error] Validation failed for tool "edit":\n  - deviations.0: expected at most 300 characters');
+		expect(call.diagnostics).not.toContain("Received arguments");
+		expect(call.diagnostics).not.toContain("hunter2");
+		expect(call.output).toBeUndefined();
+	});
+
+	it("a failed file_report is a one-line human notice, not the payload", () => {
+		const dump = '{\n  "deviations": ["aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"]\n}';
+		const items = [
+			entryItem(entry(3, "pi.assistant", { model: [assistantMessage([{ type: "toolCall", id: "c1", name: "file_report", arguments: {} }])] })),
+			entryItem(
+				entry(4, "pi.toolResult", {
+					model: [
+						toolResultMessage(
+							"c1",
+							"file_report",
+							"",
+							{
+								isError: true,
+								content: [{ type: "text", text: `<harness>\n[error] Validation failed for tool "file_report":\n  - deviations.0: expected at most 300 characters\n\nReceived arguments:\n${dump}\n</harness>` }],
+							},
+						),
+					],
+				}),
+			),
+		];
+		const blocks = buildBlocks(viewOf(items), session(), false);
+		const notice = blocks.find((block) => block.kind === "notice");
+		expect(notice).toMatchObject({ tone: "info", text: "The report was not accepted: deviations.0: expected at most 300 characters" });
+		expect(JSON.stringify(blocks)).not.toContain("<harness>");
+		expect(JSON.stringify(blocks)).not.toContain("Received arguments");
+	});
+
+	it("a failed submit_plan yields a short notice instead of silence", () => {
+		const items = [
+			entryItem(entry(3, "pi.assistant", { model: [assistantMessage([{ type: "toolCall", id: "c1", name: "submit_plan", arguments: {} }])] })),
+			entryItem(
+				entry(4, "pi.toolResult", {
+					model: [
+						toolResultMessage("c1", "submit_plan", "", {
+							isError: true,
+							content: [{ type: "text", text: '<harness>\n[error] Validation failed for tool "submit_plan":\n  - risks.0: expected string, got object\n\nReceived arguments:\n{\n  "risks": [{}]\n}\n</harness>' }],
+						}),
+					],
+				}),
+			),
+		];
+		const blocks = buildBlocks(viewOf(items), session(), false);
+		const notice = blocks.find((block) => block.kind === "notice");
+		expect(notice).toMatchObject({ tone: "info", text: "The plan was not submitted: risks.0: expected string, got object" });
+		expect(JSON.stringify(blocks)).not.toContain("<harness>");
+	});
+
 	it("leaves output untouched when there is no <harness> block", () => {
 		const blocks = buildBlocks(viewOf(editCall()), undefined, false);
 		const work = blocks[0] as Extract<Block, { kind: "work" }>;
