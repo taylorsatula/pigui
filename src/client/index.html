@@ -2,7 +2,8 @@
 <html lang="en">
 	<head>
 		<meta charset="utf-8" />
-		<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content" />
+		<!-- No viewport-fit=cover: the web view stays below the iOS status bar, whose glass blurs edge-to-edge content; theme-color fills the strip with the page's --bg in both schemes. -->
+		<meta name="viewport" content="width=device-width, initial-scale=1, interactive-widget=resizes-content" />
 		<meta name="color-scheme" content="light dark" />
 		<meta name="theme-color" media="(prefers-color-scheme: light)" content="#fcfbf8" />
 		<meta name="theme-color" media="(prefers-color-scheme: dark)" content="#010405" />

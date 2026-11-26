@@ -6,6 +6,7 @@
 .app {
 	display: flex;
 	height: var(--viewport-height, 100dvh);
+	margin-top: var(--viewport-offset, 0px);
 	overflow: hidden;
 }
 
