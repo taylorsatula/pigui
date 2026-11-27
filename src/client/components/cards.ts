@@ -1,6 +1,6 @@
 // The plain-TS parts of the cards: the action types, the initial selection, the report's prose and grading, and the tone maps. No markup.
 // A waiting card is answered by tapping: recommended options are already chosen, so accepting them is one tap, and free text is always there.
-import type { CardAnswer, QuestionCard, Report, ReportMemory } from "../../shared/session.ts";
+import { planOf, type CardAnswer, type QuestionCard, type Report, type ReportMemory, type StoredPlan } from "../../shared/session.ts";
 
 export type CardActions = {
 	answer(cardId: string, answer: CardAnswer): Promise<void>;
@@ -27,6 +27,25 @@ export function reportProse(report: Report): string {
 	]
 		.filter((part) => part !== "")
 		.join("\n\n");
+}
+
+/** The whole manifest a plan card shows, as Markdown to read aloud: every step in order and every other stated part. The reading's directions demand it stay complete. */
+export function planProse(plan: StoredPlan): string {
+	const current = planOf(plan);
+	const list = (items: readonly string[]) => items.map((item) => `- ${item}`).join("\n");
+	return [
+		`# ${current.title}`,
+		current.goal,
+		...(current.endState.length === 0 ? [] : [`## Done when\n${list(current.endState)}`]),
+		...(current.decisions.length === 0
+			? []
+			: [`## Decided for you\n${current.decisions.map((decision) => `- ${decision.choice}. ${decision.reason}`).join("\n")}`]),
+		`## Steps\n${current.steps.map((step, index) => `${index + 1}. ${step.text}${step.files.length === 0 ? "" : ` Files: ${step.files.join(", ")}`}`).join("\n")}`,
+		...(current.verification.length === 0 ? [] : [`## Verified by\n${list(current.verification)}`]),
+		...(current.outOfScope.length === 0 ? [] : [`## Not doing\n${list(current.outOfScope)}`]),
+		...(current.risks.length === 0 ? [] : [`## Risks\n${list(current.risks)}`]),
+		...(current.citations.length === 0 ? [] : [`## Sources\n${current.citations.map((citation) => `- ${citation.ref}: ${citation.note}`).join("\n")}`]),
+	].join("\n\n");
 }
 
 /** How a report graded long-term memory, in one line: "Rated 3 memories: 2 helpful, 1 not. Removed 1." */

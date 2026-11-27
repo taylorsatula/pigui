@@ -96,8 +96,11 @@ export type PushSubscriptionBody = Static<typeof PushSubscriptionBody>;
  */
 export const SPEECH_SEGMENT_CHARS = 200;
 
+/** Which reading a script is for; absent means a reply. The plan's directions retain the manifest's full detail. */
+export type SpeechKind = "reply" | "plan";
+
 /** A reply's Markdown, as the phone shows it, to be rewritten as a speakable script. */
-export const SpeechScriptBody = obj({ text: str({ minLength: 1, maxLength: 100_000 }) });
+export const SpeechScriptBody = obj({ text: str({ minLength: 1, maxLength: 100_000 }), kind: opt(oneOf(["reply", "plan"])) });
 export type SpeechScriptBody = Static<typeof SpeechScriptBody>;
 
 /** One segment of a speakable script, to be read aloud. */

@@ -251,6 +251,12 @@ Recent rows keep the repository star button. *Alternatives:* a `pinned` flag on 
 projection would churn on every star-shaped toggle, and the favorites would not survive index-held restarts of the
 stars' own sync path) and a pin control on the splash rows (not asked for; the picker is where rows are managed).
 
+**A starred repository whose default branch cannot be fetched is tried once per page load, then left alone** (2026-11-27).
+A failed fetch was assigned a fresh object on every retry, which re-triggered the `$effect` and hammered `gh api` in a
+tight loop — hundreds of failing calls per minute on the splash, nagging the phone and the server alike. The row shows
+“Repository” as it did before; restoring access retries on the next page load. *Rejected:* a toast per failure (noise on
+someone else's outage) and an unbounded retry with backoff (still load for a permanently gone repo).
+
 ## Fake mode
 
 The scripted model is Pi's faux provider, one response factory queued per request; a conversation's step is read from
@@ -283,6 +289,15 @@ unit uses `RestartPreventExitStatus=78 2`. `deploy/install.sh` (Debian 13/Ubuntu
 (mask what a pigui-only machine never uses, add swap, cap the journal) are its parts, and they are byte-ports of the
 reference's, with the ref updated to `main` — the installer is machine tooling, not application code.
 
+**Piped from curl, the interview asks on your terminal.** `curl … install.sh | bash -s --` leaves stdin at EOF, so
+the question helpers read their answers from `/dev/tty` when it opens (a controlling terminal), falling back to plain
+stdin when that is the terminal, and to the flags-are-required path when there is neither — CI is byte-compatible with
+before. The presentation follows mira's installer in spirit, not in complexity: a muted palette (on only for a terminal
+with `NO_COLOR` unset and `TERM` not dumb), `✓`/`→`/`✗` glyphs, defaults in brackets, and one `Your choices` summary
+with a `Proceed? [Y/n]` before anything changes — interactive runs only; with flags or no terminal there is nothing to
+confirm. No ASCII banner, no release-resolution machinery, no YAML config file; pigui keeps bash 3.2 compatibility and
+its four paths.
+
 **`PIGUI_MODELS_UNLOAD` is validated in one place per side, over one shared schema.** `deploy/lib.sh`'s `unload_valid`
 is the single bash definition, sourced by both installers; the server's `parseModelsUnload` mirrors it exactly (decimal
 digits, 1–1440, `never` or unset to keep the models loaded, leading zeros allowed), and the held-model test pins the
@@ -312,6 +327,10 @@ counted like the summarizer's), cut to ≤200-char segments; Kokoro-82M q8 synth
 one-at-a-time queue, silence trimmed to 50/200 ms, WAV from our own 16-bit encoder), held as `PIGUI_MODELS_UNLOAD`
 says; the phone keeps one unlocked HTMLAudioElement and reads ahead. The reading continues with the screen locked.
 `PIGUI_SPEECH=off` leaves it out of the build and the app says the speaker is absent.
+
+## Reading the plan aloud
+
+The plan card carries the same speaker, reading the whole manifest through plan-specific directions (`PLAN_SPEECH_PROMPT`, chosen with `kind: "plan"` on the script request): retain FULL detail and miss no step — every step in order with its files, every done-when condition, decision, verification, exclusion, risk and source. Phrasing changes are acceptable only where they convey the plan better aloud than the written manifest. The reply and report readings keep their existing directions; a tap before approving is the point of the speaker's place in the card's header.
 
 ## Slash commands: not built
 

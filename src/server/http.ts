@@ -444,9 +444,9 @@ export function createHttpServer(deps: HttpDeps): Server {
 			switch (action) {
 				case "speech-script": {
 					const reader = speech();
-					const { text } = await json(request, bodies.script);
+					const { text, kind } = await json(request, bodies.script);
 					const model = await reader.modelOf(id, context);
-					await reader.script(id, model, text, openLines<ScriptLine>(response), abortOnClose(response), context);
+					await reader.script(id, model, text, kind ?? "reply", openLines<ScriptLine>(response), abortOnClose(response), context);
 					response.end();
 					return;
 				}

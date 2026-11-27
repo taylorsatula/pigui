@@ -34,7 +34,7 @@ import { RECALL } from "../agent/recall.ts";
 import { FILE_REPORT } from "../agent/report.ts";
 import { SUMMARIZER_PROMPT } from "../agent/summarizer.ts";
 import { SURFACE_MEMORIES } from "../memory/directives.ts";
-import { SPEECH_PROMPT } from "../speech/script.ts";
+import { PLAN_SPEECH_PROMPT, SPEECH_PROMPT } from "../speech/script.ts";
 import { AGENT, ENVIRONMENT, STEER } from "../subagents/tools.ts";
 
 const FAKE_PROVIDER = "pigui-fake";
@@ -174,7 +174,7 @@ function style(messages: readonly Message[]): string {
 function respond(context: TranscriptContext, options: SimpleStreamOptions | undefined, onRequest?: ScriptedModelOptions["onRequest"]): AssistantMessage {
 	const messages = context.messages;
 	const system = systemText(messages);
-	const kind: RequestKind = system.includes(SUMMARIZER_PROMPT.slice(0, 60)) ? "summary" : system.includes(SPEECH_PROMPT.slice(0, 60)) ? "speech" : "agent";
+	const kind: RequestKind = system.includes(SUMMARIZER_PROMPT.slice(0, 60)) ? "summary" : system.includes(SPEECH_PROMPT.slice(0, 60)) || system.includes(PLAN_SPEECH_PROMPT.slice(0, 60)) ? "speech" : "agent";
 	const lastUser = messages.findLast((message) => message.role === "user");
 	onRequest?.(kind, lastUser === undefined ? "" : textOf(lastUser));
 	if (kind === "summary") return summarize(messages);
