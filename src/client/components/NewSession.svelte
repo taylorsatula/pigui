@@ -118,7 +118,7 @@
 					<Icon name="mic" size={30} />
 					<span class="tile-label">Dictate</span>
 				</button>
-				<button type="button" class="tile" aria-expanded={moreOpen} aria-controls="place-popover" onclick={() => (moreOpen = !moreOpen)}>
+				<button type="button" class="tile" id="more-tile" aria-expanded={moreOpen} aria-controls="place-popover" onclick={() => (moreOpen = !moreOpen)}>
 					<Icon name="plus" size={30} />
 					<span class="tile-label">More</span>
 				</button>

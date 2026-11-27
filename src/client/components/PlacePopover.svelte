@@ -59,12 +59,23 @@
 	const onKeydown = (event: KeyboardEvent) => {
 		if (event.key === "Escape") onClose();
 	};
+
+	let panel: HTMLDivElement | null = null;
+
+	// A tap outside closes the popover, and lands on what it hit (no backdrop button eating it); a tap on the +
+	// tile toggles instead, and inside the panel it edits.
+	const onPointerDown = (event: PointerEvent) => {
+		const target = event.target as Node | null;
+		if (target === null) return;
+		if (panel?.contains(target) === true) return;
+		if (target instanceof Element && target.closest("#more-tile") !== null) return;
+		onClose();
+	};
 </script>
 
-<svelte:window onkeydown={onKeydown} />
+<svelte:window onkeydown={onKeydown} onpointerdown={onPointerDown} />
 
-<button type="button" class="popover-backdrop" aria-label="Close" onclick={onClose}></button>
-<div class="place-popover" id="place-popover" role="dialog" aria-label="More places">
+<div class="place-popover" id="place-popover" role="dialog" aria-label="More places" bind:this={panel}>
 	{#if onPrem}
 		<div class="chonky" role="radiogroup" aria-label="Starting from">
 			<button type="button" role="radio" aria-checked={side === "dir"} class={side === "dir" ? "selected" : ""} onclick={() => chooseSide("dir")}>Directory</button>

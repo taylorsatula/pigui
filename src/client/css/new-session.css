@@ -63,15 +63,6 @@
 }
 
 /* The + popover: a dense panel under the tiles for the choices off the cow path. */
-.popover-backdrop {
-	position: fixed;
-	inset: 0;
-	z-index: 20;
-	border: none;
-	background: transparent;
-	touch-action: none;
-}
-
 .place-popover {
 	position: absolute;
 	top: calc(100% + 10px);
