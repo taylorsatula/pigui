@@ -11,8 +11,10 @@ import {
 	ConversationIdle,
 	defineTask,
 	type Harness,
+	InboxDoc,
 	type ModelRef,
 	type SubmissionDraft,
+	type SubmissionId,
 	type TaskId,
 	type TaskRuntime,
 	type Tx,
@@ -21,7 +23,7 @@ import {
 import type { ImageProcessor } from "@earendil-works/pi-durable/tools";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import type { AnswerCardBody, CreateSessionBody, MessageRoute, SendMessageBody } from "../shared/api.ts";
+import type { AnswerCardBody, CanceledQueued, CreateSessionBody, MessageRoute, SendMessageBody } from "../shared/api.ts";
 import { type CardAnswer, MESSAGE_ENTRY, type PendingCard, type SessionDoc, type SessionPlace, type SessionStart, type SetupStep } from "../shared/session.ts";
 import { formatDollars } from "../shared/spend.ts";
 import { sessionSpend } from "./agent/budget.ts";
@@ -393,6 +395,30 @@ export class Sessions {
 		}, context);
 		await this.#deps.uploads.remove(body.attachments);
 		return route;
+	}
+
+	/**
+	 * Cancel a queued steering message the person sent. Only the person's own queued messages (a steer whose entry is a
+	 * pigui.message) can be withdrawn here; pigui's own steers and an agent's queued answers are not theirs to cancel.
+	 * Idempotent: a message that already reached the conversation, or nothing of theirs queued, is a settled no-op.
+	 */
+	async cancelQueued(id: number, submission: number, context: Context): Promise<CanceledQueued> {
+		await this.#ready(id, context);
+		const harness = this.#deps.harness();
+		const conversationId = id as ConversationId;
+		const inbox = await harness.snapshot(InboxDoc, conversationId, context);
+		const wanted = submission as SubmissionId;
+		const item = inbox?.items.find((each) => each.id === wanted);
+		// The inbox is the boundary Durable places at; anything not in it is either just placed or already settled.
+		// Reporting it as settled keeps a double tap — and a tap that races the boundary — from erroring.
+		if (item === undefined) return { result: "settled" };
+		const entryKind = (item.mode === "steer" ? (item.entry as { kind?: string } | undefined) : undefined)?.kind;
+		if (entryKind !== MESSAGE_ENTRY) {
+			throw new HttpError(409, "Only your own queued messages can be canceled.", "Wait for Pi to finish its current step, or stop the run.");
+		}
+		const result = await harness.abortSubmission(wanted, context, conversationId);
+		if (result === "not_found") throw notFound("The queued message");
+		return { result };
 	}
 
 	async #attachmentNote(doc: Readonly<SessionDoc>, attachments: readonly string[], context: Context): Promise<string> {

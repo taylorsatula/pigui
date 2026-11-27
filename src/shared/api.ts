@@ -161,6 +161,15 @@ export type SentMessage = {
 	route: MessageRoute;
 };
 
+/**
+ * What became of a request to cancel a queued steering message. `aborted`: it was withdrawn before Pi saw it.
+ * `already_placed`: Pi had just placed it, so it reached the conversation. `settled`: nothing of yours was queued,
+ * so there was nothing to do — what a retry or a double tap answers.
+ */
+export type CanceledQueued = {
+	result: "aborted" | "already_placed" | "settled";
+};
+
 export type UploadedAttachment = {
 	id: string;
 	name: string;

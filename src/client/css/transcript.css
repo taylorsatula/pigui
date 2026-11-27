@@ -28,7 +28,8 @@
 }
 
 /* A new turn from the person opens with more room above it. */
-.entry.is-person:not(:first-child) {
+.entry.is-person:not(:first-child),
+.entry.is-queued:not(:first-child) {
 	margin-top: 14px;
 }
 
@@ -56,6 +57,34 @@
 	color: var(--person);
 	white-space: pre-wrap;
 	font-family: var(--serif);
+}
+
+/* A message waiting for a break in Pi's work: the same serif, waiting to arrive, so it earns a cancel beside it. */
+.entry.is-queued .said {
+	color: var(--text-2);
+}
+
+.queued-row {
+	display: flex;
+	align-items: center;
+	gap: 12px;
+	margin-top: 2px;
+}
+
+.queued-note {
+	margin: 0;
+	font-family: var(--mono);
+	font-size: var(--record);
+	color: var(--text-2);
+	line-height: var(--leading-tight);
+}
+
+/* The cancel target fills the row's height: 44 points, as every target. */
+.queued-cancel {
+	display: inline-flex;
+	align-items: center;
+	min-height: var(--target);
+	white-space: nowrap;
 }
 
 .context-chips,

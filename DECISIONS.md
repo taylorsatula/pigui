@@ -380,3 +380,20 @@ Docker image (it is the runtime image, not a test environment).
 ## Harness diagnostics never render raw
 
 pi-durable stores its tool-result diagnostics as a trailing `<harness>…</harness>` text block, and pi-ai's validation errors embed the entire arguments payload after `Received arguments:`. Neither is ever shown to the person: `splitResult` (src/client/transcript.ts) cuts harness sections out of every text block they appear in, and the diagnostics are never shown to the person, not even behind a tap. Instead the server logs them: a `pigui-diagnostics` extension (src/server/agent/toolDiagnostics.ts) hooks the generation task's `afterTools` and writes one `tool.diagnostics` line per diagnostic found on the committed tool-result entries (`data.diagnostics`), with pi-ai's `Received arguments:` payload cut and the message capped at 500 chars; it is installed in the shared registry and not excluded for agents, so agent tool calls are logged too. Failed card tools (`file_report`, `submit_plan`, `ask_*`) show a one-line human notice built from the first error line, never the payload; a failed call that never parked a card shows a short note rather than silence. The arguments payload stays only in the stored Durable entry.
+
+## Queued steering messages wait in plain sight
+
+A steering message sent while Pi works is admitted to Durable's `pi.inbox` and placed at the next tool-round boundary
+(or at run end, where it starts the next run) — that is the earliest point a steer can enter a turn-based agent loop,
+and Pi has no mid-generation injection. What was broken was that the wait was invisible: the composer cleared and
+nothing rendered until placement, so the message read as vanished and its timing as unknown, with no way back. The fix
+shows the wait rather than changing it: the transcript derives a `queued` block from `pi.inbox` (pigui.message steers
+only — pigui's own compaction steers and an agent's queued follow-ups never render), sets the person's words muted with
+a mono note, and offers a Cancel that calls `harness.abortSubmission` through a new endpoint,
+`POST /api/sessions/:id/queued/:submission/cancel`, restricted server-side to pigui.message steers and idempotent
+(`settled` when nothing is queued). Durable's view already mounts `pi.inbox`, so the live stream and
+`buildBlocks` needed no new document or client echo, and the words record keeps a canceled send verbatim, as it keeps
+every send — the record is the person's words, not the agent's ledger. *Rejected:* writing a pigui document at send
+time and hiding it at placement (two sources of truth, and stale on a crash); cancelling through `Conversation.abort`
+(stops the whole run); `steeringMode: "all"` (Pi's default is one-at-a-time); treating cancel as deleting the words
+entry (no link between request ID and word index worth the machinery).

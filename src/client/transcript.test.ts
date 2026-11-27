@@ -9,6 +9,7 @@ import {
 	CHECKPOINT_ENTRY,
 	MESSAGE_ENTRY,
 	NUDGE_ENTRY,
+	type MessageEntryData,
 	type SessionDoc,
 } from "../shared/session.ts";
 import { buildBlocks, turnStart, type Block, type CallView } from "./transcript.ts";
@@ -400,5 +401,51 @@ describe("identity", () => {
 		const first = buildBlocks(view, undefined, false);
 		expect(buildBlocks(view, undefined, false)).toBe(first);
 		expect(buildBlocks(view, undefined, true)).not.toBe(first);
+	});
+});
+
+describe("queued steering messages", () => {
+	const inbox = (items: unknown[]) => ({ "pi.inbox": { items } });
+	const steer = (id: number, data: MessageEntryData = personData) => ({ id, mode: "steer", content: data.text, entry: { kind: MESSAGE_ENTRY, data } });
+
+	it("a message waiting for a break in Pi's work shows at the end as queued, with the submission to cancel", () => {
+		const items = [entryItem(entry(1, MESSAGE_ENTRY, { data: personData }))];
+		const blocks = buildBlocks(viewOf(items, inbox([steer(7)])), undefined, true);
+		expect(blocks.at(-1)).toMatchObject({ kind: "queued", key: "queued:7", data: personData, submission: 7 });
+		expect(blocks.at(-1)).not.toHaveProperty("at");
+		expect(blocks.map((block) => block.kind)).toEqual(["person", "queued"]);
+	});
+
+	it("queued blocks keep the order they were queued in", () => {
+		const blocks = buildBlocks(viewOf([], inbox([steer(3, { ...personData, text: "first" }), steer(4, { ...personData, text: "second" })])), undefined, true);
+		expect(blocks.map((block) => block.kind)).toEqual(["queued", "queued"]);
+		expect(blocks.map((block) => (block as Extract<Block, { kind: "queued" }>).submission)).toEqual([3, 4]);
+	});
+
+	it("pigui's own steers and an agent's queued follow-ups are not shown", () => {
+		const docs = inbox([
+			{ id: 5, mode: "steer", content: "resume", entry: { kind: "pigui.compaction-note", data: { note: "resume" } } },
+			{ id: 6, mode: "followUp", content: "Agent 1 (explore) answered", entry: { kind: "pigui.agent-result", data: { agent: 1 } } },
+			{ id: 7, mode: "write", entry: { kind: "pigui.compaction" } },
+			steer(8),
+		]);
+		const blocks = buildBlocks(viewOf([], docs), undefined, true);
+		expect(blocks).toHaveLength(1);
+		expect(blocks[0]).toMatchObject({ kind: "queued", submission: 8 });
+	});
+
+	it("a queued message is not a turn start, and closes nothing open behind it", () => {
+		const items = [entryItem(entry(2, "pi.assistant", { model: [assistantMessage([{ type: "text", text: "Done." }])] }))];
+		const blocks = buildBlocks(viewOf(items, inbox([steer(9)])), undefined, false);
+		expect(blocks.map((block) => block.kind)).toEqual(["text", "speak", "queued"]);
+		expect(turnStart(blocks)).toBe(-1);
+		expect(turnStart([{ kind: "person", key: "p", data: personData } as Block, ...blocks])).toBe(0);
+	});
+
+	it("a queued message while the reply streams closes nothing either", () => {
+		const docs = { "pi.live": { generation: { message: assistantMessage([{ type: "text", text: "Hel" }]) } }, ...inbox([steer(10)]) };
+		const blocks = buildBlocks(viewOf([], docs), undefined, true);
+		expect(blocks.map((block) => block.kind)).toEqual(["text", "queued"]);
+		expect(blocks[0]).toMatchObject({ streaming: true });
 	});
 });

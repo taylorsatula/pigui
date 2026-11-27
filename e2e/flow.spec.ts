@@ -63,6 +63,23 @@ test.describe("the tap flow", () => {
 		await expect(page.locator(".work.live")).toHaveCount(0);
 	});
 
+	test("a message sent while Pi works shows as queued, and Cancel takes it back before Pi reads it", async ({ page }) => {
+		// The bash call parks for eight seconds, so the send queues behind it; the queued row shows at once.
+		await startSession(page, "Probe the machine [probe]\n$ sleep 8");
+		await expect(page.locator(".work.live .live-call").last()).toBeVisible({ timeout: 15_000 });
+		const composer = page.getByRole("textbox", { name: "Steer Pi while it works…" });
+		await composer.fill("please stop early");
+		await page.getByRole("button", { name: "Send", exact: true }).tap();
+		const queued = page.locator(".entry.is-queued");
+		await expect(queued).toBeVisible();
+		await expect(queued.locator(".said")).toHaveText("please stop early");
+		await queued.getByRole("button", { name: "Cancel" }).tap();
+		await expect(queued).toHaveCount(0);
+		// Pi never read the message: the run ends at the probe's own answer, not with a steer.
+		await expect(page.locator(".is-person .said")).toHaveCount(1);
+		await page.getByRole("button", { name: "[ HALT WORK ]" }).tap();
+	});
+
 	test("a turn under way shows whole after a reload, though it is longer than the live window", async ({ page }) => {
 		await startSession(page, "Keep going [spin]");
 		// Past Durable's live window of 50 entries: each call is two (the request and its result).
