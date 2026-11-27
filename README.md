@@ -10,6 +10,24 @@ pigui is built for long-horizon autonomous work. A session frontloads its planni
 resolve ambiguity before touching anything, presents an actionable plan for approval, implements it, and files a final
 report with an option to open a pull request. You can put the phone away and come back to the report.
 
+## Install
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/taylorsatula/pigui/main/install.sh | bash -s --
+```
+
+One line, straight from GitHub — and it interviews you on your own terminal (it reads its answers from `/dev/tty`,
+since the pipe is stdin). It asks the things that have no useful default: container or full access, this computer or a
+remote server you reach over SSH, and your Pi configuration when the answer is full access; then speech (dictation read
+aloud by Kokoro) on or off, long-term memory on or off, how the local models are held in memory, and whether to serve
+pigui to your tailnet. It shows you the choices it resolved and asks once before installing. Run it again to update in
+place.
+
+With no terminal to ask on (CI, a scripted run) it installs without asking and takes the answers as flags:
+`--where local|remote` and `--how sandboxed|full` are required then — `install.sh --help` lists them all, as do the
+environment variables in brackets beside them. Colors follow the terminal; `NO_COLOR=1` turns them off. See
+[Deploy](#deploy) for what the three paths are.
+
 ## How a session works
 
 1. Pick a repository (or a directory on the machine) and describe the task.
@@ -172,14 +190,8 @@ root. A local session works in any directory it names; a server refuses local se
 
 ## Deploy
 
-Three deployment paths, one decision tree — see **`deploy/` and `install.sh`**:
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/taylorsatula/pigui/main/install.sh | bash -s --
-```
-
-It asks three questions — container or not, this computer or a remote server, then the flags — and installs or updates
-in place.
+Three deployment paths, one decision tree — the one-liner in [Install](#install) asks the questions and installs or
+updates in place; everything it does is visible with `--dry-run`. See **`deploy/` and `install.sh`**:
 
 - **Containerized remote deployment.** Two Docker containers on any machine with Docker: one runs Tailscale and serves
   pigui over HTTPS to your tailnet only, the other runs pigui sharing its network, listening on its loopback.

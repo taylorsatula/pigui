@@ -2,7 +2,9 @@
 # pigui installer: one decision tree for every way to run pigui. Installs, and when run again updates in place.
 #
 #   curl -fsSL https://raw.githubusercontent.com/taylorsatula/pigui/main/install.sh | bash -s --
-#   install.sh                       ask where and how, then install (or update) there
+#                                    ask where and how, on your terminal, then install (or update) there
+#                                    (the script reads its answers from /dev/tty, since the pipe is stdin)
+#   install.sh                       the same, from a checkout
 #   install.sh --where local --how full --pi-config standalone
 #                                    the same, without the questions
 #   install.sh --local-full [options]
@@ -57,7 +59,7 @@
 #   --dry-run                   show every step without changing anything
 #   -h, --help                  show this help
 #
-# With no options and a terminal, the questions are asked. Re-running an install updates it in place; the OnPrem path
+# With no options and a terminal (stdin, or /dev/tty when piped), the questions are asked. Re-running an install updates it in place; the OnPrem path
 # keeps its choices in ~/.pigui/onprem.conf, the tree keeps its own in ~/.pigui/install.conf. Precedence:
 # flags, then the environment, then the saved choices, then the defaults.
 set -euo pipefail
@@ -208,6 +210,8 @@ fi
 # shellcheck source=deploy/lib.sh
 . "$SOURCE_DIR/deploy/lib.sh"
 
+header "pigui installer"
+
 # The same rule the server applies to PIGUI_MODELS_UNLOAD as it starts, so a bad value stops here rather than there.
 unload_valid "$MODELS_UNLOAD" || { echo "--models-unload must be never, or a whole number of idle minutes from 1 to 1440." >&2; exit 2; }
 
@@ -285,27 +289,57 @@ ssh_check() {
 	exit 1
 }
 
+# Answers are asked on the terminal. When this script arrives on a pipe (curl | bash), stdin is the pipe, so the
+# terminal is reached through /dev/tty instead. With neither (CI, a scripted run), there is nothing to ask and the
+# flags stand.
+HAS_TTY=0
+TTY_IN=""
+if [[ -t 0 ]]; then
+	HAS_TTY=1
+elif ( : </dev/tty ) 2>/dev/null; then
+	HAS_TTY=1
+	TTY_IN=/dev/tty
+fi
+
+# One line of an answer, read from the terminal. Sets ANSWER. The prompt goes to stderr (read -p), the answer to stdout.
+read_line() {
+	if [[ -n $TTY_IN ]]; then
+		read -r -p "$1" ANSWER <"$TTY_IN"
+	else
+		read -r -p "$1" ANSWER
+	fi
+}
+
+read_secret() {
+	if [[ -n $TTY_IN ]]; then
+		read -r -s -p "$1" ANSWER <"$TTY_IN"
+	else
+		read -r -s -p "$1" ANSWER
+	fi
+	printf '\n'
+}
+
 # A question with a default, asked only on a terminal; otherwise the flag (or the default) stands.
 ask() {
-	local prompt=$1 default=$2 answer
-	if [[ ! -t 0 ]]; then
+	local prompt=$1 default=$2
+	if [[ $HAS_TTY == 0 ]]; then
 		printf '%s' "$default"
 		return
 	fi
-	read -r -p "$prompt [$default] " answer
-	printf '%s' "${answer:-$default}"
+	read_line "${P_CYAN}${prompt}${P_RESET} ${P_DIM}[${default}]${P_RESET} "
+	printf '%s' "${ANSWER:-$default}"
 }
 
 # A yes/no question with a default, asked only on a terminal.
 ask_yes_no() {
-	local prompt=$1 default=$2 answer
-	if [[ ! -t 0 ]]; then
+	local prompt=$1 default=$2
+	if [[ $HAS_TTY == 0 ]]; then
 		[[ $default == y ]]
 		return
 	fi
-	read -r -p "$prompt [$default] " answer
-	answer=${answer:-$default}
-	[[ $answer == y || $answer == Y || $answer == yes ]]
+	read_line "${P_CYAN}${prompt}${P_RESET} ${P_DIM}[${default}]${P_RESET} "
+	ANSWER=${ANSWER:-$default}
+	[[ $ANSWER == y || $ANSWER == Y || $ANSWER == yes ]]
 }
 
 # A numbered choice, asked only on a terminal; otherwise the flag (or the default) stands.
@@ -313,19 +347,18 @@ choose() {
 	local prompt=$1 default=$2
 	shift 2
 	local options=("$@") index
-	if [[ ! -t 0 ]]; then
+	if [[ $HAS_TTY == 0 ]]; then
 		printf '%s' "$default"
 		return
 	fi
-	printf '%s\n' "$prompt" >&2
+	printf '%s\n' "${P_BOLD}${prompt}${P_RESET}" >&2
 	for index in "${!options[@]}"; do
-		printf '   %d) %s\n' "$((index + 1))" "${options[$index]}" >&2
+		printf '   %s%d)%s %s\n' "${P_CYAN}" "$((index + 1))" "${P_RESET}" "${options[$index]}" >&2
 	done
-	local answer
-	read -r -p "Choose [$((default + 1))] " answer
-	answer=${answer:-$((default + 1))}
-	[[ $answer =~ ^[0-9]+$ ]] && ((answer >= 1 && answer <= ${#options[@]})) || { echo "Not a choice: $answer" >&2; exit 2; }
-	printf '%s' "$((answer - 1))"
+	read_line "${P_DIM}Choose${P_RESET} ${P_DIM}[$((default + 1))]${P_RESET} "
+	ANSWER=${ANSWER:-$((default + 1))}
+	[[ $ANSWER =~ ^[0-9]+$ ]] && ((ANSWER >= 1 && ANSWER <= ${#options[@]})) || { echo "Not a choice: $ANSWER" >&2; exit 2; }
+	printf '%s' "$((ANSWER - 1))"
 }
 
 # ---- The questions, in order: container or not, this computer or a server, then the flags.
@@ -390,8 +423,8 @@ ask_tree() {
 	fi
 }
 
-# Non-interactive runs need the answers as flags; a terminal is asked instead.
-if [[ $LOCAL_FULL == 0 && ( ! -t 0 || -n ${PIGUI_ASSUME_YES:-} ) ]]; then
+# Non-interactive runs need the answers as flags; a terminal (or /dev/tty) is asked instead.
+if [[ $LOCAL_FULL == 0 && ( $HAS_TTY == 0 || -n ${PIGUI_ASSUME_YES:-} ) ]]; then
 	[[ -n $WHERE ]] || { echo "--where is required without a terminal (local or remote)." >&2; exit 2; }
 	[[ -n $HOW ]] || { echo "--how is required without a terminal (sandboxed or full)." >&2; exit 2; }
 	[[ $HOW != full || -n $PI_CONFIG ]] || PI_CONFIG=overlap
@@ -884,9 +917,9 @@ install_local_sandboxed() {
 		fi
 	fi
 	if [[ -z $agent_token ]]; then
-		if [[ -t 0 ]]; then
-			read -r -s -p "The agent's read-only token (AGENT_GH_TOKEN, Contents and Metadata: read), or empty to stop: " agent_token
-			printf '\n'
+		if [[ $HAS_TTY == 1 ]]; then
+			read_secret "${P_CYAN}The agent's read-only token (AGENT_GH_TOKEN, Contents and Metadata: read), or empty to stop:${P_RESET} "
+			agent_token=$ANSWER
 			if [[ -n $agent_token ]]; then
 				[[ $DRY_RUN == 1 ]] || sed -i.bak "s|^AGENT_GH_TOKEN=.*|AGENT_GH_TOKEN=$agent_token|" "$env_file" && rm -f "$env_file.bak"
 				note "AGENT_GH_TOKEN set"
@@ -1037,11 +1070,9 @@ install_remote_full() {
 
 	if [[ $TAILSCALE == on ]]; then
 		step "Join Tailscale on $REMOTE"
-		if [[ -z $TS_AUTHKEY ]] && [[ -t 0 ]]; then
-			local key
-			read -r -s -p "A Tailscale auth key (empty to log in from the link in the logs): " key
-			printf '\n'
-			TS_AUTHKEY=$key
+		if [[ -z $TS_AUTHKEY ]] && [[ $HAS_TTY == 1 ]]; then
+			read_secret "${P_CYAN}A Tailscale auth key (empty to log in from the link in the logs):${P_RESET} "
+			TS_AUTHKEY=$ANSWER
 		fi
 		if [[ -n $TS_AUTHKEY ]]; then
 			run $SSH "$target" "tailscale up --authkey='$TS_AUTHKEY' --hostname='$HOSTNAME_OPTION'"
@@ -1060,6 +1091,38 @@ install_remote_full() {
 
 	printf '\npigui is installing on %s as %s. When it finishes: https://%s.<tailnet>.ts.net (or http://%s:2025 on the server).\n' "$REMOTE" "$RUSER" "$HOSTNAME_OPTION" "$REMOTE"
 }
+
+# Before anything changes, show the resolved choices once and ask (interactive runs only; with flags or no terminal,
+# the answers are taken as given).
+if [[ $LOCAL_FULL == 0 && $HAS_TTY == 1 && -z ${PIGUI_ASSUME_YES:-} ]]; then
+	header "Your choices"
+	if [[ $WHERE == local ]]; then place="this computer"; else place="a remote server at $REMOTE (over SSH)"; fi
+	info "$(printf '%-10s %s' 'Where' "$place")"
+	if [[ $HOW == sandboxed ]]; then access="container (sandboxed)"; else access="full access"; fi
+	info "$(printf '%-10s %s' 'Access' "$access")"
+	if [[ $HOW == full ]]; then
+		if [[ $PI_CONFIG == standalone ]]; then pi_config="standalone ($PI_AGENT_DIR)"; else pi_config="overlap (~/.pi/agent)"; fi
+		info "$(printf '%-10s %s' 'Pi config' "$pi_config")"
+	fi
+	info "$(printf '%-10s %s' 'Speech' "$SPEECH (dictation read aloud by Kokoro)")"
+	info "$(printf '%-10s %s' 'Memory' "$MEMORY_LOCAL (local embeddings)")"
+	if [[ $SPEECH == on || $MEMORY_LOCAL == on ]]; then
+		if [[ $MODELS_UNLOAD == never ]]; then models="loaded from start"; else models="unloaded after $MODELS_UNLOAD idle minutes"; fi
+		info "$(printf '%-10s %s' 'Models' "$models")"
+	fi
+	if [[ $TAILSCALE == on ]]; then
+		info "$(printf '%-10s %s' 'Tailscale' "on, as $HOSTNAME_OPTION (allowed logins: ${ALLOWED_LOGINS:-everyone on the tailnet})")"
+	else
+		info "$(printf '%-10s %s' 'Tailscale' 'off')"
+	fi
+	if [[ $HOW == full && $WHERE == local ]]; then info "$(printf '%-10s %s' 'Port' "$PORT")"; fi
+	if [[ $HOW == full && $WHERE == remote ]]; then info "$(printf '%-10s %s' 'User' "$RUSER")"; fi
+	read_line "${P_CYAN}Proceed with the install?${P_RESET} ${P_DIM}[Y/n]${P_RESET} "
+	case ${ANSWER:-y} in
+		y | Y | yes | YES | "") ;;
+		*) info "Not installed."; exit 0 ;;
+	esac
+fi
 
 # ---- Dispatch.
 
