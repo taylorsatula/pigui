@@ -513,6 +513,11 @@ export type SessionIndex = {
 	 * the browser, like the directories, so a star made on one device is there on the other.
 	 */
 	starredRepos?: string[];
+	/**
+	 * The sessions the person pinned as favorites, by id, offered on the New session page. Kept here rather than in
+	 * the browser, so a pin made at the computer is there on the phone.
+	 */
+	pinned?: number[];
 	/** Session-creation request IDs, so a retried create never makes two sessions. */
 	created: { id: string; at: number; session: number }[];
 };

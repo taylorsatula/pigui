@@ -19,6 +19,7 @@ import type {
 	SpeechScriptBody,
 	StarDirBody,
 	StarRepoBody,
+	PinBody,
 	UploadedAttachment,
 } from "../shared/api.ts";
 import type { CardAnswer } from "../shared/session.ts";
@@ -143,6 +144,7 @@ export const api = {
 	deliver: (id: number, action: "push" | "pr") => call<DeliveryResult>("POST", `/api/sessions/${id}/deliver`, { action }),
 	diff: (id: number) => call<SessionDiff>("GET", `/api/sessions/${id}/diff`),
 	archive: (id: number, archived: boolean) => call<object>("POST", `/api/sessions/${id}/archive`, { archived }),
+	pin: (id: number, pinned: boolean) => call<object>("POST", `/api/sessions/${id}/pin`, { pinned } satisfies PinBody),
 	seen: (id: number) => call<object>("POST", `/api/sessions/${id}/seen`),
 	retrySetup: (id: number) => call<object>("POST", `/api/sessions/${id}/retry-setup`),
 	subscribe: (subscription: PushSubscriptionJSON) => call<object>("POST", "/api/push/subscribe", subscription),
