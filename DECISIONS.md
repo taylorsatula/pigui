@@ -223,18 +223,33 @@ deceleration); reduced motion keeps fades and drops movement; no theme picker (d
 **The New session splash page is an IF-tree, and a spawn is a blank screen, not a form** (2026-11-27). The Control
 Center redesign of 2026-11-26 shipped and felt like a buffet: a dozen tappable things, none of which was a *go*
 action, and a hidden step between selection and a run (tap, notice the ~ caption, then compose, then send). The page
-is now two big tiles — This computer (OnPrem only) and Repository — above the starred repositories and the five most
-recent repository/branch rows; that is all. Tapping any spawn target opens a client-side blank screen with the composer
+is now two big tiles — This computer (OnPrem only) and Repository — above the starred repositories, the pinned
+favorites and the five most recent repository sessions; that is all. Tapping any spawn target opens a client-side blank screen with the composer
 focused; the server session is created only by its first send, so a tap in and out makes nothing and no orphan branch
 is cut. Local always spawns at `~` (no directory choice anywhere). Repository opens a full-screen picker prefilled
 with the most recent repository on its default branch, with a New branch/Continue a branch switch (New default) and a
-Start session button. Starred and recent rows always continue the branch the row names; a starred row without a known
-branch shows the repo's default branch (fetched at mount) and starts a new branch from it. iOS dictation is the
+Start session button. Starred rows always continue the branch the row names; a starred row without a known
+branch shows the repo's default branch (fetched at mount) and starts a new branch from it. A Pinned or Recent row taps
+through to the session it names instead of spawning anything: Recent lists the sessions themselves, the newest session
+per repository and branch, and never repeats a branch the Starred or Pinned sections show (the dedupe the owner reported missing). iOS dictation is the
 keyboard's mic key inside the composer; there is no voice button. The pending spawn and the typed words survive a
 reload (localStorage `pigui.pending-start`; the composer draft rides `draftKey="new"`). Starred repositories (`starredRepos`
 in the index) persist like starred directories; starring never reaches gh. *Alternatives:* the splash with an attached
 composer (the selection-vs-send ambiguity the owner named), a zero-question last-used default (invisible mode), keeping
 the voice tile (a no-op control that promised a capability it didn't have).
+
+**Chats pin to the index as favorites, from the session rows, not from the splash** (2026-11-27). The owner asked to
+pin a chat as a favorite and located the button in the sessions picker ("the history table") beside the archive button,
+so every row carries both, the pin a pushpin, filling in ink when pressed and persisted as `pinned`
+(session ids) in the index next to `starredRepos`, for the same reason stars live there: a pin made at the computer is
+there on the phone, and pinning is no more activity than starring (no `updatedAt` touch, no endpoint reaching the
+session document beyond its existence check, 404 for an unknown session). The splash gains a Pinned section above
+Recent listing the pinned sessions newest first, tapping a row to open the session and a pin button to unpin in place,
+mirroring the Starred section's unstar. Pinned rows span repository and local sessions and stay listed while archived,
+since archiving is not unpinning. The pin button appears in the picker only, matching where the owner put it; the
+Recent rows keep the repository star button. *Alternatives:* a `pinned` flag on SessionDoc (wrong document: the row
+projection would churn on every star-shaped toggle, and the favorites would not survive index-held restarts of the
+stars' own sync path) and a pin control on the splash rows (not asked for; the picker is where rows are managed).
 
 ## Fake mode
 
