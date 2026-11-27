@@ -473,6 +473,13 @@ export function createHttpServer(deps: HttpDeps): Server {
 				case "retry-setup":
 					await deps.sessions.retrySetup(id, context);
 					return send(response, 200, {});
+				case "queued":
+					if (parts.length === 6 && parts[5] === "cancel") {
+						const submission = Number(c);
+						if (!Number.isSafeInteger(submission) || submission <= 0) throw new HttpError(400, "Which message do you want to cancel?");
+						return send(response, 200, await deps.sessions.cancelQueued(id, submission, context));
+					}
+					break;
 				case "agents":
 					if (parts.length === 6 && parts[5] === "stop") {
 						await deps.sessions.stopAgent(id, await agentOf(harness, id, c), context);
