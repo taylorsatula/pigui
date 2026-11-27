@@ -304,6 +304,10 @@ one-at-a-time queue, silence trimmed to 50/200 ms, WAV from our own 16-bit encod
 says; the phone keeps one unlocked HTMLAudioElement and reads ahead. The reading continues with the screen locked.
 `PIGUI_SPEECH=off` leaves it out of the build and the app says the speaker is absent.
 
+## Reading the plan aloud
+
+The plan card carries the same speaker, reading the whole manifest through plan-specific directions (`PLAN_SPEECH_PROMPT`, chosen with `kind: "plan"` on the script request): retain FULL detail and miss no step — every step in order with its files, every done-when condition, decision, verification, exclusion, risk and source. Phrasing changes are acceptable only where they convey the plan better aloud than the written manifest. The reply and report readings keep their existing directions; a tap before approving is the point of the speaker's place in the card's header.
+
 ## Slash commands: not built
 
 Pi Durable has no command concept; each would need its own adapter against Pi's interactive-mode internals. Prompt
