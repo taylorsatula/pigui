@@ -46,7 +46,7 @@ test.describe("pigui OnPrem", () => {
 		expect(existsSync(join(server.home!, "src", "shout.ts"))).toBe(true);
 	});
 
-	test("starred and recent repository rows continue the branch they name, and five recents are offered", async ({ page, errors }) => {
+	test("starred rows continue the branch they name, and five recent sessions are offered", async ({ page, errors }) => {
 		// Fill Recent with repository fixtures: three new branches off main, then notes on its drafts branch last so it is newest.
 		for (let i = 0; i < 3; i += 1) {
 			const created = await page.request.post("/api/sessions", {
@@ -67,9 +67,9 @@ test.describe("pigui OnPrem", () => {
 
 		await page.goto("/");
 		const recent = page.getByRole("region", { name: "Recent" });
-		// Five rows at most, even though six working places exist.
+		// Five session rows at most, even though six working places exist; tapping opens the session.
 		await expect(recent.locator(".place-row")).toHaveCount(5);
-		for (const sub of await recent.locator(".place-sub").all()) await expect(sub).toHaveText(/^(pi\/|drafts)/);
+		for (const sub of await recent.locator(".place-sub").all()) await expect(sub).toHaveText(/^demo\/(greeter|notes) · (pi\/[^ ]+|drafts) · /);
 
 		// Star demo/notes; the row joins the starred list above the recents, continuing its newest branch. Which branch
 		// that is depends on when the runs settle, so read it from the row.
@@ -124,5 +124,52 @@ test.describe("pigui OnPrem", () => {
 		await expect(page).toHaveURL(/#\/$/);
 		await page.getByRole("button", { name: "This computer" }).tap();
 		await expect(page.getByRole("textbox", { name: "Describe the task…" })).toHaveValue("Half a thought");
+	});
+	test("pinning a session in the sessions list moves it to Pinned, its branch out of Recent, and back", async ({ page, errors }) => {
+		// One fixture session on a known branch, so the Recent and Pinned rows can be named exactly.
+		const created = await page.request.post("/api/sessions", {
+			data: {
+				requestId: `pin-target-${Math.random().toString(16).slice(2)}`,
+				place: "repo",
+				repo: "demo/greeter",
+				start: { kind: "continue", branch: "main" },
+				text: "Pin target marker",
+				attachments: [],
+			},
+		});
+		expect(created.ok()).toBe(true);
+		const { id } = (await created.json()) as { id: number };
+
+		await page.goto("/");
+		const recent = page.getByRole("region", { name: "Recent" });
+		await expect(recent.getByText("main")).toBeVisible();
+
+		// Pin it from the sessions list, where the archive button lives.
+		await page.getByRole("button", { name: /^Sessions/ }).tap();
+		const picker = page.getByRole("dialog", { name: "Sessions" });
+		// Both buttons sit on the row: pin beside archive.
+		await expect(picker.getByRole("button", { name: "Pin Pin target marker" })).toBeVisible();
+		await expect(picker.getByRole("button", { name: "Archive Pin target marker" })).toBeVisible();
+		await picker.getByRole("button", { name: "Pin Pin target marker" }).tap();
+		await page.keyboard.press("Escape");
+
+		await page.reload();
+		const pinned = page.getByRole("region", { name: "Pinned" });
+		await expect(pinned.getByText("Pin target marker")).toBeVisible();
+		await expect(recent.getByText("main")).toHaveCount(0);
+		// Tapping the Pinned row opens the session.
+		await pinned.getByRole("link", { name: /Pin target marker/ }).tap();
+		await expect(page).toHaveURL(new RegExp(`#/s/${id}$`));
+
+		// Unpin from the picker restores it in Recent and removes the Pinned section.
+		await page.goto("/");
+		await page.getByRole("button", { name: /^Sessions/ }).tap();
+		const reopened = page.getByRole("dialog", { name: "Sessions" });
+		await reopened.getByRole("button", { name: "Unpin Pin target marker" }).tap();
+		await page.keyboard.press("Escape");
+		await page.reload();
+		await expect(page.getByRole("region", { name: "Pinned" })).toHaveCount(0);
+		await expect(page.getByRole("region", { name: "Recent" }).getByText("main")).toBeVisible();
+		expect(errors).toEqual([]);
 	});
 });

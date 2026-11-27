@@ -185,18 +185,18 @@ html:has(.session-picker, .agents-panel) {
 	user-select: none;
 }
 
-/* A line's archive or restore button sits on its right edge. The line's own padding leaves it room, so the stripes
-   and the selection run under it, and the headings keep the same room so each column stays over its own. */
+/* A line's pin and archive or restore buttons sit on its right edge. The line's own padding leaves them room, so the
+   stripes and the selection run under them, and the headings keep the same room so each column stays over its own. */
 .entry {
 	position: relative;
 }
 
 .picker-columns {
-	padding-right: calc(12px + var(--row));
+	padding-right: calc(12px + 2 * var(--row));
 }
 
 .row {
-	padding-right: calc(6px + var(--row));
+	padding-right: calc(6px + 2 * var(--row));
 }
 
 .row-action {
@@ -209,6 +209,11 @@ html:has(.session-picker, .agents-panel) {
 	min-height: var(--row);
 	color: var(--text-2);
 	border-radius: var(--radius-s);
+}
+
+/* The pin sits a row inside the archive button; the pressed state fills the pin in ink, as the star does. */
+.row-pin {
+	right: var(--row);
 }
 
 .entry:has(> .row.current) > .row-action,

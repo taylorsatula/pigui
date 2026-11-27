@@ -534,6 +534,17 @@ export class Sessions {
 		}, context);
 	}
 
+	/** Pin a session as a favorite, or unpin it. The pin lives in the index, like the starred places: it is not activity. */
+	async pin(id: number, pinned: boolean, context: Context): Promise<void> {
+		await this.#deps.harness().commit(async (tx) => {
+			if ((await readSession(tx, id)) === undefined) throw notFound("The session");
+			const index = await tx.doc(SessionIndexToken);
+			const pinnedIds = index.pinned ?? [];
+			if (pinnedIds.includes(id) === pinned) return;
+			index.pinned = pinned ? [...pinnedIds, id] : pinnedIds.filter((entry) => entry !== id);
+		}, context);
+	}
+
 	async seen(id: number, context: Context): Promise<void> {
 		await this.#deps.harness().commit(async (tx) => {
 			if ((await readSession(tx, id)) === undefined) throw notFound("The session");

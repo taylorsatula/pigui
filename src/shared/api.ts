@@ -65,6 +65,10 @@ export type BudgetBody = Static<typeof BudgetBody>;
 export const ArchiveBody = obj({ archived: bool() });
 export type ArchiveBody = Static<typeof ArchiveBody>;
 
+/** Pin a session as a favorite on the New session page, or unpin it. */
+export const PinBody = obj({ pinned: bool() });
+export type PinBody = Static<typeof PinBody>;
+
 /** Star a directory on this computer, or unstar it (pigui OnPrem only). */
 export const StarDirBody = obj({ dir: LocalDir, starred: bool() });
 export type StarDirBody = Static<typeof StarDirBody>;

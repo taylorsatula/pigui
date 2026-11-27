@@ -13,6 +13,7 @@ import { compile } from "@earendil-works/pi-schema";
 import {
 	AnswerCardBody,
 	ArchiveBody,
+	PinBody,
 	type ApiError,
 	type Bootstrap,
 	type MemoryStatus,
@@ -97,6 +98,7 @@ const bodies = {
 	deliver: validator<DeliverBody>(DeliverBody),
 	budget: validator<BudgetBody>(BudgetBody),
 	archive: validator<ArchiveBody>(ArchiveBody),
+	pin: validator<PinBody>(PinBody),
 	star: validator<StarDirBody>(StarDirBody),
 	starRepo: validator<StarRepoBody>(StarRepoBody),
 	push: validator<PushSubscriptionBody>(PushSubscriptionBody),
@@ -466,6 +468,9 @@ export function createHttpServer(deps: HttpDeps): Server {
 					return send(response, 200, await deps.delivery.deliver(id, (await json(request, bodies.deliver)).action, context));
 				case "archive":
 					await deps.sessions.archive(id, (await json(request, bodies.archive)).archived, context);
+					return send(response, 200, {});
+				case "pin":
+					await deps.sessions.pin(id, (await json(request, bodies.pin)).pinned, context);
 					return send(response, 200, {});
 				case "seen":
 					await deps.sessions.seen(id, context);
