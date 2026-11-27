@@ -14,6 +14,7 @@
 	import Icon from "./Icons.svelte";
 	import Markdown from "./Markdown.svelte";
 	import Person from "./Person.svelte";
+	import QueuedMessage from "./QueuedMessage.svelte";
 	import PlanCardView from "./PlanCardView.svelte";
 	import QuestionsCard from "./QuestionsCard.svelte";
 	import ReportCard from "./ReportCard.svelte";
@@ -120,6 +121,8 @@
 					</button>
 				{:else if block.kind === "person"}
 					<Person data={block.data} />
+				{:else if block.kind === "queued"}
+					<QueuedMessage data={block.data} session={session?.id} submission={block.submission} />
 				{:else if block.kind === "nudge"}
 					<p class="system-note">
 						Continuing automatically ({block.data.attempt} of {block.data.limit}): no report yet.

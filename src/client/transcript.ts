@@ -2,7 +2,7 @@
 // between its prose (its thinking and tool calls, in the order they happened), cards in place of the tool calls behind
 // them, and a speaker under each finished reply.
 import type { AssistantMessage, ToolResultMessage } from "@earendil-works/pi-ai";
-import type { EntryRecord, LiveState, TranscriptView } from "@earendil-works/pi-durable";
+import type { EntryRecord, InboxItem, InboxState, LiveState, TranscriptView } from "@earendil-works/pi-durable";
 import {
 	AGENT_RESULT_ENTRY,
 	AGENT_STOPPED_ENTRY,
@@ -45,6 +45,8 @@ export type Block = (
 	| { kind: "earlier"; key: string }
 	| { kind: "gap"; key: string; gap: Gap }
 	| { kind: "person"; key: string; data: MessageEntryData }
+	/** A message the person sent while Pi works, admitted to Durable's inbox and not yet placed as an entry; `submission` cancels it. */
+	| { kind: "queued"; key: string; data: MessageEntryData; submission: number }
 	| { kind: "nudge"; key: string; data: NudgeEntryData }
 	/** A background agent's answer, which reached the session's agent as a message. */
 	| { kind: "agent-result"; key: string; data: AgentResultData }
@@ -136,6 +138,21 @@ const NOTES: Record<CompactionNoteData["note"], string> = {
 	"handoff-request": "Asked Pi for a handoff note before compacting the context",
 	resume: "Asked Pi to resume after compacting the context",
 };
+
+/** A queued person message from Durable's inbox, for the person's own steers only; anything without the typed text is not shown. */
+function queuedPersonInputs(view: TranscriptView): { submission: number; data: MessageEntryData }[] {
+	const items = ((view.docs["pi.inbox"] as InboxState | undefined)?.items ?? []) as InboxItem[];
+	const out: { submission: number; data: MessageEntryData }[] = [];
+	for (const item of items) {
+		if (item.mode !== "steer") continue;
+		const entry = item.entry;
+		if (entry?.kind !== MESSAGE_ENTRY) continue;
+		const data = entry.data as MessageEntryData | undefined;
+		if (data === undefined || typeof data.text !== "string" || !Array.isArray(data.references) || !Array.isArray(data.attachments)) continue;
+		out.push({ submission: Number(item.id), data });
+	}
+	return out;
+}
 
 /** A compaction row from pigui's checkpoint marker, or from Durable's summary, which wraps its text. */
 function compactionBlock(key: string, entry: EntryRecord): Block {
@@ -294,6 +311,10 @@ export function buildBlocks(view: TranscriptView | undefined, session: SessionDo
 	}
 	const partial = live?.generation?.message as AssistantMessage | undefined;
 	if (partial !== undefined) assistant("streaming", partial, true);
+	// Queued steering messages the person sent, still waiting for a break in Pi's work: shown where Durable will
+	// place them once they enter the conversation. pigui's own steers and an agent's queued answers are not shown.
+	flush();
+	for (const item of queuedPersonInputs(view)) blocks.push({ kind: "queued", key: `queued:${item.submission}`, data: item.data, submission: item.submission });
 	const result = withSpeakers(withLiveWork(blocks, running && session?.card === undefined), running);
 	memo = { view, session, running, result };
 	return result;
@@ -338,7 +359,8 @@ function withSpeakers(blocks: readonly Block[], running: boolean): Block[] {
 			after = result.length;
 			continue;
 		}
-		if (block.kind !== "work") finish();
+		// A queued message ends nothing: it is the person's, still waiting for the run to break.
+		if (block.kind !== "work" && block.kind !== "queued") finish();
 		result.push(block);
 	}
 	if (!running) finish();
