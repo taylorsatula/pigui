@@ -16,6 +16,7 @@ import type {
 	SkillSummary,
 	SpeechBody,
 	SpeechScriptBody,
+	SpeechKind,
 	StarDirBody,
 	StarRepoBody,
 	UploadedAttachment,
@@ -156,8 +157,9 @@ export const api = {
 	},
 
 	/** A reply's speakable script, given segment by segment as the server writes it; resolves once it is complete. */
-	async speechScript(id: number, text: string, signal: AbortSignal, segment: (text: string) => void): Promise<void> {
-		const response = await stoppable(`/api/sessions/${id}/speech-script`, { text } satisfies SpeechScriptBody, signal);
+	async speechScript(id: number, text: string, signal: AbortSignal, segment: (text: string) => void, kind?: SpeechKind): Promise<void> {
+		const body = { text, ...(kind === undefined ? {} : { kind }) } satisfies SpeechScriptBody;
+		const response = await stoppable(`/api/sessions/${id}/speech-script`, body, signal);
 		for await (const line of lines<ScriptLine>(response)) {
 			if (line.t === "segment") segment(line.text);
 			else if (line.t === "done") return;

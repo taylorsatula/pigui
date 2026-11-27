@@ -4,6 +4,7 @@
 // between: that is what keeps a reading going with the screen locked. An audio element rather than Web Audio,
 // which the iPhone's silent switch mutes.
 import { encodeWav } from "../shared/wav.ts";
+import type { SpeechKind } from "../shared/api.ts";
 import { api, describeFailure } from "./api.ts";
 import { app, showToast } from "./store.svelte.ts";
 
@@ -24,6 +25,7 @@ const scripts = new Map<string, readonly string[]>();
 
 type Playback = {
 	key: string;
+	kind?: SpeechKind;
 	controller: AbortController;
 	segments: string[];
 	/** The whole script is in `segments`. */
@@ -47,10 +49,11 @@ type Playback = {
 let current: Playback | undefined;
 
 /** Read `markdown` aloud, as the reply `key` of session `session`; stops whatever was reading. Call it inside the tap. */
-export function speak(key: string, session: number, markdown: string): void {
+export function speak(key: string, session: number, markdown: string, kind?: SpeechKind): void {
 	stopReading();
 	const playback: Playback = {
 		key,
+		...(kind === undefined ? {} : { kind }),
 		controller: new AbortController(),
 		segments: [],
 		complete: false,
@@ -79,7 +82,7 @@ export function speak(key: string, session: number, markdown: string): void {
 		.speechScript(session, markdown, playback.controller.signal, (text) => {
 			playback.segments.push(text);
 			fetchNext(playback);
-		})
+		}, playback.kind)
 		.then(
 			() => {
 				scripts.set(key, [...playback.segments]);

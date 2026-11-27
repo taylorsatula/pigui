@@ -11,8 +11,11 @@ test.describe("the tap flow", () => {
 
 		const plan = page.getByRole("region", { name: "Plan: Add shout()" });
 		await expect(plan.getByText("Waiting for your approval")).toBeVisible();
+		// The plan can be read aloud, whole, before it is approved — and after.
+		await expect(plan.getByRole("button", { name: "Read aloud" })).toHaveCount(1);
 		await plan.getByRole("button", { name: "Approve" }).tap();
 		await expect(plan.getByText("Approved")).toBeVisible();
+		await expect(plan.getByRole("button", { name: "Read aloud" })).toHaveCount(1);
 
 		const report = page.getByRole("region", { name: "Report" });
 		await expect(report).toBeVisible({ timeout: 30_000 });

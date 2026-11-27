@@ -47,8 +47,9 @@ None of this touches GitHub until you tap. The agent commits; the server deliver
   set up, how a tool really behaves, a measurement that cannot be repeated. A report records, corrects and rates it; a
   search happens before the agent asks or plans. Embeddings run on the machine (LEAF) or through an OpenAI-compatible
   endpoint.
-- **Reading aloud (optional).** A speaker under each reply reads it aloud, rewritten for the ear by the session's
-  model, synthesized on the machine by Kokoro. The reading continues with the screen locked.
+- **Reading aloud (optional).** A speaker under each reply and on the plan and report cards reads them
+  aloud, rewritten for the ear by the session's model, synthesized on the machine by Kokoro. The plan reading
+  keeps the manifest's full detail, every step included. The reading continues with the screen locked.
 - **Delivery.** Push the branch or open a pull request from the report card, with the report as its body. The diff is
   measured from where the session's work began.
 - **Push notifications** for the moments that need you: a question, a plan to approve, a report, a spend cap.
