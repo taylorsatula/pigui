@@ -63,8 +63,8 @@ into the stub bin, so hiding docker no longer hides bash on a merged-/usr machin
   them, so a very long session's checkpoint can exceed its budget; the words are the record, and `recall_history`
   is the recovery path), notification keys used, recent request IDs, and what the next compaction needs (working
   state, count, handoff request time).
-- `pigui.index` (session): one drawer row per session, plus last repo, OnPrem's starred directories and creation
-  request IDs; rows are a projection recomputed in the same commits and at startup.
+- `pigui.index` (session): one drawer row per session, plus last repo, OnPrem's starred directories, starred
+  repositories and creation request IDs; rows are a projection recomputed in the same commits and at startup.
 - `pigui.repo-memory` (session family): what reports learned about building and testing a repository.
 - `pigui.memory` (session): long-term memory rows + embedder state.
 - `pigui.push-subscriptions` (session).
@@ -219,6 +219,19 @@ Type scale follows Dynamic Type; the send key is a 44 pt target around a 32 pt i
 **Wide screens** get the same app laid out for the width: full-width bars, 760 px reading column, the sheet becomes a
 centred dialog. **Sheets** follow the finger (velocity from its last 100 ms, projected with iOS's scroll
 deceleration); reduced motion keeps fades and drops movement; no theme picker (dark follows the device).
+
+**The New session splash page is an iOS Control Center of places, not a form** (2026-11-26). Starting pigui is nearly
+always one of three cow paths — a local home-directory session, dictation, or a recently used repository/branch — so
+those are the page: a computer tile (OnPrem only) that selects `~` and focuses the composer, a mic tile that focuses
+the composer (iOS dictation is the keyboard's mic key; no web API can start it), three rows of the most recently
+worked repository/branch pairs, and a Starred section mixing starred repositories (`starredRepos` in the index) and
+starred directories. Everything off the cow path lives behind a + tile: a dense popover with a chonky
+Directory/Repository-Branch toggle (remembering its side), an unpicked repository select that enables its branch
+picker on selection (defaulting to the repo's default branch), a new/continue switch, and a `~` input. The popover
+always opens empty, stays open until Send or tap-outside, and a line above the composer names the current selection.
+*Alternatives:* keeping the segmented This computer/A repository form (the paths everyone used were buried under it),
+or per-tile immediate spawning (a session always needs a first message). Starred repositories validate by name pattern
+only; starring never reaches gh, so unstarring works when the repository host does not.
 
 ## Fake mode
 

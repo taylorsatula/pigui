@@ -1,14 +1,16 @@
 <script lang="ts">
-	// A star that adds a directory to the starred ones, or takes it off; the index's watch shows the change.
+	// A star that adds a place (a repository or a directory) to the starred ones, or takes it off; the index's watch shows the change.
 	import { api, describeFailure } from "../api.ts";
 	import { showToast } from "../store.svelte.ts";
 	import Icon from "./Icons.svelte";
 
-	let { dir, label, starred, disabled }: { dir: string; label: string; starred: boolean; disabled?: boolean } = $props();
+	let { kind, target, label, starred, disabled }: { kind: "dir" | "repo"; target: string; label: string; starred: boolean; disabled?: boolean } =
+		$props();
 
 	const toggle = async () => {
 		try {
-			await api.star(dir, !starred);
+			if (kind === "dir") await api.star(target, !starred);
+			else await api.starRepo(target, !starred);
 		} catch (error) {
 			showToast({ message: describeFailure(error).message });
 		}

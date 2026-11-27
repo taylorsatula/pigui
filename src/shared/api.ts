@@ -69,6 +69,13 @@ export type ArchiveBody = Static<typeof ArchiveBody>;
 export const StarDirBody = obj({ dir: LocalDir, starred: bool() });
 export type StarDirBody = Static<typeof StarDirBody>;
 
+/**
+ * Star a repository, or unstar it. The name is pattern-validated only: starring does not reach gh, so unstarring still
+ * works when the repository host does not.
+ */
+export const StarRepoBody = obj({ repo: Repo, starred: bool() });
+export type StarRepoBody = Static<typeof StarRepoBody>;
+
 export const PushSubscriptionBody = obj(
 	{
 		endpoint: str({ pattern: "^https://", maxLength: 2000 }),

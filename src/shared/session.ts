@@ -508,6 +508,11 @@ export type SessionIndex = {
 	 * Kept here rather than in the browser, so a star made at the computer is there on the phone.
 	 */
 	starred?: string[];
+	/**
+	 * The repositories the person starred, `owner/name`, favourites on the New session page. Kept here rather than in
+	 * the browser, like the directories, so a star made on one device is there on the other.
+	 */
+	starredRepos?: string[];
 	/** Session-creation request IDs, so a retried create never makes two sessions. */
 	created: { id: string; at: number; session: number }[];
 };
