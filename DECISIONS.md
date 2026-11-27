@@ -96,7 +96,14 @@ verification, out of scope, risks, citations — every part stated out loud, or 
 uncommitted changes or a stale base), `recall_history`, `write_handoff`. The prompt carries the preamble
 (remote-work rules: a reply without a tool call ends the turn and its opening words are the notification; cards are
 the only way to wait; every change ends with `file_report`; the person is usually away), the session facts, the
-project's instructions and skills through Pi's own loaders, and repo memory.
+project's instructions and skills through Pi's own loaders, and repo memory. Local (OnPrem) sessions get their own
+preamble instead: an open-ended one with no required beginning or end, no clone/branch/delivery framing and no
+plan-first requirement — the work is whatever the person brings. The ask/plan/report cards stay available and are
+explained as options (ask for decisions, plan for big or risky work, file_report for work that changed something),
+never as mandates; an open local session is told it has no required shape, and an approved plan in a local session is
+still carried out to the end. The repo preamble is unchanged. Alternatives considered: keeping the shared preamble
+with wording swaps (rejected — the plan-first frame is the thing being removed), and dropping the plan workflow from
+local sessions entirely (rejected — the person wants the cards usable, just not required).
 
 **Waiting is a parked tool.** The card commits before the tool parks on `pigui.card-answer`; the answer is signalled
 in the same commit that clears the card, and a rerun finds its card and neither re-shows nor re-notifies.
