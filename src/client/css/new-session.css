@@ -199,6 +199,7 @@ select,
 	gap: 10px;
 	justify-content: flex-start;
 	text-align: left;
+	text-decoration: none;
 	min-height: 56px;
 	padding: 4px 4px 4px 12px;
 	border-radius: 0;
