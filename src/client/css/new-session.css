@@ -241,7 +241,7 @@ select,
 	font-variant-numeric: tabular-nums;
 }
 
-/* A star: drawn in outline until starred, then filled, in ink rather than the yellow, which is for what waits. */
+/* An outline toggle — a star, or a pin — drawn in text-2, inked and filled once taken: in ink rather than the yellow. */
 .dir-star {
 	flex: none;
 	color: var(--text-2);
