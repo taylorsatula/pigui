@@ -6,6 +6,7 @@
 	import NewSession from "./components/NewSession.svelte";
 	import Screensaver from "./components/Screensaver.svelte";
 	import SessionPicker from "./components/SessionPicker.svelte";
+	import StartSession from "./components/StartSession.svelte";
 	import SessionView from "./components/SessionView.svelte";
 	import Toasts from "./components/Toasts.svelte";
 	import { live } from "./live.ts";
@@ -17,7 +18,9 @@
 		api.bootstrap().then(setBootstrap, () => undefined);
 		void refreshSubscription().catch(() => undefined);
 		const onHash = () => {
-			app.route = routeFromHash(location.hash);
+			const route = routeFromHash(location.hash);
+			// A start hash with no spawn behind it is a stale link; show the splash instead.
+			app.route = route.kind === "start" && app.pendingStart === undefined ? { kind: "new" } : route;
 			app.pickerOpen = false;
 		};
 		// A backgrounded app holds no stream; coming back catches up from where it was.
@@ -51,7 +54,9 @@
 
 <div class="app">
 	<main class="main">
-		{#if session === undefined}
+		{#if app.route.kind === "start" && app.pendingStart !== undefined}
+			<StartSession />
+		{:else if session === undefined}
 			<NewSession />
 		{:else if agent === undefined}
 			{#key session}<SessionView id={session} />{/key}

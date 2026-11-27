@@ -19,8 +19,6 @@
 		folder: "M3 6.5h6.5l2 2H21V19H3z",
 		// A monitor on a stand: the tile that opens a session on this computer.
 		monitor: "M4 5.5h16v11H4zM9 20h6M12 16.5V20",
-		// A microphone capsule on a yoke: the tile that focuses the composer, for the keyboard's dictation key.
-		mic: "M12 3.5a2.5 2.5 0 0 1 2.5 2.5v5a2.5 2.5 0 0 1-5 0V6A2.5 2.5 0 0 1 12 3.5zM7.5 11.5a4.5 4.5 0 0 0 9 0M12 16v3.5M9.5 19.5h5",
 		// Two commits on a stem with a fork: the branch a repository row was last worked on.
 		branch: "M5 5a2 2 0 1 1 4 0 2 2 0 1 1-4 0M5 19a2 2 0 1 1 4 0 2 2 0 1 1-4 0M7 7v10M15 8a2 2 0 1 1 4 0 2 2 0 1 1-4 0M17 10c0 5-3.8 5.8-7.4 6.2",
 		star: "M12 3.5l2.6 5.3 5.9.9-4.25 4.15 1 5.85L12 16.9l-5.25 2.8 1-5.85L3.5 9.7l5.9-.9z",
