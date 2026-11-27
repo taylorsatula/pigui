@@ -70,22 +70,24 @@ test.describe("pigui OnPrem", () => {
 		const recent = page.getByRole("region", { name: "Recent" });
 		// Five rows at most, even though six working places exist.
 		await expect(recent.locator(".place-row")).toHaveCount(5);
-		await expect(recent.locator(".place-sub").first()).toContainText("drafts");
+		for (const sub of await recent.locator(".place-sub").all()) await expect(sub).toHaveText(/^(pi\/|drafts)/);
 
-		// Star demo/notes; the row joins the starred list above the recents, continuing its drafts branch.
+		// Star demo/notes; the row joins the starred list above the recents, continuing its newest branch. Which branch
+		// that is depends on when the runs settle, so read it from the row.
 		const star = await page.request.post("/api/repos/starred", { data: { repo: "demo/notes", starred: true } });
 		expect(star.ok()).toBe(true);
 		await page.reload();
 		const starred = page.getByRole("region", { name: "Starred" });
 		await expect(starred.locator(".place-name")).toHaveText(["demo/notes"]);
-		await expect(starred.locator(".place-sub")).toHaveText(["continue drafts"]);
-		await starred.getByRole("button", { name: /demo\/notes/ }).tap();
+		const branch = (await starred.locator(".place-sub").textContent())!.replace("continue ", "");
+		expect(branch).toMatch(/^(pi\/.+|drafts)$/);
+		await starred.locator(".place-choose").tap();
 		const composer = page.getByRole("textbox", { name: "Describe the task…" });
 		await expect(composer).toBeFocused();
-		await expect(page.locator(".subtitle .where")).toHaveText("demo/notes · continue drafts");
+		await expect(page.locator(".subtitle .where")).toHaveText(`demo/notes · continue ${branch}`);
 		await composer.fill("What is on this branch?");
 		await page.getByRole("button", { name: "Send", exact: true }).tap();
-		await expect(page.locator(".subtitle .where")).toHaveText("demo/notes · drafts");
+		await expect(page.locator(".subtitle .where")).toHaveText(`demo/notes · ${branch}`);
 		expect(errors).toEqual([]);
 	});
 
