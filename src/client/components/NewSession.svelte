@@ -20,6 +20,8 @@
 	let pickerOpen = $state(false);
 	/** The default branch of starred repositories never worked in; fetched at mount, empty until then. */
 	let starredDefaults = $state<Record<string, string>>({});
+	/** Repositories whose default branch could not be fetched. Not state: a failure writes nothing, so it never re-triggers the effect. */
+	const unreachable = new Set<string>();
 
 	const index = $derived(app.index);
 	const starredRepos = $derived([...(index?.starredRepos ?? [])].sort((a, b) => a.localeCompare(b)));
@@ -47,10 +49,12 @@
 		// Starred repositories never worked in have no row to continue; ask their host for a default branch, so the
 		// row can offer one. Failures leave the row saying what it is and the tap opens the picker.
 		for (const name of starredRepos) {
-			if (newestBranchFor(name) !== undefined || starredDefaults[name] !== undefined) continue;
+			// One attempt per repository per page load: a failure is not retried while this page lives.
+			if (newestBranchFor(name) !== undefined || starredDefaults[name] !== undefined || unreachable.has(name)) continue;
+			unreachable.add(name);
 			api.branches(name).then(
 				(list: BranchList) => (starredDefaults = { ...starredDefaults, [name]: list.defaultBranch }),
-				() => (starredDefaults = { ...starredDefaults }),
+				() => undefined,
 			);
 		}
 	});

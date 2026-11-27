@@ -236,6 +236,12 @@ in the index) persist like starred directories; starring never reaches gh. *Alte
 composer (the selection-vs-send ambiguity the owner named), a zero-question last-used default (invisible mode), keeping
 the voice tile (a no-op control that promised a capability it didn't have).
 
+**A starred repository whose default branch cannot be fetched is tried once per page load, then left alone** (2026-11-27).
+A failed fetch was assigned a fresh object on every retry, which re-triggered the `$effect` and hammered `gh api` in a
+tight loop — hundreds of failing calls per minute on the splash, nagging the phone and the server alike. The row shows
+“Repository” as it did before; restoring access retries on the next page load. *Rejected:* a toast per failure (noise on
+someone else's outage) and an unbounded retry with backoff (still load for a permanently gone repo).
+
 ## Fake mode
 
 The scripted model is Pi's faux provider, one response factory queued per request; a conversation's step is read from
