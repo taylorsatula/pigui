@@ -2,9 +2,8 @@
 // computer at ~, or in a repository from the full-screen picker. Rows and tiles spawn the blank screen; the first
 // send creates the session.
 import { existsSync } from "node:fs";
-import { mkdir } from "node:fs/promises";
 import { join } from "node:path";
-import { approveThrough, expect, startSession, test } from "./fixtures.ts";
+import { approveThrough, expect, test } from "./fixtures.ts";
 
 test.use({ onPrem: true });
 
