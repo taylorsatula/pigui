@@ -2,6 +2,26 @@
 # goes through `run` or `write_file`, which only print when DRY_RUN is 1. Source it after setting DRY_RUN. It runs on
 # Linux and on macOS (deploy/onprem.sh), whose stat differs.
 
+# ---- Presentation: a muted palette and a few glyphs, on a terminal only. NO_COLOR (any value) or TERM=dumb turns
+# them off, and captured output stays plain. The `== N. Step` line format is what the tests and logs parse; do not
+# decorate it.
+if [[ -t 1 && -z ${NO_COLOR:-} && ${TERM:-dumb} != dumb ]]; then
+	P_RESET=$'\033[0m'; P_DIM=$'\033[2m'; P_BOLD=$'\033[1m'
+	P_BLUE=$'\033[38;5;75m'; P_GREEN=$'\033[38;5;77m'; P_YELLOW=$'\033[38;5;186m'; P_RED=$'\033[38;5;203m'; P_CYAN=$'\033[38;5;80m'
+else
+	P_RESET=; P_DIM=; P_BOLD=; P_BLUE=; P_GREEN=; P_YELLOW=; P_RED=; P_CYAN=
+fi
+CHECK="${P_GREEN}✓${P_RESET}"
+ARROW="${P_CYAN}→${P_RESET}"
+CROSS="${P_RED}✗${P_RESET}"
+WARN="${P_YELLOW}⚠${P_RESET}"
+
+header() { printf '\n%s%s%s\n' "${P_BOLD}${P_BLUE}" "$1" "${P_RESET}"; }
+ok()     { printf '%s %s\n' "${CHECK}" "$1"; }
+warn()   { printf '%s %s\n' "${WARN}" "$1" >&2; }
+fail()   { printf '%s %s\n' "${CROSS}" "$1" >&2; }
+info()   { printf '%s  %s%s\n' "${P_DIM}" "$1" "${P_RESET}"; }
+
 STEP=0
 
 step() {

@@ -24,7 +24,8 @@ function dryRun(args: string[], env: NodeJS.ProcessEnv = {}, hideDocker = false)
 	try {
 		const result = spawnSync("bash", [install, "--dry-run", ...args], {
 			encoding: "utf8",
-			env: { ...process.env, HOME: home, SHELL: join(bin, "login-shell"), PATH: path, XDG_CONFIG_HOME: "", XDG_STATE_HOME: state, ...env },
+			// Never ask: these runs assert flag-driven behavior, and a controlling terminal would answer the questions.
+			env: { ...process.env, HOME: home, SHELL: join(bin, "login-shell"), PATH: path, XDG_CONFIG_HOME: "", XDG_STATE_HOME: state, PIGUI_ASSUME_YES: "1", ...env },
 		});
 		return { status: result.status, stdout: result.stdout, stderr: result.stderr, home };
 	} finally {
@@ -182,4 +183,54 @@ test("the OnPrem shim runs install.sh's OnPrem path", () => {
 	const help = spawnSync("bash", [shim, "--help"], { encoding: "utf8" });
 	assert.equal(help.status, 0);
 	assert.match(help.stdout, /install\.sh/);
+});
+
+// Through a pty, as `curl ... | bash -s --` runs it: stdin is the pipe, and the questions are asked on the
+// terminal instead. Answers: full access, this computer, then the defaults, then yes to proceed.
+const ptyRun = (env: NodeJS.ProcessEnv = {}) => {
+	const home = realpathSync(mkdtempSync(join(tmpdir(), "pigui-install-pty-")));
+	const answers = ["2", "1", "", "", "", "", "", "", "y"].join("\n") + "\n";
+	const result = spawnSync("script", ["-qec", `bash ${install} --dry-run`, "/dev/null"], {
+		encoding: "utf8",
+		input: answers,
+		env: {
+			...process.env,
+			HOME: home,
+			PATH: process.env.PATH ?? "",
+			SHELL: "/bin/bash",
+			XDG_CONFIG_HOME: "",
+			PIGUI_ASSUME_YES: "",
+			TERM: "xterm-256color",
+			...env,
+		},
+	});
+	return { status: result.status, stdout: result.stdout, stderr: result.stderr, home };
+};
+
+test("piped from curl with a terminal present, the installer interviews there", () => {
+	const run = ptyRun();
+	try {
+		assert.equal(run.status, 0, run.stderr + run.stdout);
+		assert.match(run.stdout, /pigui installer/);
+		assert.match(run.stdout, /Which Pi configuration should pigui use\?/);
+		assert.match(run.stdout, /Read replies aloud with Kokoro/);
+		assert.match(run.stdout, /Embed long-term memory/);
+		assert.match(run.stdout, /Your choices/);
+		assert.match(run.stdout, /Proceed with the install\?/);
+		assert.match(run.stdout, /== \d+\. Check this computer/);
+		assert.match(run.stdout, /\u001b\[/, "colors on a terminal");
+	} finally {
+		rmSync(run.home, { recursive: true, force: true });
+	}
+});
+
+test("piped from curl, NO_COLOR keeps the output plain", () => {
+	const run = ptyRun({ NO_COLOR: "1" });
+	try {
+		assert.equal(run.status, 0, run.stderr + run.stdout);
+		assert.match(run.stdout, /Proceed with the install\?/);
+		assert.doesNotMatch(run.stdout, /\u001b\[/, "no escapes with NO_COLOR");
+	} finally {
+		rmSync(run.home, { recursive: true, force: true });
+	}
 });

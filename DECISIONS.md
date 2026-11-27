@@ -268,6 +268,15 @@ unit uses `RestartPreventExitStatus=78 2`. `deploy/install.sh` (Debian 13/Ubuntu
 (mask what a pigui-only machine never uses, add swap, cap the journal) are its parts, and they are byte-ports of the
 reference's, with the ref updated to `main` — the installer is machine tooling, not application code.
 
+**Piped from curl, the interview asks on your terminal.** `curl … install.sh | bash -s --` leaves stdin at EOF, so
+the question helpers read their answers from `/dev/tty` when it opens (a controlling terminal), falling back to plain
+stdin when that is the terminal, and to the flags-are-required path when there is neither — CI is byte-compatible with
+before. The presentation follows mira's installer in spirit, not in complexity: a muted palette (on only for a terminal
+with `NO_COLOR` unset and `TERM` not dumb), `✓`/`→`/`✗` glyphs, defaults in brackets, and one `Your choices` summary
+with a `Proceed? [Y/n]` before anything changes — interactive runs only; with flags or no terminal there is nothing to
+confirm. No ASCII banner, no release-resolution machinery, no YAML config file; pigui keeps bash 3.2 compatibility and
+its four paths.
+
 **`PIGUI_MODELS_UNLOAD` is validated in one place per side, over one shared schema.** `deploy/lib.sh`'s `unload_valid`
 is the single bash definition, sourced by both installers; the server's `parseModelsUnload` mirrors it exactly (decimal
 digits, 1–1440, `never` or unset to keep the models loaded, leading zeros allowed), and the held-model test pins the
