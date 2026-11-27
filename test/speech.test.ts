@@ -1,7 +1,8 @@
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 import { type ConversationId, UsageDoc } from "@earendil-works/pi-durable";
-import { type ApiError, type Bootstrap, type ScriptLine, SPEECH_SEGMENT_CHARS } from "../src/shared/api.ts";
+import { type ApiError, type Bootstrap, type ScriptLine, type SpeechKind, SPEECH_SEGMENT_CHARS } from "../src/shared/api.ts";
+import { PLAN_SPEECH_PROMPT, SPEECH_PROMPT } from "../src/server/speech/script.ts";
 import { spentOf } from "../src/shared/spend.ts";
 import { silentLogger } from "../src/server/log.ts";
 import { kokoroInstalled, kokoroSynthesizer } from "../src/server/speech/kokoro.ts";
@@ -33,11 +34,11 @@ function readWav(bytes: Uint8Array): Wav {
 }
 
 /** Every line of a speech script, with when each arrived. */
-async function script(server: TestServer, id: number, text: string): Promise<{ lines: ScriptLine[]; at: number[] }> {
+async function script(server: TestServer, id: number, text: string, kind?: SpeechKind): Promise<{ lines: ScriptLine[]; at: number[] }> {
 	const response = await fetch(`${server.app.url}/api/sessions/${id}/speech-script`, {
 		method: "POST",
 		headers: { "content-type": "application/json" },
-		body: JSON.stringify({ text }),
+		body: JSON.stringify({ text, ...(kind === undefined ? {} : { kind }) }),
 	});
 	assert.equal(response.status, 200);
 	assert.match(response.headers.get("content-type") ?? "", /^application\/x-ndjson/);
@@ -113,6 +114,32 @@ describe("reading a reply aloud", () => {
 				const parts = usage.cost.input + usage.cost.output + usage.cost.cacheRead + usage.cost.cacheWrite;
 				assert.ok(Math.abs(parts - usage.cost.total) < 1e-9, `parts ${parts}, total ${usage.cost.total}`);
 			}
+		} finally {
+			await server.close();
+		}
+	});
+
+	test("a plan's script streams like a reply's, and its directions demand the manifest's full detail", async () => {
+		assert.match(PLAN_SPEECH_PROMPT, /Retain FULL detail/);
+		assert.match(PLAN_SPEECH_PROMPT, /Miss no step/);
+		// The directions accept phrasing that serves the ear, never a shorter plan.
+		assert.match(PLAN_SPEECH_PROMPT, /convey the plan better aloud than the written manifest/);
+		assert.notEqual(PLAN_SPEECH_PROMPT, SPEECH_PROMPT);
+
+		const asked: string[] = [];
+		const server = await TestServer.start({ fakeModel: { tokensPerSecond: 100, onRequest: (kind, text) => void (kind === "speech" && asked.push(text)) } });
+		try {
+			const id = await server.createSession("What does greet() return?");
+			await server.settled(id);
+			const plan = ["# Add shout()", "Add shout() and cover it with a test.", "## Steps\n1. Write shout() in src/shout.ts. Files: src/shout.ts\n2. Test it in test/shout.test.ts. Files: test/shout.test.ts"].join("\n\n");
+			const { lines } = await script(server, id, plan, "plan");
+			assert.deepEqual(asked, [plan], "the session's model is asked once, with the plan's Markdown");
+			assert.deepEqual(lines.at(-1), { t: "done" });
+			const segments = lines.flatMap((line) => (line.t === "segment" ? [line.text] : []));
+			assert.ok(segments.join(" ").includes("Add shout()"));
+			for (const segment of segments) assert.ok(segment.length <= SPEECH_SEGMENT_CHARS, `${segment.length} characters: ${segment}`);
+			// An unknown kind is refused at the boundary.
+			assert.equal((await post(server, `/api/sessions/${id}/speech-script`, JSON.stringify({ text: "Hi.", kind: "summary" }))).status, 400);
 		} finally {
 			await server.close();
 		}

@@ -39,8 +39,10 @@
 	import { listingDate, timeAgo } from "../format.ts";
 	import { app } from "../store.svelte.ts";
 	import Icon from "./Icons.svelte";
+	import PinButton from "./PinButton.svelte";
 
-	let { row, current, striped, nested, home }: { row: SessionRow; current: boolean; striped: boolean; nested: boolean; home: string | undefined } = $props();
+	let { row, current, striped, nested, home, pinned }: { row: SessionRow; current: boolean; striped: boolean; nested: boolean; home: string | undefined; pinned: boolean } =
+		$props();
 
 	const classes = $derived(["row", current ? "current" : "", striped ? "striped" : "", nested ? "nested" : "", needsAttention(row) ? "unseen" : ""]);
 	const action = $derived(row.archived ? "Restore" : "Archive");
@@ -59,7 +61,8 @@
 		</time>
 		<span class="row-status">{row.label}</span>
 	</a>
-	<!-- Beside the line rather than in it, since a button cannot sit inside a link; it is drawn on the line's right edge. -->
+	<!-- Beside the line rather than in it, since a button cannot sit inside a link; they are drawn on the line's right edge. -->
+	<PinButton id={row.id} label={`${pinned ? "Unpin" : "Pin"} ${row.title}`} pinned={pinned} class="row-action row-pin" />
 	<button type="button" class="icon-button row-action" aria-label={`${action} ${row.title}`} title={action} onclick={() => void setArchived(row, !row.archived, current)}>
 		<Icon name={row.archived ? "restore" : "archive"} size={18} />
 	</button>

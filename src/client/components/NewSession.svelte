@@ -1,15 +1,17 @@
 <script lang="ts">
 	// Starting a session is an IF-tree, not a form: work on this computer (OnPrem), or in a repository. Tapping either
-	// opens the blank screen to type the task; the first send is what creates the session. Below the choices are the
-	// starred repositories and the five most recently used repository branches; tapping a row spawns the blank screen
-	// continuing the branch shown. Anything else — a branch to cut from, a branch to continue, a repository not in
-	// either list — lives behind the Repository tile.
+	// tile opens the blank screen to type the task; the first send is what creates the session. Below the tiles are
+	// the starred repositories, the pinned favorites and the five most recent repository sessions, tapping a
+	// favorite or a recent row to open the session it names, a Starred row spawning the blank screen continuing its
+	// branch. A branch already shown in Starred or in Pinned is not repeated in Recent. Anything else — a branch to
+	// cut from, a branch to continue, a repository not in either list — lives behind the Repository tile.
 	import type { BranchList } from "../../shared/api.ts";
 	import type { SessionRow } from "../../shared/session.ts";
 	import { api } from "../api.ts";
-	import { timeAgo } from "../format.ts";
+	import { shortDir, timeAgo } from "../format.ts";
 	import { app, navigate, setPendingStart } from "../store.svelte.ts";
 	import Icon from "./Icons.svelte";
+	import PinButton from "./PinButton.svelte";
 	import RepoPicker from "./RepoPicker.svelte";
 	import SessionsButton from "./SessionsButton.svelte";
 	import StarButton from "./StarButton.svelte";
@@ -20,21 +22,18 @@
 	let pickerOpen = $state(false);
 	/** The default branch of starred repositories never worked in; fetched at mount, empty until then. */
 	let starredDefaults = $state<Record<string, string>>({});
+	/** Repositories whose default branch could not be fetched. Not state: a failure writes nothing, so it never re-triggers the effect. */
+	const unreachable = new Set<string>();
 
 	const index = $derived(app.index);
 	const starredRepos = $derived([...(index?.starredRepos ?? [])].sort((a, b) => a.localeCompare(b)));
 
-	/** The repository/branch pairs worked in most recently, one row each, whatever the session's outcome. */
-	const recent = $derived.by(() => {
-		const byPlace = new Map<string, SessionRow & { place: "repo"; repo: string; branch: string }>();
-		for (const row of Object.values(index?.rows ?? {})) {
-			if (row.place !== "repo" || row.archived) continue;
-			const key = `${row.repo}@${row.branch}`;
-			const seen = byPlace.get(key);
-			if (seen === undefined || row.updatedAt > seen.updatedAt) byPlace.set(key, row);
-		}
-		return [...byPlace.values()].sort((a, b) => b.updatedAt - a.updatedAt).slice(0, 5);
-	});
+	const home = $derived(bootstrap?.onPrem?.home);
+	/** Where a session worked, for a favorite's quiet second line: the directory on this computer, or the repository and branch. */
+	const whereOf = (row: SessionRow) => (row.place === "local" ? shortDir(row.dir, home) : `${row.repo} · ${row.branch}`);
+
+	/** The pinned favorites, newest first, whatever their place or state; an archived favorite shows until unpinned. */
+	const pinned = $derived(Object.values(index?.rows ?? {}).filter((row) => (index?.pinned ?? []).includes(row.id)).sort((a, b) => b.updatedAt - a.updatedAt));
 
 	const newestBranchFor = (name: string) => {
 		const rows = Object.values(index?.rows ?? {}).filter((row) => row.place === "repo" && row.repo === name && !row.archived);
@@ -43,14 +42,40 @@
 		return newest !== undefined && newest.place === "repo" ? newest.branch : undefined;
 	};
 
+	/** The repository/branch pairs the Starred section shows, so Recent does not repeat them, nor the pairs the Pinned section shows. */
+	const shownElsewhere = $derived(
+		new Set([
+			...starredRepos.flatMap((name) => {
+				const branch = newestBranchFor(name);
+				return branch === undefined ? [] : [`${name}@${branch}`];
+			}),
+			...pinned.flatMap((row) => (row.place === "repo" ? [`${row.repo}@${row.branch}`] : [])),
+		]),
+	);
+
+	/** The recent sessions themselves, one row each, branches unique, skipping what the Starred and Pinned sections show. */
+	const recent = $derived.by(() => {
+		const byPlace = new Map<string, SessionRow & { place: "repo"; repo: string; branch: string }>();
+		for (const row of Object.values(index?.rows ?? {})) {
+			if (row.place !== "repo" || row.archived) continue;
+			const key = `${row.repo}@${row.branch}`;
+			if (shownElsewhere.has(key)) continue;
+			const seen = byPlace.get(key);
+			if (seen === undefined || row.updatedAt > seen.updatedAt) byPlace.set(key, row);
+		}
+		return [...byPlace.values()].sort((a, b) => b.updatedAt - a.updatedAt).slice(0, 5);
+	});
+
 	$effect(() => {
 		// Starred repositories never worked in have no row to continue; ask their host for a default branch, so the
 		// row can offer one. Failures leave the row saying what it is and the tap opens the picker.
 		for (const name of starredRepos) {
-			if (newestBranchFor(name) !== undefined || starredDefaults[name] !== undefined) continue;
+			// One attempt per repository per page load: a failure is not retried while this page lives.
+			if (newestBranchFor(name) !== undefined || starredDefaults[name] !== undefined || unreachable.has(name)) continue;
+			unreachable.add(name);
 			api.branches(name).then(
 				(list: BranchList) => (starredDefaults = { ...starredDefaults, [name]: list.defaultBranch }),
-				() => (starredDefaults = { ...starredDefaults }),
+				() => undefined,
 			);
 		}
 	});
@@ -118,19 +143,38 @@
 				</ul>
 			</section>
 		{/if}
+		{#if pinned.length > 0}
+			<section class="splash-section" aria-label="Pinned">
+				<h2 class="splash-heading">Pinned</h2>
+				<ul class="place-list">
+					{#each pinned as row (row.id)}
+						<li class="place-row">
+							<a href={`#/s/${row.id}`} class="place-choose">
+								<span class="place-icon"><Icon name={row.place === "local" ? "monitor" : "branch"} size={17} /></span>
+								<span class="place-text">
+									<span class="place-name">{row.title}</span>
+									<span class="place-sub">{whereOf(row)} · {timeAgo(row.updatedAt)}</span>
+								</span>
+							</a>
+							<PinButton id={row.id} label={`Unpin ${row.title}`} pinned={true} />
+						</li>
+					{/each}
+				</ul>
+			</section>
+		{/if}
 		{#if recent.length > 0}
 			<section class="splash-section" aria-label="Recent">
 				<h2 class="splash-heading">Recent</h2>
 				<ul class="place-list">
-					{#each recent as row (`${row.repo}@${row.branch}`)}
+					{#each recent as row (row.id)}
 						<li class="place-row">
-							<button type="button" class="place-choose" onclick={() => spawnRepo(row.repo, { kind: "continue", branch: row.branch })}>
+							<a href={`#/s/${row.id}`} class="place-choose">
 								<span class="place-icon"><Icon name="branch" size={17} /></span>
 								<span class="place-text">
-									<span class="place-name">{row.repo}</span>
-									<span class="place-sub">{row.branch} · {timeAgo(row.updatedAt)}</span>
+									<span class="place-name">{row.title}</span>
+									<span class="place-sub">{row.repo} · {row.branch} · {timeAgo(row.updatedAt)}</span>
 								</span>
-							</button>
+							</a>
 							<StarButton kind="repo" target={row.repo} label={`Star ${row.repo}`} starred={(index?.starredRepos ?? []).includes(row.repo)} />
 						</li>
 					{/each}

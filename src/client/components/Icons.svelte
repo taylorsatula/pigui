@@ -22,6 +22,8 @@
 		// Two commits on a stem with a fork: the branch a repository row was last worked on.
 		branch: "M5 5a2 2 0 1 1 4 0 2 2 0 1 1-4 0M5 19a2 2 0 1 1 4 0 2 2 0 1 1-4 0M7 7v10M15 8a2 2 0 1 1 4 0 2 2 0 1 1-4 0M17 10c0 5-3.8 5.8-7.4 6.2",
 		star: "M12 3.5l2.6 5.3 5.9.9-4.25 4.15 1 5.85L12 16.9l-5.25 2.8 1-5.85L3.5 9.7l5.9-.9z",
+		// A pushpin with its head up and its point down: a chat pinned as a favorite.
+		pin: "M9.5 3.5h5M10.7 3.5l-.9 7.2L6.7 14.4c-.3.8.3 1.6 1.1 1.6h8.4c.8 0 1.4-.8 1.1-1.6l-3.1-3.7-.9-7.2M12 16v4.5",
 		bell: "M6 16V11a6 6 0 0 1 12 0v5l2 2H4zM10 20a2 2 0 0 0 4 0",
 		speaker: "M4 9.5h3l5-4v13l-5-4H4zM16 9a4.5 4.5 0 0 1 0 6M18.5 6.5a8 8 0 0 1 0 11",
 		back: "M15 6l-6 6 6 6",

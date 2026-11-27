@@ -17,8 +17,10 @@ import type {
 	SkillSummary,
 	SpeechBody,
 	SpeechScriptBody,
+	SpeechKind,
 	StarDirBody,
 	StarRepoBody,
+	PinBody,
 	UploadedAttachment,
 } from "../shared/api.ts";
 import type { CardAnswer } from "../shared/session.ts";
@@ -143,6 +145,7 @@ export const api = {
 	deliver: (id: number, action: "push" | "pr") => call<DeliveryResult>("POST", `/api/sessions/${id}/deliver`, { action }),
 	diff: (id: number) => call<SessionDiff>("GET", `/api/sessions/${id}/diff`),
 	archive: (id: number, archived: boolean) => call<object>("POST", `/api/sessions/${id}/archive`, { archived }),
+	pin: (id: number, pinned: boolean) => call<object>("POST", `/api/sessions/${id}/pin`, { pinned } satisfies PinBody),
 	seen: (id: number) => call<object>("POST", `/api/sessions/${id}/seen`),
 	retrySetup: (id: number) => call<object>("POST", `/api/sessions/${id}/retry-setup`),
 	subscribe: (subscription: PushSubscriptionJSON) => call<object>("POST", "/api/push/subscribe", subscription),
@@ -158,8 +161,9 @@ export const api = {
 	},
 
 	/** A reply's speakable script, given segment by segment as the server writes it; resolves once it is complete. */
-	async speechScript(id: number, text: string, signal: AbortSignal, segment: (text: string) => void): Promise<void> {
-		const response = await stoppable(`/api/sessions/${id}/speech-script`, { text } satisfies SpeechScriptBody, signal);
+	async speechScript(id: number, text: string, signal: AbortSignal, segment: (text: string) => void, kind?: SpeechKind): Promise<void> {
+		const body = { text, ...(kind === undefined ? {} : { kind }) } satisfies SpeechScriptBody;
+		const response = await stoppable(`/api/sessions/${id}/speech-script`, body, signal);
 		for await (const line of lines<ScriptLine>(response)) {
 			if (line.t === "segment") segment(line.text);
 			else if (line.t === "done") return;

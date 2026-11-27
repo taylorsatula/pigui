@@ -230,18 +230,39 @@ deceleration); reduced motion keeps fades and drops movement; no theme picker (d
 **The New session splash page is an IF-tree, and a spawn is a blank screen, not a form** (2026-11-27). The Control
 Center redesign of 2026-11-26 shipped and felt like a buffet: a dozen tappable things, none of which was a *go*
 action, and a hidden step between selection and a run (tap, notice the ~ caption, then compose, then send). The page
-is now two big tiles — This computer (OnPrem only) and Repository — above the starred repositories and the five most
-recent repository/branch rows; that is all. Tapping any spawn target opens a client-side blank screen with the composer
+is now two big tiles — This computer (OnPrem only) and Repository — above the starred repositories, the pinned
+favorites and the five most recent repository sessions; that is all. Tapping any spawn target opens a client-side blank screen with the composer
 focused; the server session is created only by its first send, so a tap in and out makes nothing and no orphan branch
 is cut. Local always spawns at `~` (no directory choice anywhere). Repository opens a full-screen picker prefilled
 with the most recent repository on its default branch, with a New branch/Continue a branch switch (New default) and a
-Start session button. Starred and recent rows always continue the branch the row names; a starred row without a known
-branch shows the repo's default branch (fetched at mount) and starts a new branch from it. iOS dictation is the
+Start session button. Starred rows always continue the branch the row names; a starred row without a known
+branch shows the repo's default branch (fetched at mount) and starts a new branch from it. A Pinned or Recent row taps
+through to the session it names instead of spawning anything: Recent lists the sessions themselves, the newest session
+per repository and branch, and never repeats a branch the Starred or Pinned sections show (the dedupe the owner reported missing). iOS dictation is the
 keyboard's mic key inside the composer; there is no voice button. The pending spawn and the typed words survive a
 reload (localStorage `pigui.pending-start`; the composer draft rides `draftKey="new"`). Starred repositories (`starredRepos`
 in the index) persist like starred directories; starring never reaches gh. *Alternatives:* the splash with an attached
 composer (the selection-vs-send ambiguity the owner named), a zero-question last-used default (invisible mode), keeping
 the voice tile (a no-op control that promised a capability it didn't have).
+
+**Chats pin to the index as favorites, from the session rows, not from the splash** (2026-11-27). The owner asked to
+pin a chat as a favorite and located the button in the sessions picker ("the history table") beside the archive button,
+so every row carries both, the pin a pushpin, filling in ink when pressed and persisted as `pinned`
+(session ids) in the index next to `starredRepos`, for the same reason stars live there: a pin made at the computer is
+there on the phone, and pinning is no more activity than starring (no `updatedAt` touch, no endpoint reaching the
+session document beyond its existence check, 404 for an unknown session). The splash gains a Pinned section above
+Recent listing the pinned sessions newest first, tapping a row to open the session and a pin button to unpin in place,
+mirroring the Starred section's unstar. Pinned rows span repository and local sessions and stay listed while archived,
+since archiving is not unpinning. The pin button appears in the picker only, matching where the owner put it; the
+Recent rows keep the repository star button. *Alternatives:* a `pinned` flag on SessionDoc (wrong document: the row
+projection would churn on every star-shaped toggle, and the favorites would not survive index-held restarts of the
+stars' own sync path) and a pin control on the splash rows (not asked for; the picker is where rows are managed).
+
+**A starred repository whose default branch cannot be fetched is tried once per page load, then left alone** (2026-11-27).
+A failed fetch was assigned a fresh object on every retry, which re-triggered the `$effect` and hammered `gh api` in a
+tight loop — hundreds of failing calls per minute on the splash, nagging the phone and the server alike. The row shows
+“Repository” as it did before; restoring access retries on the next page load. *Rejected:* a toast per failure (noise on
+someone else's outage) and an unbounded retry with backoff (still load for a permanently gone repo).
 
 ## Fake mode
 
@@ -275,6 +296,15 @@ unit uses `RestartPreventExitStatus=78 2`. `deploy/install.sh` (Debian 13/Ubuntu
 (mask what a pigui-only machine never uses, add swap, cap the journal) are its parts, and they are byte-ports of the
 reference's, with the ref updated to `main` — the installer is machine tooling, not application code.
 
+**Piped from curl, the interview asks on your terminal.** `curl … install.sh | bash -s --` leaves stdin at EOF, so
+the question helpers read their answers from `/dev/tty` when it opens (a controlling terminal), falling back to plain
+stdin when that is the terminal, and to the flags-are-required path when there is neither — CI is byte-compatible with
+before. The presentation follows mira's installer in spirit, not in complexity: a muted palette (on only for a terminal
+with `NO_COLOR` unset and `TERM` not dumb), `✓`/`→`/`✗` glyphs, defaults in brackets, and one `Your choices` summary
+with a `Proceed? [Y/n]` before anything changes — interactive runs only; with flags or no terminal there is nothing to
+confirm. No ASCII banner, no release-resolution machinery, no YAML config file; pigui keeps bash 3.2 compatibility and
+its four paths.
+
 **`PIGUI_MODELS_UNLOAD` is validated in one place per side, over one shared schema.** `deploy/lib.sh`'s `unload_valid`
 is the single bash definition, sourced by both installers; the server's `parseModelsUnload` mirrors it exactly (decimal
 digits, 1–1440, `never` or unset to keep the models loaded, leading zeros allowed), and the held-model test pins the
@@ -304,6 +334,10 @@ counted like the summarizer's), cut to ≤200-char segments; Kokoro-82M q8 synth
 one-at-a-time queue, silence trimmed to 50/200 ms, WAV from our own 16-bit encoder), held as `PIGUI_MODELS_UNLOAD`
 says; the phone keeps one unlocked HTMLAudioElement and reads ahead. The reading continues with the screen locked.
 `PIGUI_SPEECH=off` leaves it out of the build and the app says the speaker is absent.
+
+## Reading the plan aloud
+
+The plan card carries the same speaker, reading the whole manifest through plan-specific directions (`PLAN_SPEECH_PROMPT`, chosen with `kind: "plan"` on the script request): retain FULL detail and miss no step — every step in order with its files, every done-when condition, decision, verification, exclusion, risk and source. Phrasing changes are acceptable only where they convey the plan better aloud than the written manifest. The reply and report readings keep their existing directions; a tap before approving is the point of the speaker's place in the card's header.
 
 ## Slash commands: not built
 

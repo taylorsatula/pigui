@@ -1,11 +1,12 @@
 <script lang="ts">
 	import { planOf, type CardAnswer, type PlanCard, type SessionDoc } from "../../shared/session.ts";
-	import type { CardActions } from "./cards.ts";
+	import { type CardActions, planProse } from "./cards.ts";
 	import Decisions from "./Decisions.svelte";
 	import EndState from "./EndState.svelte";
 	import Icon from "./Icons.svelte";
 	import Inline from "./Inline.svelte";
 	import PlanRest from "./PlanRest.svelte";
+	import Speak from "./Speak.svelte";
 	import Steps from "./Steps.svelte";
 
 	let { card, answer, pending, session, running, actions }: { card: PlanCard; answer?: CardAnswer; pending: boolean; session?: SessionDoc; running: boolean; actions: CardActions } = $props();
@@ -44,6 +45,7 @@
 		{#if status !== undefined}
 			<span class={`verdict ${answer?.kind === "approve" ? "good" : pending ? "mark" : "warn"}`}>{status}</span>
 		{/if}
+		{#if session !== undefined}<Speak id={`plan:${card.id}`} session={session.id} markdown={planProse(card.plan)} kind="plan" />{/if}
 	</header>
 	<h3>{plan.title}</h3>
 	<p class="goal">

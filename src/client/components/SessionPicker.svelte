@@ -59,6 +59,7 @@
 	let notifications = $state(pushSupported() ? Notification.permission : "unsupported");
 	// Per component creation: the 12 h staleness boundary does not need finer grain.
 	const rows = $derived(Object.values(app.index?.rows ?? {}));
+	const pinnedIds = $derived(new Set(app.index?.pinned ?? []));
 	const home = $derived(app.bootstrap?.onPrem?.home);
 	const current = $derived(app.route.kind === "session" ? app.route.id : undefined);
 	const underWay = $derived(sorted(rows.filter((row) => active(row, Date.now())), sort, home));
@@ -149,7 +150,7 @@
 			{#if rows.length === 0}<p class="empty">No sessions yet. Start one with New.</p>{/if}
 			<ul class="listing" aria-label="Under way">
 				{#each underWay as row, i (row.id)}
-					<SessionEntry row={row} current={row.id === current} striped={stripes.under[i] ?? false} nested={false} home={home} />
+					<SessionEntry row={row} current={row.id === current} striped={stripes.under[i] ?? false} nested={false} home={home} pinned={pinnedIds.has(row.id)} />
 				{/each}
 				{#if inactive.length > 0}
 					<li>
@@ -170,7 +171,7 @@
 						{#if folderOpen}
 							<ul class="listing" aria-label="Inactive">
 								{#each inactive as row, i (row.id)}
-									<SessionEntry row={row} current={row.id === current} striped={stripes.nested[i] ?? false} nested={true} home={home} />
+									<SessionEntry row={row} current={row.id === current} striped={stripes.nested[i] ?? false} nested={true} home={home} pinned={pinnedIds.has(row.id)} />
 								{/each}
 							</ul>
 						{/if}
