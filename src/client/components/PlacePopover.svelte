@@ -106,11 +106,12 @@
 			<label class="mini">
 				<span>{mode === "new" ? "Start from" : "Continue"}</span>
 				<select
-					value={ref}
+					value={branchReady ? ref : ""}
 					disabled={!branchReady}
 					onchange={(event) => (mode === "new" ? onBase(event.currentTarget.value) : onBranch(event.currentTarget.value))}
 				>
-					{#each reposBranches?.branches ?? [] as name (name)}
+					{#if !branchReady}<option value="">&mdash;</option>{/if}
+					{#each branchReady ? (reposBranches?.branches ?? []) : [] as name (name)}
 						<option value={name}>{name}{name === reposBranches?.defaultBranch ? " (default)" : ""}</option>
 					{/each}
 				</select>

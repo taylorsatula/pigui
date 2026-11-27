@@ -57,7 +57,7 @@
 .tile-label {
 	font-family: var(--serif);
 	font-weight: var(--w-display);
-	font-size: 1rem;
+	font-size: 0.9375rem;
 	line-height: var(--leading-tight);
 	text-align: center;
 }
@@ -93,14 +93,15 @@
 .chonky button {
 	flex: 1;
 	min-height: calc(var(--target) + 8px);
-	padding: 0 12px;
+	padding: 0 8px;
 	border: none;
 	border-radius: 0;
 	background: none;
 	color: var(--text);
 	font-family: var(--serif);
-	font-size: 1rem;
+	font-size: 0.875rem;
 	font-weight: var(--w-display);
+	white-space: nowrap;
 }
 
 .chonky button + button {
