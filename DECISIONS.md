@@ -220,18 +220,21 @@ Type scale follows Dynamic Type; the send key is a 44 pt target around a 32 pt i
 centred dialog. **Sheets** follow the finger (velocity from its last 100 ms, projected with iOS's scroll
 deceleration); reduced motion keeps fades and drops movement; no theme picker (dark follows the device).
 
-**The New session splash page is an iOS Control Center of places, not a form** (2026-11-26). Starting pigui is nearly
-always one of three cow paths — a local home-directory session, dictation, or a recently used repository/branch — so
-those are the page: a computer tile (OnPrem only) that selects `~` and focuses the composer, a mic tile that focuses
-the composer (iOS dictation is the keyboard's mic key; no web API can start it), three rows of the most recently
-worked repository/branch pairs, and a Starred section mixing starred repositories (`starredRepos` in the index) and
-starred directories. Everything off the cow path lives behind a + tile: a dense popover with a chonky
-Directory/Repository-Branch toggle (remembering its side), an unpicked repository select that enables its branch
-picker on selection (defaulting to the repo's default branch), a new/continue switch, and a `~` input. The popover
-always opens empty, stays open until Send or tap-outside, and a line above the composer names the current selection.
-*Alternatives:* keeping the segmented This computer/A repository form (the paths everyone used were buried under it),
-or per-tile immediate spawning (a session always needs a first message). Starred repositories validate by name pattern
-only; starring never reaches gh, so unstarring works when the repository host does not.
+**The New session splash page is an IF-tree, and a spawn is a blank screen, not a form** (2026-11-27). The Control
+Center redesign of 2026-11-26 shipped and felt like a buffet: a dozen tappable things, none of which was a *go*
+action, and a hidden step between selection and a run (tap, notice the ~ caption, then compose, then send). The page
+is now two big tiles — This computer (OnPrem only) and Repository — above the starred repositories and the five most
+recent repository/branch rows; that is all. Tapping any spawn target opens a client-side blank screen with the composer
+focused; the server session is created only by its first send, so a tap in and out makes nothing and no orphan branch
+is cut. Local always spawns at `~` (no directory choice anywhere). Repository opens a full-screen picker prefilled
+with the most recent repository on its default branch, with a New branch/Continue a branch switch (New default) and a
+Start session button. Starred and recent rows always continue the branch the row names; a starred row without a known
+branch shows the repo's default branch (fetched at mount) and starts a new branch from it. iOS dictation is the
+keyboard's mic key inside the composer; there is no voice button. The pending spawn and the typed words survive a
+reload (localStorage `pigui.pending-start`; the composer draft rides `draftKey="new"`). Starred repositories (`starredRepos`
+in the index) persist like starred directories; starring never reaches gh. *Alternatives:* the splash with an attached
+composer (the selection-vs-send ambiguity the owner named), a zero-question last-used default (invisible mode), keeping
+the voice tile (a no-op control that promised a capability it didn't have).
 
 ## Fake mode
 

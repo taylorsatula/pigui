@@ -101,6 +101,9 @@ test.describe("the app around a session", () => {
 
 	test("the @ and # pickers narrow as the person types and insert the reference", async ({ page }) => {
 		await page.goto("/");
+		// Spawn the blank screen; the composer there reads the chosen repository's branch before anything starts.
+		await page.getByRole("button", { name: "Repository" }).tap();
+		await page.getByRole("button", { name: "Start session" }).tap();
 		const composer = page.getByRole("textbox", { name: "Describe the task…" });
 		await expect(composer).toBeEnabled();
 		await composer.pressSequentially("Look at @");
@@ -134,6 +137,8 @@ test.describe("the composer with a keyboard and a mouse", () => {
 
 	test("Return sends, Shift+Return writes a new line, Return takes a picker's first match, and a session's field has focus", async ({ page }) => {
 		await page.goto("/");
+		await page.getByRole("button", { name: "Repository" }).click();
+		await page.getByRole("button", { name: "Start session" }).click();
 		const task = page.getByRole("textbox", { name: "Describe the task…" });
 		await expect(task).toBeEnabled();
 		await task.fill("What does greet() return?");
@@ -159,6 +164,8 @@ test.describe("the composer with a keyboard and a mouse", () => {
 		// Opening another session gives its field the focus too.
 		await page.getByRole("button", { name: /^Sessions/ }).click();
 		await page.getByRole("dialog", { name: "Sessions" }).getByRole("button", { name: "New" }).click();
+		await page.getByRole("button", { name: "Repository" }).click();
+		await page.getByRole("button", { name: "Start session" }).click();
 		await task.fill("What is in src?");
 		await task.press("Enter");
 		await expect(page.locator(".session-status")).toHaveText("Replied");

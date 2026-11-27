@@ -121,9 +121,16 @@ export const test = base.extend<{ errors: string[] }, { server: FakeServer; toke
 
 export { expect };
 
-/** Start a session from the New session view and wait for its page. */
+/** Start a session from the splash page and wait for its page. OnPrem offers this computer first; elsewhere, the repository path with its defaults. */
 export async function startSession(page: Page, text: string): Promise<void> {
 	await page.goto("/");
+	// The spawn lands on the blank screen; the first send is what creates the session.
+	if ((await page.getByRole("button", { name: "This computer" }).count()) > 0) {
+		await page.getByRole("button", { name: "This computer" }).tap();
+	} else {
+		await page.getByRole("button", { name: "Repository" }).tap();
+		await page.getByRole("button", { name: "Start session" }).tap();
+	}
 	const composer = page.getByRole("textbox", { name: "Describe the task…" });
 	await expect(composer).toBeEnabled();
 	await composer.fill(text);

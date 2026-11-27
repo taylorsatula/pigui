@@ -1,19 +1,25 @@
-// pigui OnPrem in the browser: a server on this computer, opened at localhost, whose new sessions start in a
-// directory here (the home directory unless changed), with a repository the other choice behind the +.
+// pigui OnPrem in the browser: a server on this computer, opened at localhost, whose new sessions start on this
+// computer at ~, or in a repository from the full-screen picker. Rows and tiles spawn the blank screen; the first
+// send creates the session.
 import { existsSync } from "node:fs";
-import { mkdir } from "node:fs/promises";
 import { join } from "node:path";
-import { approveThrough, expect, startSession, test } from "./fixtures.ts";
+import { approveThrough, expect, test } from "./fixtures.ts";
 
 test.use({ onPrem: true });
 
 test.describe("pigui OnPrem", () => {
-	test("a new session starts on this computer, in ~ unless changed, and replies there", async ({ page, errors }) => {
+	test("a new session starts on this computer, at ~, and replies there", async ({ page, errors }) => {
 		await page.goto("/");
 		await expect(page.getByRole("button", { name: "This computer" })).toBeVisible();
-		await expect(page.locator(".place-line")).toHaveText("~");
+		await expect(page.getByRole("button", { name: "Repository" })).toBeVisible();
 		await expect(page.locator("body")).not.toContainText("Tailscale");
-		await startSession(page, "What is in this directory?");
+		await page.getByRole("button", { name: "This computer" }).tap();
+		const composer = page.getByRole("textbox", { name: "Describe the task…" });
+		await expect(composer).toBeFocused();
+		await expect(page.locator(".subtitle .where")).toHaveText("~");
+		await composer.fill("What is in this directory?");
+		await page.getByRole("button", { name: "Send", exact: true }).tap();
+		await expect(page).toHaveURL(/#\/s\/\d+/);
 		await expect(page.getByText("Short answer:")).toBeVisible();
 		await expect(page.locator(".subtitle .where")).toHaveText("~");
 		// It works in place: there is no branch, so no diff to view.
@@ -22,98 +28,101 @@ test.describe("pigui OnPrem", () => {
 		const entry = page.getByRole("dialog", { name: "Sessions" }).getByRole("link", { name: /What is in this directory\?/ });
 		await expect(entry.locator(".row-where")).toHaveText("~");
 		await expect(entry.locator(".row-status")).toHaveText("Replied");
-		await expect(page.locator("body")).not.toContainText("Tailscale");
 		expect(errors).toEqual([]);
 	});
 
-	test("a planned task lands in the chosen directory, and its report offers no push or pull request", async ({ page, server }) => {
-		await mkdir(join(server.home!, "project"));
+	test("a planned task lands at ~ and its report offers no push or pull request", async ({ page, server }) => {
 		await page.goto("/");
-		// A directory other than ~ is one of the choices behind the + popover.
-		await page.getByRole("button", { name: "More" }).tap();
-		const popover = page.getByRole("dialog", { name: "More places" });
-		await popover.getByRole("radio", { name: "Directory" }).tap();
-		await popover.getByRole("textbox", { name: "Directory" }).fill("~/project");
-		await expect(page.locator(".place-line")).toHaveText("~/project");
+		await page.getByRole("button", { name: "This computer" }).tap();
 		await page.getByRole("textbox", { name: "Describe the task…" }).fill("Add a shout() function");
 		await page.getByRole("button", { name: "Send", exact: true }).tap();
-		await expect(page.locator(".subtitle .where")).toHaveText("~/project");
+		await expect(page.locator(".subtitle .where")).toHaveText("~");
 		await approveThrough(page);
 		const report = page.getByRole("region", { name: "Report" });
 		await expect(report).toBeVisible({ timeout: 30_000 });
 		await expect(report.getByRole("button", { name: "Open pull request" })).toHaveCount(0);
 		await expect(report.getByRole("button", { name: "Push branch" })).toHaveCount(0);
 		await expect(report.getByRole("button", { name: "Keep working" })).toBeVisible();
-		expect(existsSync(join(server.home!, "project", "src", "shout.ts"))).toBe(true);
+		expect(existsSync(join(server.home!, "src", "shout.ts"))).toBe(true);
 	});
 
-	test("the starred repositories and directories are offered, and the three most recent repositories are the newest", async ({ page, server, errors }) => {
-		// A local session whose directory is not on any cow path: starring it makes it one.
-		await mkdir(join(server.home!, "stars"));
-		await page.goto("/");
-		await page.getByRole("button", { name: "More" }).tap();
-		const popover = page.getByRole("dialog", { name: "More places" });
-		await popover.getByRole("radio", { name: "Directory" }).tap();
-		await popover.getByRole("textbox", { name: "Directory" }).fill("~/stars");
-		await page.getByRole("textbox", { name: "Describe the task…" }).fill("What is here?");
-		await page.getByRole("button", { name: "Send", exact: true }).tap();
-		await expect(page.locator(".subtitle .where")).toHaveText("~/stars");
-
-		// Stars are the server's, so they outlast a reload; the Starred section only appears once something is starred.
-		await page.goto("/");
-		await expect(page.getByRole("region", { name: "Starred" })).toHaveCount(0);
-		const star = await page.request.post("/api/local/starred", { data: { dir: join(server.home!, "stars"), starred: true } });
-		expect(star.ok()).toBe(true);
-		const repoStar = await page.request.post("/api/repos/starred", { data: { repo: "demo/notes", starred: true } });
-		expect(repoStar.ok()).toBe(true);
-		await page.reload();
-
-		const starred = page.getByRole("region", { name: "Starred" });
-		await expect(starred.locator(".place-name")).toHaveText(["demo/notes", "~/stars"]);
-		// Tapping a starred directory selects it for the next session.
-		await starred.getByRole("button", { name: "~/stars Directory" }).tap();
-		await expect(page.locator(".place-line")).toHaveText("~/stars");
-		// Tapping a starred repository selects it, on a new branch from the default branch.
-		await starred.getByRole("button", { name: "demo/notes Repository" }).tap();
-		await expect(page.locator(".place-line")).toHaveText("demo/notes · new branch from main");
-		// Unstarring from the row takes it off the list.
-		await starred.getByRole("button", { name: "Star demo/notes" }).tap();
-		await expect(starred.locator(".place-name")).toHaveText(["~/stars"]);
-
-		// The three most recent repository/branch pairs, whatever the start kind.
-		for (const name of ["demo/greeter", "demo/greeter", "demo/notes", "demo/greeter"]) {
+	test("starred and recent repository rows continue the branch they name, and five recents are offered", async ({ page, errors }) => {
+		// Fill Recent with repository fixtures: three new branches off main, then notes on its drafts branch last so it is newest.
+		for (let i = 0; i < 3; i += 1) {
 			const created = await page.request.post("/api/sessions", {
-				data: { requestId: `splash-recent-${name}-${Math.random().toString(16).slice(2)}`, place: "repo", repo: name, start: { kind: "new", base: "main" }, text: "Hello", attachments: [] },
+				data: { requestId: `splash-greeter-${i}-${Math.random().toString(16).slice(2)}`, place: "repo", repo: "demo/greeter", start: { kind: "new", base: "main" }, text: "Hello", attachments: [] },
 			});
 			expect(created.ok()).toBe(true);
 		}
+		for (let i = 0; i < 2; i += 1) {
+			const created = await page.request.post("/api/sessions", {
+				data: { requestId: `splash-notes-${i}-${Math.random().toString(16).slice(2)}`, place: "repo", repo: "demo/notes", start: { kind: "new", base: "main" }, text: "Hello", attachments: [] },
+			});
+			expect(created.ok()).toBe(true);
+		}
+		const notesDrafts = await page.request.post("/api/sessions", {
+			data: { requestId: `splash-notes-drafts-${Math.random().toString(16).slice(2)}`, place: "repo", repo: "demo/notes", start: { kind: "continue", branch: "drafts" }, text: "Hello", attachments: [] },
+		});
+		expect(notesDrafts.ok()).toBe(true);
+
 		await page.goto("/");
 		const recent = page.getByRole("region", { name: "Recent" });
-		await expect(recent.locator(".place-row")).toHaveCount(3);
-		await expect(recent.locator(".place-sub").first()).toHaveText(/^pi\//);
-		// Starring a recent row's repository promotes it to the starred list.
-		await recent.getByRole("button", { name: /Star demo\// }).first().tap();
-		await expect(page.getByRole("region", { name: "Starred" }).locator(".place-name").first()).toContainText("/");
+		// Five rows at most, even though six working places exist.
+		await expect(recent.locator(".place-row")).toHaveCount(5);
+		for (const sub of await recent.locator(".place-sub").all()) await expect(sub).toHaveText(/^(pi\/|drafts)/);
+
+		// Star demo/notes; the row joins the starred list above the recents, continuing its newest branch. Which branch
+		// that is depends on when the runs settle, so read it from the row.
+		const star = await page.request.post("/api/repos/starred", { data: { repo: "demo/notes", starred: true } });
+		expect(star.ok()).toBe(true);
+		await page.reload();
+		const starred = page.getByRole("region", { name: "Starred" });
+		await expect(starred.locator(".place-name")).toHaveText(["demo/notes"]);
+		const branch = (await starred.locator(".place-sub").textContent())!.replace("continue ", "");
+		expect(branch).toMatch(/^(pi\/.+|drafts)$/);
+		await starred.locator(".place-choose").tap();
+		const composer = page.getByRole("textbox", { name: "Describe the task…" });
+		await expect(composer).toBeFocused();
+		await expect(page.locator(".subtitle .where")).toHaveText(`demo/notes · continue ${branch}`);
+		await composer.fill("What is on this branch?");
+		await page.getByRole("button", { name: "Send", exact: true }).tap();
+		await expect(page.locator(".subtitle .where")).toHaveText(`demo/notes · ${branch}`);
 		expect(errors).toEqual([]);
 	});
 
-	test("a repository is still a choice, on a branch of its own", async ({ page }) => {
+	test("the repository picker prefills the most recent repository on its default branch, and Start session spawns it", async ({ page }) => {
 		await page.goto("/");
-		await page.getByRole("button", { name: "More" }).tap();
-		const popover = page.getByRole("dialog", { name: "More places" });
-		// The repository picker is not prefilled; the branch picker is greyed out until a repository is.
-		await expect(popover.getByRole("combobox", { name: "Repository" })).toHaveValue("");
-		await expect(popover.getByRole("combobox", { name: "Start from" })).toBeDisabled();
-		await popover.getByRole("combobox", { name: "Repository" }).selectOption("demo/greeter");
-		await expect(popover.getByRole("combobox", { name: "Start from" })).toBeEnabled();
-		await expect(popover.getByRole("combobox", { name: "Start from" })).toHaveValue("main");
-		// The popover stays open; the choice is already the page's.
-		await expect(page.locator(".place-line")).toHaveText("demo/greeter · new branch from main");
+		await page.getByRole("button", { name: "Repository" }).tap();
+		const picker = page.getByRole("dialog", { name: "Start from a repository" });
+		await expect(picker).toBeVisible();
+		await expect(picker.getByRole("combobox", { name: "Repository" })).toHaveValue(/^demo\/(greeter|notes)$/);
+		// The prefilled branch is the repository's own default branch, labelled (default).
+		await expect(picker.getByRole("combobox", { name: "Start from" })).toHaveValue("main");
+		await expect(picker.getByRole("radio", { name: "New branch" })).toBeChecked();
+		await picker.getByRole("button", { name: "Start session" }).tap();
+		await expect(picker).toHaveCount(0);
 		const composer = page.getByRole("textbox", { name: "Describe the task…" });
-		await expect(composer).toBeEnabled();
+		await expect(composer).toBeFocused();
+		const where = await page.locator(".subtitle .where").textContent();
+		expect(where).toMatch(/^demo\/(greeter|notes) · new branch from main$/);
 		await composer.fill("What does greet() return?");
 		await page.getByRole("button", { name: "Send", exact: true }).tap();
 		await expect(page.getByText("Short answer:")).toBeVisible();
-		await expect(page.locator(".subtitle .where")).toContainText("demo/greeter · pi/");
+		await expect(page.locator(".subtitle .where")).toContainText(" · pi/");
+	});
+
+	test("a reload mid-draft returns to the blank screen with the words kept", async ({ page }) => {
+		await page.goto("/");
+		await page.getByRole("button", { name: "This computer" }).tap();
+		const composer = page.getByRole("textbox", { name: "Describe the task…" });
+		await composer.fill("Half a thought");
+		await page.reload();
+		await expect(page.locator(".subtitle .where")).toHaveText("~");
+		await expect(page.getByRole("textbox", { name: "Describe the task…" })).toHaveValue("Half a thought");
+		// And the back button returns to the splash with the words kept there too.
+		await page.getByRole("button", { name: "Back to New session" }).tap();
+		await expect(page).toHaveURL(/#\/$/);
+		await page.getByRole("button", { name: "This computer" }).tap();
+		await expect(page.getByRole("textbox", { name: "Describe the task…" })).toHaveValue("Half a thought");
 	});
 });
