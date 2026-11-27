@@ -9,6 +9,7 @@ import {
 	CHECKPOINT_ENTRY,
 	MESSAGE_ENTRY,
 	NUDGE_ENTRY,
+	type MessageEntryData,
 	type SessionDoc,
 } from "../shared/session.ts";
 import { buildBlocks, turnStart, type Block, type CallView } from "./transcript.ts";
@@ -405,7 +406,7 @@ describe("identity", () => {
 
 describe("queued steering messages", () => {
 	const inbox = (items: unknown[]) => ({ "pi.inbox": { items } });
-	const steer = (id: number, data: unknown = personData) => ({ id, mode: "steer", content: data.text, entry: { kind: MESSAGE_ENTRY, data } });
+	const steer = (id: number, data: MessageEntryData = personData) => ({ id, mode: "steer", content: data.text, entry: { kind: MESSAGE_ENTRY, data } });
 
 	it("a message waiting for a break in Pi's work shows at the end as queued, with the submission to cancel", () => {
 		const items = [entryItem(entry(1, MESSAGE_ENTRY, { data: personData }))];
