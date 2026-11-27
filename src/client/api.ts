@@ -17,6 +17,7 @@ import type {
 	SpeechBody,
 	SpeechScriptBody,
 	StarDirBody,
+	StarRepoBody,
 	UploadedAttachment,
 } from "../shared/api.ts";
 import type { CardAnswer } from "../shared/session.ts";
@@ -125,6 +126,7 @@ export const api = {
 	localFiles: (dir: string) => call<FileList>("GET", `/api/local/files?dir=${encodeURIComponent(dir)}`),
 	localSkills: (dir: string) => call<SkillSummary[]>("GET", `/api/local/skills?dir=${encodeURIComponent(dir)}`),
 	star: (dir: string, starred: boolean) => call<object>("POST", "/api/local/starred", { dir, starred } satisfies StarDirBody),
+	starRepo: (repo: string, starred: boolean) => call<object>("POST", "/api/repos/starred", { repo, starred } satisfies StarRepoBody),
 	sessionFiles: (id: number) => call<FileList>("GET", `/api/sessions/${id}/files`),
 	sessionSkills: (id: number) => call<SkillSummary[]>("GET", `/api/sessions/${id}/skills`),
 	create: (body: CreateSessionBody) => call<CreatedSession>("POST", "/api/sessions", body),

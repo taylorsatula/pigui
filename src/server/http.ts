@@ -26,6 +26,7 @@ import {
 	SpeechBody,
 	SpeechScriptBody,
 	StarDirBody,
+	StarRepoBody,
 } from "../shared/api.ts";
 import type { SessionDoc } from "../shared/session.ts";
 import { skillsAt } from "./agent/resources.ts";
@@ -97,6 +98,7 @@ const bodies = {
 	budget: validator<BudgetBody>(BudgetBody),
 	archive: validator<ArchiveBody>(ArchiveBody),
 	star: validator<StarDirBody>(StarDirBody),
+	starRepo: validator<StarRepoBody>(StarRepoBody),
 	push: validator<PushSubscriptionBody>(PushSubscriptionBody),
 	script: validator<SpeechScriptBody>(SpeechScriptBody),
 	speech: validator<SpeechBody>(SpeechBody),
@@ -349,6 +351,17 @@ export function createHttpServer(deps: HttpDeps): Server {
 				const starred = index.starred ?? [];
 				if (starred.includes(dir) === body.starred) return;
 				index.starred = body.starred ? [...starred, dir] : starred.filter((path) => path !== dir);
+			}, context);
+			return send(response, 200, {});
+		}
+		if (is("POST", "repos", "starred") && parts.length === 3) {
+			const body = await json(request, bodies.starRepo);
+			// The name is pattern-validated only: starring does not reach gh, so unstarring works when the repository host does not.
+			await harness.commit(async (tx) => {
+				const index = await tx.doc(SessionIndexToken);
+				const starred = index.starredRepos ?? [];
+				if (starred.includes(body.repo) === body.starred) return;
+				index.starredRepos = body.starred ? [...starred, body.repo] : starred.filter((name) => name !== body.repo);
 			}, context);
 			return send(response, 200, {});
 		}
