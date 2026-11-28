@@ -121,16 +121,17 @@ export const test = base.extend<{ errors: string[] }, { server: FakeServer; toke
 
 export { expect };
 
-/** Start a session from the splash page and wait for its page. OnPrem offers this computer first; elsewhere, the repository path with its defaults. */
+/**
+ * Start a session from the New session page and wait for its page. The page starts where the newest session worked;
+ * on a fresh server there is none yet, so the repository is chosen first.
+ */
 export async function startSession(page: Page, text: string): Promise<void> {
 	await page.goto("/");
-	// The spawn lands on the blank screen; the first send is what creates the session.
-	const localTile = page.getByRole("link", { name: "This computer" });
-	if ((await localTile.count()) > 0) {
-		await localTile.tap();
-	} else {
-		await page.getByRole("button", { name: "Repository" }).tap();
-		await page.getByRole("button", { name: "Start session" }).tap();
+	const choose = page.getByRole("button", { name: "Choose a repository" });
+	if ((await choose.count()) > 0) {
+		await choose.tap();
+		await page.getByRole("dialog", { name: "Where" }).getByRole("button", { name: "demo/greeter", exact: true }).tap();
+		await expect(page.getByRole("button", { name: "Repository: demo/greeter" })).toBeVisible();
 	}
 	const composer = page.getByRole("textbox", { name: "Describe the task…" });
 	await expect(composer).toBeEnabled();

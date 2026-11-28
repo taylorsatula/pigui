@@ -98,7 +98,11 @@ export class TestServer {
 		return this.request<T>("POST", path, body);
 	}
 
-	async createSession(text: string, start: { kind: "new"; base: string } | { kind: "continue"; branch: string } = { kind: "new", base: "main" }, repo = "demo/greeter"): Promise<number> {
+	async createSession(
+		text: string,
+		start: { kind: "new"; base?: string } | { kind: "continue"; branch: string; from?: number } = { kind: "new", base: "main" },
+		repo = "demo/greeter",
+	): Promise<number> {
 		const { id } = await this.post<{ id: number }>("/api/sessions", { requestId: requestId(), place: "repo", repo, start, text, attachments: [] });
 		return id;
 	}

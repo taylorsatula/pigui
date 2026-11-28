@@ -1,17 +1,15 @@
-// OnPrem local-mode parity test: real ~ workspace, draft persistence across reload/back, no repo delivery controls.
+// OnPrem local-mode parity test: real ~ workspace, draft persistence across reload, no repo delivery controls.
 import { expect, test } from "./fixtures.ts";
 
 test.use({ onPrem: true });
 
-test("OnPrem starts at ~, preserves draft across reload and back, and omits repo delivery buttons", async ({ page, errors }) => {
+test("OnPrem starts at ~ with no choice to make, keeps the draft across a reload, and omits repo delivery buttons", async ({ page, errors }) => {
 	await page.goto("/");
-	await page.getByRole("link", { name: "This computer" }).tap();
+	await expect(page.getByRole("button", { name: "Where: this computer, ~" })).toBeVisible();
+	await expect(page.getByRole("button", { name: /^Branch:/ })).toHaveCount(0);
 	const task = page.getByRole("textbox", { name: "Describe the task…" });
 	await task.fill("Half a thought");
 	await page.reload();
-	await expect(task).toHaveValue("Half a thought");
-	await page.getByRole("link", { name: "Back to New session" }).tap();
-	await page.getByRole("link", { name: "This computer" }).tap();
 	await expect(task).toHaveValue("Half a thought");
 	await task.fill("What does greet() return?");
 	await page.getByRole("button", { name: "Send", exact: true }).tap();

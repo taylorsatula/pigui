@@ -51,23 +51,6 @@ dialog.sheet::backdrop {
 	}
 }
 
-dialog.repo-picker {
-	width: 100vw;
-	height: 100dvh;
-	background: var(--bg);
-}
-
-dialog.repo-picker::backdrop {
-	background: var(--bg);
-}
-
-.repo-picker-form {
-	flex: 1;
-	min-height: 0;
-	display: flex;
-	flex-direction: column;
-}
-
 /* Top-layer popover host for toasts so status/Undo slips stay visible above open modal <dialog>s. */
 #toast-host {
 	position: fixed;
@@ -98,17 +81,6 @@ dialog.repo-picker::backdrop {
 #agents-button-slot:empty,
 #agent-stop-slot:empty,
 #screensaver-host:empty {
-	display: none;
-}
-
-/* Splash list container preserves vertical rhythm between sections. */
-#splash-lists {
-	display: flex;
-	flex-direction: column;
-	gap: 18px;
-}
-
-#splash-lists:empty {
 	display: none;
 }
 }

@@ -1,5 +1,5 @@
-// Pure HTML renderers for all four pages (splash, start, session, agent), the four modal dialog fragments (session
-// picker, agents panel, diff sheet, repo picker), and live-updatable regions (header, banner, splash lists).
+// Pure HTML renderers for the pages (New session, session, agent, not found), the dialog fragments (session picker,
+// agents panel, diff sheet, the Where and Branch sheets), and live-updatable regions (header, banner).
 import type { BranchList, MemoryStatus, RepoSummary, SessionDiff } from "../../../shared/api.ts";
 import {
 	agentLive,
@@ -25,7 +25,6 @@ import {
 	shortDir,
 	spendTone,
 	timeAgo,
-	whereOfFavorite,
 	whereOfRow,
 } from "../format.ts";
 import { classes, type Html, html, joinHtml } from "../html.ts";
@@ -76,181 +75,79 @@ export function renderAgentsButton(doc: SessionDoc): Html {
 	</button>`;
 }
 
-// ---- Splash / New session page
+// ---- New session page (/)
 
-export type SplashContext = {
-	index: SessionIndex | undefined;
-	onPrem: boolean;
-	home?: string;
-	starredDefaults: Readonly<Record<string, string>>;
-	now: number;
-};
+/** Where a new session will work: what the two chips above the composer show, and what its first send creates. */
+export type StartTarget =
+	| { place: "local"; dir: string }
+	/** A new branch, cut from `base`, or from the repository's default branch when none was chosen. */
+	| { place: "repo"; repo: string; mode: "new"; base?: string }
+	/** An existing branch; with `from`, taken from that session's clone, unpushed commits and all. */
+	| { place: "repo"; repo: string; mode: "continue"; branch: string; from?: number };
 
-function startUrlForRepo(repo: string, mode: "new" | "continue", ref: string): string {
-	const params = new URLSearchParams({ place: "repo", repo, mode });
-	params.set(mode === "new" ? "base" : "branch", ref);
-	return `/start?${params.toString()}`;
-}
-
-export function renderSplashLists(ctx: SplashContext): Html {
-	const index = ctx.index;
-	const rows = Object.values(index?.rows ?? {});
-	const starredRepos = [...(index?.starredRepos ?? [])].sort((a, b) => a.localeCompare(b));
-	const pinnedIds = index?.pinned ?? [];
-	const pinned = rows.filter((row) => pinnedIds.includes(row.id)).sort((a, b) => b.updatedAt - a.updatedAt);
-
-	const newestBranchFor = (name: string): string | undefined => {
-		const matching = rows.filter((row): row is SessionRow & { place: "repo" } => row.place === "repo" && row.repo === name && !row.archived);
-		matching.sort((a, b) => b.updatedAt - a.updatedAt);
-		return matching[0]?.branch;
-	};
-
-	const shownElsewhere = new Set<string>([
-		...starredRepos.flatMap((name) => {
-			const branch = newestBranchFor(name);
-			return branch === undefined ? [] : [`${name}@${branch}`];
-		}),
-		...pinned.flatMap((row) => (row.place === "repo" ? [`${row.repo}@${row.branch}`] : [])),
-	]);
-
-	const byPlace = new Map<string, SessionRow & { place: "repo" }>();
-	for (const row of rows) {
-		if (row.place !== "repo" || row.archived) continue;
-		const key = `${row.repo}@${row.branch}`;
-		if (shownElsewhere.has(key)) continue;
-		const seen = byPlace.get(key);
-		if (seen === undefined || row.updatedAt > seen.updatedAt) byPlace.set(key, row);
+/** The query string that names `target`, read back by the server on `/` and by the sheets that change it. */
+export function startQuery(target: StartTarget): string {
+	const params = new URLSearchParams({ place: target.place });
+	if (target.place === "local") params.set("dir", target.dir);
+	else {
+		params.set("repo", target.repo);
+		params.set("mode", target.mode);
+		if (target.mode === "new" && target.base !== undefined) params.set("base", target.base);
+		if (target.mode === "continue") {
+			params.set("branch", target.branch);
+			if (target.from !== undefined) params.set("from", String(target.from));
+		}
 	}
-	const recent = [...byPlace.values()].sort((a, b) => b.updatedAt - a.updatedAt).slice(0, 5);
-
-	return joinHtml([
-		starredRepos.length > 0
-			? html`<section class="splash-section" aria-label="Starred">
-					<h2 class="splash-heading">Starred</h2>
-					<ul class="place-list">
-						${starredRepos.map((name) => {
-							const known = newestBranchFor(name);
-							const fallback = ctx.starredDefaults[name];
-							const sub = known !== undefined ? `continue ${known}` : fallback !== undefined ? `new branch from ${fallback}` : "Repository";
-							const target =
-								known !== undefined
-									? html`<a class="place-choose" href="${startUrlForRepo(name, "continue", known)}">
-											<span class="place-icon">${icon("branch", 17)}</span>
-											<span class="place-text"><span class="place-name">${name}</span><span class="place-sub">${sub}</span></span>
-										</a>`
-									: fallback !== undefined
-										? html`<a class="place-choose" href="${startUrlForRepo(name, "new", fallback)}">
-												<span class="place-icon">${icon("branch", 17)}</span>
-												<span class="place-text"><span class="place-name">${name}</span><span class="place-sub">${sub}</span></span>
-											</a>`
-										: html`<button type="button" class="place-choose" data-action="open-repo-picker" data-repo="${name}">
-												<span class="place-icon">${icon("branch", 17)}</span>
-												<span class="place-text"><span class="place-name">${name}</span><span class="place-sub">${sub}</span></span>
-											</button>`;
-							return html`<li class="place-row">
-								${target}
-								<button type="button" class="icon-button dir-star" aria-label="Star ${name}" aria-pressed="true" data-action="star-repo" data-repo="${name}" data-starred="true">
-									${icon("star", 18)}
-								</button>
-							</li>`;
-						})}
-					</ul>
-				</section>`
-			: html``,
-		pinned.length > 0
-			? html`<section class="splash-section" aria-label="Pinned">
-					<h2 class="splash-heading">Pinned</h2>
-					<ul class="place-list">
-						${pinned.map(
-							(row) => html`<li class="place-row">
-								<a href="/s/${row.id}" class="place-choose">
-									<span class="place-icon">${icon(row.place === "local" ? "monitor" : "branch", 17)}</span>
-									<span class="place-text">
-										<span class="place-name">${row.title}</span>
-										<span class="place-sub">${whereOfFavorite(row, ctx.home)} · ${timeAgo(row.updatedAt, ctx.now)}</span>
-									</span>
-								</a>
-								<button type="button" class="icon-button dir-star" aria-label="Unpin ${row.title}" aria-pressed="true" data-action="pin" data-session="${row.id}" data-pinned="true">
-									${icon("pin", 18)}
-								</button>
-							</li>`,
-						)}
-					</ul>
-				</section>`
-			: html``,
-		recent.length > 0
-			? html`<section class="splash-section" aria-label="Recent">
-					<h2 class="splash-heading">Recent</h2>
-					<ul class="place-list">
-						${recent.map((row) => {
-							const isStarred = starredRepos.includes(row.repo);
-							return html`<li class="place-row">
-								<a href="/s/${row.id}" class="place-choose">
-									<span class="place-icon">${icon("branch", 17)}</span>
-									<span class="place-text">
-										<span class="place-name">${row.title}</span>
-										<span class="place-sub">${row.repo} · ${row.branch} · ${timeAgo(row.updatedAt, ctx.now)}</span>
-									</span>
-								</a>
-								<button type="button" class="icon-button dir-star" aria-label="Star ${row.repo}" aria-pressed="${isStarred ? "true" : "false"}" data-action="star-repo" data-repo="${row.repo}" data-starred="${isStarred ? "true" : "false"}">
-									${icon("star", 18)}
-								</button>
-							</li>`;
-						})}
-					</ul>
-				</section>`
-			: html``,
-	]);
+	return params.toString();
 }
 
-export function renderSplashPage(ctx: SplashContext): Html {
-	return html`<div class="session new-session">
-		<header class="topbar">
-			${renderSessionsButton(ctx.index)}
-			<h1 class="title">New session</h1>
-		</header>
-		<div class="splash">
-			<div class="tiles">
-				${
-					ctx.onPrem
-						? html`<a class="tile" href="/start?place=local&amp;dir=~">
-								${icon("monitor", 34)}
-								<span class="tile-label">This computer</span>
-							</a>`
-						: html``
-				}
-				<button type="button" class="tile" data-action="open-repo-picker">
-					${icon("branch", 34)}
-					<span class="tile-label">Repository</span>
-				</button>
-			</div>
-			<div id="splash-lists">${renderSplashLists(ctx)}</div>
-		</div>
+function repoShortName(repo: string): string {
+	return repo.slice(repo.indexOf("/") + 1);
+}
+
+/** The two chips that say where the work happens, each opening the sheet that changes it. Carries the target as data. */
+export function renderStartTarget(target: StartTarget | undefined, home: string | undefined): Html {
+	if (target === undefined) {
+		return html`<div class="start-target" data-start-target>
+			<button type="button" class="start-chip" data-action="open-place" aria-haspopup="dialog">
+				${icon("repo", 17)}<span class="start-chip-label">Choose a repository</span>
+			</button>
+		</div>`;
+	}
+	if (target.place === "local") {
+		const where = shortDir(target.dir, home);
+		return html`<div class="start-target" data-start-target data-place="local" data-dir="${target.dir}">
+			<button type="button" class="start-chip" data-action="open-place" aria-haspopup="dialog" aria-label="Where: this computer, ${where}">
+				${icon("monitor", 17)}<span class="start-chip-label">${where === "~" ? "This computer" : where}</span>
+			</button>
+		</div>`;
+	}
+	const ref = target.mode === "new" ? (target.base ?? "") : target.branch;
+	const branchLabel = target.mode === "continue" ? target.branch : target.base === undefined ? "New branch" : `New branch from ${target.base}`;
+	return html`<div
+		class="start-target"
+		data-start-target
+		data-place="repo"
+		data-repo="${target.repo}"
+		data-branch-mode="${target.mode}"
+		data-ref="${ref}"
+		${target.mode === "continue" && target.from !== undefined ? html` data-from="${target.from}"` : html``}
+	>
+		<button type="button" class="start-chip" data-action="open-place" aria-haspopup="dialog" aria-label="Repository: ${target.repo}" title="${target.repo}">
+			${icon("repo", 17)}<span class="start-chip-label">${repoShortName(target.repo)}</span>
+		</button>
+		<button type="button" class="start-chip" data-action="open-branch" aria-haspopup="dialog" aria-label="Branch: ${branchLabel}">
+			${icon("branch", 17)}<span class="start-chip-label">${branchLabel}</span>
+		</button>
 	</div>`;
 }
 
-// ---- Blank Start page (/start)
-
-export type StartTarget =
-	| { place: "local"; dir: string }
-	| { place: "repo"; repo: string; mode: "new"; base: string }
-	| { place: "repo"; repo: string; mode: "continue"; branch: string };
-
-export function renderStartPage(target: StartTarget): Html {
-	const where =
-		target.place === "local"
-			? target.dir
-			: `${target.repo} · ${target.mode === "new" ? `new branch from ${target.base}` : `continue ${target.branch}`}`;
-	const ref = target.place === "repo" ? (target.mode === "new" ? target.base : target.branch) : target.dir;
-
-	return html`<div class="session blank">
+export function renderNewSessionPage(ctx: { index: SessionIndex | undefined; target: StartTarget | undefined; home?: string }): Html {
+	return html`<div class="session">
 		<div class="pinned">
 			<header class="topbar">
-				<a class="icon-button back" href="/" aria-label="Back to New session">${icon("back")}</a>
-				<div class="title-block">
-					<h1 class="title">New session</h1>
-					<p class="subtitle"><span class="where">${where}</span></p>
-				</div>
+				${renderSessionsButton(ctx.index)}
+				<h1 class="title">New session</h1>
 			</header>
 		</div>
 		<div class="blank-body" aria-hidden="true"></div>
@@ -261,11 +158,7 @@ export function renderStartPage(target: StartTarget): Html {
 				placeholder: "Describe the task…",
 				running: false,
 				disabled: false,
-				place: target.place,
-				dir: target.place === "local" ? target.dir : undefined,
-				repo: target.place === "repo" ? target.repo : undefined,
-				branchMode: target.place === "repo" ? target.mode : undefined,
-				ref,
+				target: renderStartTarget(ctx.target, ctx.home),
 			})}
 		</div>
 	</div>`;
@@ -280,11 +173,8 @@ type ComposerOptions = {
 	placeholder: string;
 	running: boolean;
 	disabled: boolean;
-	place?: "local" | "repo";
-	dir?: string;
-	repo?: string;
-	branchMode?: "new" | "continue";
-	ref?: string;
+	/** On the New session page, the chips that say where the first send starts the work. */
+	target?: Html;
 };
 
 function renderComposerForm(opts: ComposerOptions): Html {
@@ -294,13 +184,9 @@ function renderComposerForm(opts: ComposerOptions): Html {
 		data-draft-key="${opts.draftKey}"
 		data-running="${opts.running ? "true" : "false"}"
 		${opts.sessionId !== undefined ? html` data-session-id="${opts.sessionId}"` : html``}
-		${opts.place !== undefined ? html` data-place="${opts.place}"` : html``}
-		${opts.dir !== undefined ? html` data-dir="${opts.dir}"` : html``}
-		${opts.repo !== undefined ? html` data-repo="${opts.repo}"` : html``}
-		${opts.branchMode !== undefined ? html` data-branch-mode="${opts.branchMode}"` : html``}
-		${opts.ref !== undefined ? html` data-ref="${opts.ref}"` : html``}
 	>
 		<ul class="picker" role="listbox" aria-label="References" data-ref-picker hidden></ul>
+		${opts.target ?? html``}
 		<div class="attachments" data-attachments hidden></div>
 		<div class="field-line">
 			<button type="button" class="icon-button" aria-label="Attach files or photos" data-attach-trigger${opts.disabled ? html` disabled` : html``}>
@@ -547,11 +433,15 @@ export function renderPickerDialog(opts: {
 }): Html {
 	const rows = Object.values(opts.index?.rows ?? {});
 	const pinnedIds = new Set(opts.index?.pinned ?? []);
-	const underWay = sortRows(rows.filter((row) => rowActive(row, opts.now)), opts.column, opts.ascending, opts.home);
-	const inactive = sortRows(rows.filter((row) => !rowActive(row, opts.now)), opts.column, opts.ascending, opts.home);
+	// Pinned sessions head the list, archived or not, since archiving is not unpinning; the rest split by activity.
+	const pinned = sortRows(rows.filter((row) => pinnedIds.has(row.id)), opts.column, opts.ascending, opts.home);
+	const unpinned = rows.filter((row) => !pinnedIds.has(row.id));
+	const underWay = sortRows(unpinned.filter((row) => rowActive(row, opts.now)), opts.column, opts.ascending, opts.home);
+	const inactive = sortRows(unpinned.filter((row) => !rowActive(row, opts.now)), opts.column, opts.ascending, opts.home);
 	const folderOpen = opts.inactiveOpen ?? inactive.some((row) => row.id === opts.current);
 
 	let stripe = 0;
+	const pinnedStripes = pinned.map(() => stripe++ % 2 === 1);
 	const underStripes = underWay.map(() => stripe++ % 2 === 1);
 	const folderStripe = stripe++ % 2 === 1;
 	const nestedStripes = inactive.map(() => stripe++ % 2 === 1);
@@ -579,6 +469,22 @@ export function renderPickerDialog(opts: {
 		</div>
 		<div class="picker-list" data-picker-list>
 			${rows.length === 0 ? html`<p class="empty">No sessions yet. Start one with New.</p>` : html``}
+			${
+				pinned.length > 0
+					? html`<ul class="listing pinned-listing" aria-label="Pinned">
+							${pinned.map((row, i) =>
+								renderSessionEntry(row, {
+									current: row.id === opts.current,
+									striped: pinnedStripes[i] ?? false,
+									nested: false,
+									home: opts.home,
+									pinned: true,
+									now: opts.now,
+								}),
+							)}
+						</ul>`
+					: html``
+			}
 			<ul class="listing" aria-label="Under way">
 				${underWay.map((row, i) =>
 					renderSessionEntry(row, {
@@ -621,7 +527,7 @@ export function renderPickerDialog(opts: {
 			</ul>
 		</div>
 		<footer class="picker-status">
-			<p class="picker-count">${underWay.length} under way, ${inactive.length} inactive</p>
+			<p class="picker-count">${pinned.length > 0 ? `${pinned.length} pinned, ` : ""}${underWay.length} under way, ${inactive.length} inactive</p>
 			${
 				!opts.memory.on
 					? html`<div class="banner warn picker-notice" role="status"><p><strong>Memory is off</strong>${opts.memory.reason}</p></div>`
@@ -709,54 +615,172 @@ export function renderDiffDialog(diff: SessionDiff | undefined, error?: string):
 		</div>`;
 }
 
-export function renderRepoPickerDialog(opts: {
+/** A sheet of choices: a grabber, a title, Done, then a filter over its rows when it has many. */
+function renderChoiceSheet(title: string, filterLabel: string | undefined, body: Html): Html {
+	return html`<header class="sheet-header" data-sheet-header>
+			<span class="grabber" aria-hidden="true"></span>
+			<h2 id="start-sheet-title">${title}</h2>
+			<button type="button" class="link done" data-dialog-close>Done</button>
+		</header>
+		<div class="sheet-body choice-body" data-sheet-body>
+			${filterLabel !== undefined ? html`<input type="search" class="choice-filter" placeholder="${filterLabel}" aria-label="${filterLabel}" data-choice-filter />` : html``}
+			${body}
+		</div>`;
+}
+
+const FILTER_FROM = 8;
+
+function renderChoice(opts: { attrs: Html; iconName: "repo" | "monitor" | "branch"; name: string; sub?: string; chosen: boolean; label: string }): Html {
+	return html`<button type="button" class="place-choose"${opts.chosen ? html` aria-current="true"` : html``} aria-label="${opts.label}" ${opts.attrs}>
+		<span class="place-icon">${icon(opts.iconName, 17)}</span>
+		<span class="place-text">
+			<span class="place-name">${opts.name}</span>
+			${opts.sub !== undefined ? html`<span class="place-sub">${opts.sub}</span>` : html``}
+		</span>
+		<span class="choice-check" aria-hidden="true">${opts.chosen ? icon("check", 18) : html``}</span>
+	</button>`;
+}
+
+/** The Where sheet: this computer (OnPrem), then the starred repositories, then every other one, each with its star. */
+export function renderPlaceSheet(opts: {
 	repos: readonly RepoSummary[];
-	selectedRepo?: string;
-	branches?: BranchList;
+	starred: readonly string[];
+	current: StartTarget | undefined;
+	onPrem: boolean;
 	error?: string;
 }): Html {
-	const selected = opts.selectedRepo ?? opts.repos[0]?.name ?? "";
-	const defaultBranch = opts.branches?.defaultBranch ?? "";
-	const continueBranch = opts.branches?.branches.find((name) => name !== defaultBranch) ?? defaultBranch;
-	const ready = selected !== "" && opts.branches !== undefined && defaultBranch !== "";
+	const starred = [...opts.starred].sort((a, b) => a.localeCompare(b));
+	const others = opts.repos.map((item) => item.name).filter((name) => !starred.includes(name));
+	const described = new Map(opts.repos.map((item) => [item.name, item.description]));
+	const currentRepo = opts.current?.place === "repo" ? opts.current.repo : undefined;
 
-	return html`<header class="topbar">
-			<button type="button" class="icon-button back" aria-label="Back" data-dialog-close>${icon("back")}</button>
-			<h1 class="title">Repository</h1>
-		</header>
-		<form class="repo-picker-form" action="/start" method="GET" data-repo-picker-form>
-			<input type="hidden" name="place" value="repo" />
-			<input type="hidden" name="mode" value="new" data-repo-mode-input />
-			<div class="repo-picker-body">
-				${opts.error !== undefined ? html`<p class="error-text">${opts.error}</p>` : html``}
-				<label class="field">
-					<span>Repository</span>
-					<select name="repo" data-repo-select${opts.repos.length === 0 ? html` disabled` : html``}>
-						${opts.repos.length === 0 ? html`<option value="">No repositories</option>` : html``}
-						${opts.repos.map((item) => html`<option value="${item.name}"${item.name === selected ? html` selected` : html``}>${item.name}</option>`)}
-					</select>
-				</label>
-				<div class="segmented" role="radiogroup" aria-label="Branch">
-					<button type="button" role="radio" aria-checked="true" class="selected" data-repo-mode="new">New branch</button>
-					<button type="button" role="radio" aria-checked="false" data-repo-mode="continue">Continue a branch</button>
-				</div>
-				<label class="field">
-					<span data-branch-label>Start from</span>
-					<select
-						name="base"
-						data-branch-select
-						data-default-branch="${defaultBranch}"
-						data-continue-branch="${continueBranch}"
-						${opts.branches === undefined ? html` disabled` : html``}
-					>
-						${(opts.branches?.branches ?? []).map(
-							(name) => html`<option value="${name}"${name === defaultBranch ? html` selected` : html``}>${name}${name === defaultBranch ? " (default)" : ""}</option>`,
-						)}
-					</select>
-				</label>
-			</div>
-			<footer class="repo-picker-footer">
-				<button type="submit" class="start-button" data-repo-submit${!ready ? html` disabled` : html``}>Start session</button>
-			</footer>
-		</form>`;
+	const repoRow = (name: string, isStarred: boolean) => html`<li class="place-row" data-filter-text="${name.toLowerCase()}">
+		${renderChoice({
+			attrs: html`data-choose-place="repo" data-repo="${name}"`,
+			iconName: "repo",
+			name,
+			...(described.get(name) ? { sub: described.get(name) } : {}),
+			chosen: name === currentRepo,
+			label: name,
+		})}
+		<button type="button" class="icon-button dir-star" aria-label="Star ${name}" aria-pressed="${isStarred ? "true" : "false"}" data-action="star-repo" data-repo="${name}" data-starred="${isStarred ? "true" : "false"}">
+			${icon("star", 18)}
+		</button>
+	</li>`;
+
+	const section = (label: string, rows: Html[]) =>
+		rows.length === 0
+			? html``
+			: html`<section class="choice-section" aria-label="${label}" data-choice-section>
+					<h3 class="list-heading">${label}</h3>
+					<ul class="place-list">${rows}</ul>
+				</section>`;
+
+	return renderChoiceSheet(
+		"Where",
+		starred.length + others.length >= FILTER_FROM ? "Filter repositories" : undefined,
+		joinHtml([
+			opts.error !== undefined ? html`<p class="error-text">${opts.error}</p>` : html``,
+			opts.onPrem
+				? section("On this computer", [
+						html`<li class="place-row" data-filter-text="this computer">
+							${renderChoice({
+								attrs: html`data-choose-place="local" data-dir="~"`,
+								iconName: "monitor",
+								name: "This computer",
+								sub: "~",
+								chosen: opts.current?.place === "local",
+								label: "This computer",
+							})}
+						</li>`,
+					])
+				: html``,
+			section("Starred", starred.map((name) => repoRow(name, true))),
+			section(starred.length > 0 ? "Other repositories" : "Repositories", others.map((name) => repoRow(name, false))),
+			opts.error === undefined && starred.length + others.length === 0 ? html`<p class="sheet-status">No repositories. Check the server's GitHub access.</p>` : html``,
+		]),
+	);
+}
+
+/** One branch a session has been working on, as offered for continuing. */
+export type SessionBranch = { branch: string; session: SessionRow; unpushed?: number };
+
+/**
+ * The Branch sheet: a new branch (the default), then the branches sessions have worked on, newest first, which carry
+ * their unpushed commits along, then the rest of the repository's branches on GitHub.
+ */
+export function renderBranchSheet(opts: {
+	current: Extract<StartTarget, { place: "repo" }>;
+	sessionBranches: readonly SessionBranch[];
+	branches?: BranchList;
+	error?: string;
+	now: number;
+}): Html {
+	const { current } = opts;
+	const defaultBranch = opts.branches?.defaultBranch;
+	const fromSessions = new Set(opts.sessionBranches.map((item) => item.branch));
+	const onGitHub = (opts.branches?.branches ?? []).filter((name) => name !== defaultBranch && !fromSessions.has(name));
+	const base = current.mode === "new" ? (current.base ?? defaultBranch) : defaultBranch;
+	const chosenBranch = current.mode === "continue" ? current.branch : undefined;
+	const total = opts.sessionBranches.length + onGitHub.length;
+
+	const section = (label: string, rows: Html[]) =>
+		rows.length === 0
+			? html``
+			: html`<section class="choice-section" aria-label="${label}" data-choice-section>
+					<h3 class="list-heading">${label}</h3>
+					<ul class="place-list">${rows}</ul>
+				</section>`;
+
+	return renderChoiceSheet(
+		"Branch",
+		total >= FILTER_FROM ? "Filter branches" : undefined,
+		joinHtml([
+			opts.error !== undefined ? html`<p class="error-text">${opts.error}</p>` : html``,
+			html`<section class="choice-section" aria-label="Start fresh" data-choice-section>
+				<ul class="place-list">
+					<li class="place-row" data-filter-text="new branch">
+						${renderChoice({
+							attrs: html`data-choose-branch="new"${current.mode === "new" && current.base !== undefined ? html` data-base="${current.base}"` : html``}`,
+							iconName: "branch",
+							name: "New branch",
+							sub: base === undefined ? "from the default branch" : `from ${base}`,
+							chosen: current.mode === "new",
+							label: "New branch",
+						})}
+					</li>
+				</ul>
+			</section>`,
+			section(
+				"Continue a session's branch",
+				opts.sessionBranches.map(({ branch, session, unpushed }) => {
+					const facts = [session.title, timeAgo(session.updatedAt, opts.now), ...(unpushed !== undefined && unpushed > 0 ? [`${unpushed} not pushed`] : [])];
+					return html`<li class="place-row" data-filter-text="${`${branch} ${session.title}`.toLowerCase()}">
+						${renderChoice({
+							attrs: html`data-choose-branch="continue" data-branch="${branch}" data-from="${session.id}"`,
+							iconName: "branch",
+							name: branch,
+							sub: facts.join(" · "),
+							chosen: chosenBranch === branch,
+							label: `Continue ${branch}`,
+						})}
+					</li>`;
+				}),
+			),
+			section(
+				"Continue a branch on GitHub",
+				onGitHub.map(
+					(branch) => html`<li class="place-row" data-filter-text="${branch.toLowerCase()}">
+						${renderChoice({
+							attrs: html`data-choose-branch="continue" data-branch="${branch}"`,
+							iconName: "branch",
+							name: branch,
+							chosen: chosenBranch === branch,
+							label: `Continue ${branch}`,
+						})}
+					</li>`,
+				),
+			),
+		]),
+	);
 }

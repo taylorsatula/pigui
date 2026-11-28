@@ -33,15 +33,13 @@
 .topbar,
 .transcript,
 .composer-dock,
-.splash,
 .session > .empty {
 	--gutter: max(0px, (100% - var(--column)) / 2);
 	padding-left: calc(var(--gutter) + var(--inset-left, var(--inset)));
 	padding-right: calc(var(--gutter) + var(--inset));
 }
 
-.pinned,
-.new-session > .topbar {
+.pinned {
 	background: var(--bar);
 	border-bottom: var(--hairline) solid var(--separator);
 }

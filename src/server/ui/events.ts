@@ -32,7 +32,6 @@ import {
 	renderAgentsDialog,
 	renderBanner,
 	renderSessionHeaderContent,
-	renderSplashLists,
 	sessionsButtonLabel,
 } from "./render/pages.ts";
 import { type Block, buildBlocks, sourceFromEntries, turnStart } from "./transcript.ts";
@@ -42,7 +41,7 @@ const COALESCE_MS = 60;
 const MAX_TURN_BACKFILL = 500;
 
 export type EventStreamRequest = {
-	page: "splash" | "start" | "session" | "agent";
+	page: "new" | "session" | "agent";
 	session?: number;
 	agent?: number;
 	/** Highest committed entry ID already in the client DOM on reconnect; backfills missed entries without gaps. */
@@ -54,9 +53,7 @@ export type EventStreamDeps = {
 	presence: Presence;
 	now: () => number;
 	speech: boolean;
-	onPrem: boolean;
 	home?: string;
-	starredDefaults: (index: SessionIndex | undefined, repos: readonly string[]) => Promise<Record<string, string>>;
 	markSeen: (sessionId: number) => Promise<void>;
 };
 
@@ -161,7 +158,6 @@ export async function serveEvents(response: ServerResponse, request: EventStream
 
 	// Diff baselines for this connection.
 	let lastAttentionKey = "";
-	let lastSplashHash = "";
 	let lastHeaderHash = "";
 	let lastBannerHash = "";
 	let lastAgentsHash = "";
@@ -290,25 +286,7 @@ export async function serveEvents(response: ServerResponse, request: EventStream
 				emit("attention", { count: others, label: sessionsButtonLabel(others) });
 			}
 
-			// 2. Splash page lists.
-			if (request.page === "splash") {
-				const starred = currentIndex?.starredRepos ?? [];
-				const defaults = await deps.starredDefaults(currentIndex, starred);
-				const splashHtml = renderSplashLists({
-					index: currentIndex,
-					onPrem: deps.onPrem,
-					home: deps.home,
-					starredDefaults: defaults,
-					now: deps.now(),
-				}).value;
-				const splashHash = hashOf(splashHtml);
-				if (splashHash !== lastSplashHash) {
-					lastSplashHash = splashHash;
-					emit("splash", { html: splashHtml });
-				}
-			}
-
-			// 3. Session view or Agent viewer.
+			// 2. Session view or Agent viewer.
 			if (request.session !== undefined && currentDoc !== undefined && currentView !== undefined && conversation !== undefined) {
 				const liveState = currentView.docs["pi.live"] as LiveState | undefined;
 				if (request.agent === undefined) {

@@ -176,12 +176,6 @@ export function connectEvents(opts) {
 			}
 		});
 
-		source.addEventListener("splash", (event) => {
-			const data = JSON.parse(event.data);
-			const el = document.getElementById("splash-lists");
-			if (el) Idiomorph.morph(el, data.html, { morphStyle: "innerHTML" });
-		});
-
 		source.addEventListener("header", (event) => {
 			const data = JSON.parse(event.data);
 			const header = document.getElementById("session-header-content");

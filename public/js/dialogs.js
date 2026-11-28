@@ -1,7 +1,7 @@
-// Native <dialog> controllers for Sessions picker, Agents panel, Changes diff sheet, and Repo picker.
+// Native <dialog> controllers for the Sessions picker, Agents panel, Changes diff sheet, and the New session sheets.
 // Browser natively handles top-layer stacking, ::backdrop, Escape key, focus trap, and returning focus to the opener.
 import { Idiomorph } from "/vendor/idiomorph.esm.js";
-import { describeFailure, getHtml, getJson, postJson } from "./api.js";
+import { describeFailure, getHtml, postJson } from "./api.js";
 import { localizeDates } from "./dates.js";
 import { enableNotifications, pushSupported } from "./push.js";
 import { attachSwipeDown } from "./swipe.js";
@@ -50,6 +50,12 @@ function sortEntriesInPlace(dialog, column, ascending) {
 		return ascending ? order : -order;
 	};
 
+	const pinnedList = dialog.querySelector('ul.listing[aria-label="Pinned"]');
+	if (pinnedList) {
+		const entries = [...pinnedList.querySelectorAll(":scope > li.entry")].sort(cmp);
+		for (const li of entries) pinnedList.appendChild(li);
+	}
+
 	const mainList = dialog.querySelector('ul.listing[aria-label="Under way"]');
 	const folderItem = mainList?.querySelector(":scope > li:not(.entry)");
 	if (mainList) {
@@ -66,8 +72,13 @@ function sortEntriesInPlace(dialog, column, ascending) {
 		for (const li of entries) inactiveList.appendChild(li);
 	}
 
-	// Recompute alternating row stripes across under-way, folder, and inactive rows.
+	// Recompute alternating row stripes across pinned, under-way, folder, and inactive rows.
 	let stripe = 0;
+	if (pinnedList) {
+		for (const li of pinnedList.querySelectorAll(":scope > li.entry")) {
+			li.querySelector(".row")?.classList.toggle("striped", stripe++ % 2 === 1);
+		}
+	}
 	if (mainList) {
 		for (const li of mainList.querySelectorAll(":scope > li.entry")) {
 			li.querySelector(".row")?.classList.toggle("striped", stripe++ % 2 === 1);
@@ -366,76 +377,129 @@ export async function openDiff(sessionId, opener) {
 	}
 }
 
-// ---- Repo picker dialog
+// ---- Where and Branch sheets on the New session page
 
-function wireRepoPicker(dialog) {
-	wireDialogBasics(dialog, '[data-action="open-repo-picker"]');
-	if (dialog.dataset.repoWired === "true") return;
-	dialog.dataset.repoWired = "true";
+function startTargetEl() {
+	return document.querySelector("[data-start-target]");
+}
 
-	dialog.addEventListener("click", (event) => {
-		const modeBtn = event.target.closest("[data-repo-mode]");
-		if (!modeBtn) return;
-		const mode = modeBtn.dataset.repoMode;
-		const modeInput = dialog.querySelector("[data-repo-mode-input]");
-		const branchLabel = dialog.querySelector("[data-branch-label]");
-		const branchSelect = dialog.querySelector("[data-branch-select]");
-		if (modeInput) modeInput.value = mode;
-		for (const btn of dialog.querySelectorAll("[data-repo-mode]")) {
-			const selected = btn.dataset.repoMode === mode;
-			btn.classList.toggle("selected", selected);
-			btn.setAttribute("aria-checked", String(selected));
+/** The query naming the target the chips show, plus any fields a choice in a sheet replaces. */
+function targetQuery(changes) {
+	const where = { ...(startTargetEl()?.dataset ?? {}) };
+	const next = { ...where, ...changes };
+	const params = new URLSearchParams();
+	if (next.place === "local") {
+		params.set("place", "local");
+		params.set("dir", next.dir || "~");
+	} else if (next.place === "repo") {
+		params.set("place", "repo");
+		params.set("repo", next.repo);
+		params.set("mode", next.branchMode || "new");
+		if (next.branchMode === "continue") {
+			params.set("branch", next.ref);
+			if (next.from) params.set("from", next.from);
+		} else if (next.ref) {
+			params.set("base", next.ref);
 		}
-		if (branchLabel) branchLabel.textContent = mode === "new" ? "Start from" : "Branch to continue";
-		if (branchSelect) {
-			branchSelect.name = mode === "new" ? "base" : "branch";
-			const target = mode === "new" ? branchSelect.dataset.defaultBranch : branchSelect.dataset.continueBranch;
-			if (target && [...branchSelect.options].some((opt) => opt.value === target)) branchSelect.value = target;
-		}
+	}
+	return params.toString();
+}
+
+/** Swap the chips for the server's rendering of the new target, and keep the address in step so a reload keeps it. */
+async function chooseTarget(changes) {
+	const query = targetQuery(changes);
+	const chips = await getHtml(`/ui/target?${query}`);
+	const current = startTargetEl();
+	if (!current) return;
+	current.outerHTML = chips;
+	history.replaceState(null, "", `/?${query}`);
+	document.querySelector("[data-composer]")?.dispatchEvent(new CustomEvent("target-change"));
+}
+
+function filterChoices(dialog, text) {
+	const needle = text.trim().toLowerCase();
+	for (const row of dialog.querySelectorAll("[data-filter-text]")) row.hidden = needle !== "" && !row.dataset.filterText.includes(needle);
+	for (const section of dialog.querySelectorAll("[data-choice-section]")) {
+		section.hidden = [...section.querySelectorAll("[data-filter-text]")].every((row) => row.hidden);
+	}
+}
+
+let startSheetKind = "place";
+
+async function loadStartSheet(dialog) {
+	const query = targetQuery({});
+	dialog.innerHTML = await getHtml(`/ui/${startSheetKind === "place" ? "places" : "branches"}?${query}`);
+}
+
+function wireStartSheet(dialog) {
+	wireDialogBasics(dialog, '[data-action="open-place"]');
+	if (dialog.dataset.startWired === "true") return;
+	dialog.dataset.startWired = "true";
+
+	attachSwipeDown(dialog, {
+		canStart: (target) => {
+			const header = dialog.querySelector("[data-sheet-header]");
+			const body = dialog.querySelector("[data-sheet-body]");
+			return (target instanceof Node && header?.contains(target)) || (body?.scrollTop ?? 0) <= 0;
+		},
+		distance: (height) => height * 0.25,
+		onDismiss: () => dialog.close(),
 	});
 
-	dialog.addEventListener("change", async (event) => {
-		const repoSelect = event.target.closest("[data-repo-select]");
-		if (!repoSelect) return;
-		const repo = repoSelect.value;
-		const branchSelect = dialog.querySelector("[data-branch-select]");
-		const submit = dialog.querySelector("[data-repo-submit]");
-		if (!branchSelect) return;
-		branchSelect.disabled = true;
-		branchSelect.innerHTML = `<option value="">Loading…</option>`;
-		if (submit) submit.disabled = true;
-		try {
-			const [owner, name] = repo.split("/");
-			const list = await getJson(`/api/repos/${encodeURIComponent(owner)}/${encodeURIComponent(name)}/branches`);
-			const mode = dialog.querySelector("[data-repo-mode-input]")?.value || "new";
-			const continueBranch = list.branches.find((b) => b !== list.defaultBranch) ?? list.defaultBranch;
-			branchSelect.dataset.defaultBranch = list.defaultBranch;
-			branchSelect.dataset.continueBranch = continueBranch;
-			branchSelect.innerHTML = "";
-			for (const b of list.branches) {
-				const opt = document.createElement("option");
-				opt.value = b;
-				opt.textContent = b === list.defaultBranch ? `${b} (default)` : b;
-				branchSelect.appendChild(opt);
+	dialog.addEventListener("input", (event) => {
+		if (event.target.matches?.("[data-choice-filter]")) filterChoices(dialog, event.target.value);
+	});
+
+	dialog.addEventListener("click", async (event) => {
+		const star = event.target.closest('[data-action="star-repo"]');
+		if (star) {
+			try {
+				await postJson("/api/repos/starred", { repo: star.dataset.repo, starred: star.dataset.starred !== "true" });
+				const filter = dialog.querySelector("[data-choice-filter]")?.value ?? "";
+				await loadStartSheet(dialog);
+				const input = dialog.querySelector("[data-choice-filter]");
+				if (input && filter) {
+					input.value = filter;
+					filterChoices(dialog, filter);
+				}
+			} catch (error) {
+				showToast({ message: describeFailure(error).message });
 			}
-			branchSelect.value = mode === "new" ? list.defaultBranch : continueBranch;
-			branchSelect.disabled = false;
-			if (submit) submit.disabled = !branchSelect.value;
+			return;
+		}
+
+		const place = event.target.closest("[data-choose-place]");
+		const branch = event.target.closest("[data-choose-branch]");
+		if (!place && !branch) return;
+		// A new place starts on a new branch from its default; a branch choice keeps the repository.
+		const changes = place
+			? place.dataset.choosePlace === "local"
+				? { place: "local", dir: place.dataset.dir || "~", repo: "", branchMode: "", ref: "", from: "" }
+				: { place: "repo", repo: place.dataset.repo, dir: "", branchMode: "new", ref: "", from: "" }
+			: branch.dataset.chooseBranch === "new"
+				? { branchMode: "new", ref: branch.dataset.base || "", from: "" }
+				: { branchMode: "continue", ref: branch.dataset.branch, from: branch.dataset.from || "" };
+		try {
+			await chooseTarget(changes);
+			// The chip that opened the sheet was just replaced; the field is where the person goes next.
+			dialog._opener = document.querySelector("[data-composer-input]");
+			dialog.close();
 		} catch (error) {
 			showToast({ message: describeFailure(error).message });
 		}
 	});
 }
 
-export async function openRepoPicker(requestedRepo, opener) {
-	const dialog = document.getElementById("repo-picker");
+export async function openStartSheet(kind, opener) {
+	const dialog = document.getElementById("start-sheet");
 	if (!dialog) return;
-	wireRepoPicker(dialog);
-	dialog._opener = opener instanceof HTMLElement ? opener : document.activeElement instanceof HTMLElement ? document.activeElement : null;
+	wireStartSheet(dialog);
+	startSheetKind = kind;
+	dialog._opener = opener instanceof HTMLElement ? opener : null;
 	try {
-		const query = requestedRepo ? `?repo=${encodeURIComponent(requestedRepo)}` : "";
-		dialog.innerHTML = await getHtml(`/ui/repos${query}`);
+		await loadStartSheet(dialog);
 		if (!dialog.open) dialog.showModal();
+		(dialog.querySelector('.place-choose[aria-current="true"]') ?? dialog.querySelector(".place-choose"))?.focus({ preventScroll: true });
 	} catch (error) {
 		showToast({ message: describeFailure(error).message });
 	}

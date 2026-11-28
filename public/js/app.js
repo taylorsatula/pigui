@@ -1,9 +1,9 @@
-// Single zero-build ES module entry point for every pigui page. Wires global buttons, dialogs, splash toggles,
+// Single zero-build ES module entry point for every pigui page. Wires global buttons, dialogs, the New session sheets,
 // composer, transcript, SSE stream, speech cleanup, push refresh, screensaver, and service worker.
 import { describeFailure, postJson } from "./api.js";
 import { initComposer } from "./composer.js";
 import { localizeDates } from "./dates.js";
-import { openAgents, openDiff, openPicker, openRepoPicker } from "./dialogs.js";
+import { openAgents, openDiff, openPicker, openStartSheet } from "./dialogs.js";
 import { connectEvents } from "./events.js";
 import { refreshSubscription } from "./push.js";
 import { setScreensaverActive } from "./screensaver.js";
@@ -60,7 +60,7 @@ window.addEventListener("pagehide", () => {
 	events.pause();
 });
 
-// Global topbar and splash action delegation.
+// Global topbar and New session action delegation.
 document.addEventListener("click", async (event) => {
 	const el = event.target;
 	if (!(el instanceof Element)) return;
@@ -71,9 +71,15 @@ document.addEventListener("click", async (event) => {
 		return;
 	}
 
-	const repoTrigger = el.closest('[data-action="open-repo-picker"]');
-	if (repoTrigger) {
-		void openRepoPicker(repoTrigger.dataset.repo, repoTrigger);
+	const placeTrigger = el.closest('[data-action="open-place"]');
+	if (placeTrigger) {
+		void openStartSheet("place", placeTrigger);
+		return;
+	}
+
+	const branchTrigger = el.closest('[data-action="open-branch"]');
+	if (branchTrigger) {
+		void openStartSheet("branch", branchTrigger);
 		return;
 	}
 
@@ -99,31 +105,5 @@ document.addEventListener("click", async (event) => {
 			showToast({ message: describeFailure(error).message });
 		}
 		return;
-	}
-
-	// Splash list Pin / Star buttons (outside dialog, which handles its own).
-	if (!el.closest("dialog")) {
-		const pinBtn = el.closest('[data-action="pin"]');
-		if (pinBtn) {
-			const id = Number(pinBtn.dataset.session);
-			const nextPinned = pinBtn.dataset.pinned !== "true";
-			try {
-				await postJson(`/api/sessions/${id}/pin`, { pinned: nextPinned });
-			} catch (error) {
-				showToast({ message: describeFailure(error).message });
-			}
-			return;
-		}
-
-		const starBtn = el.closest('[data-action="star-repo"]');
-		if (starBtn) {
-			const repo = starBtn.dataset.repo;
-			const nextStarred = starBtn.dataset.starred !== "true";
-			try {
-				await postJson("/api/repos/starred", { repo, starred: nextStarred });
-			} catch (error) {
-				showToast({ message: describeFailure(error).message });
-			}
-		}
 	}
 });

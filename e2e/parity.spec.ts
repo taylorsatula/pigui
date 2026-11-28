@@ -2,7 +2,7 @@
 // across workflows, overlays, streaming, subagents, OnPrem, speech, and mobile/dark platform fit.
 import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { expect, startSession, test } from "./fixtures.ts";
+import { approveThrough, expect, startSession, test } from "./fixtures.ts";
 
 async function noHorizontalScroll(page: import("@playwright/test").Page): Promise<void> {
 	const [docWidth, bodyWidth, innerWidth] = await page.evaluate(() => [
@@ -86,6 +86,46 @@ test.describe("greenfield HTML parity", () => {
 		await page.keyboard.press("Escape");
 		await expect(picker).toBeHidden();
 		await expect(menu).toBeFocused();
+		expect(errors).toEqual([]);
+	});
+
+	test("New session chips: continue a session's unpushed branch from the Branch sheet, and pinned sessions head the picker", async ({ page, errors }) => {
+		await page.setViewportSize({ width: 375, height: 740 });
+		await startSession(page, "Add a shout() function with a test");
+		await approveThrough(page);
+		await expect(page.getByRole("region", { name: "Report" })).toBeVisible({ timeout: 30_000 });
+		const branch = (await page.locator(".subtitle .where").innerText()).split(" · ")[1] ?? "";
+		expect(branch).not.toBe("");
+
+		// The page starts where that session worked, on a new branch: nothing to choose.
+		await page.goto("/");
+		await expect(page.getByRole("button", { name: "Repository: demo/greeter" })).toBeVisible();
+		await page.getByRole("button", { name: "Branch: New branch" }).tap();
+		const sheet = page.getByRole("dialog", { name: "Branch" });
+		const row = sheet.getByRole("button", { name: `Continue ${branch}` });
+		await expect(row).toContainText(/\d+ not pushed/);
+		await noHorizontalScroll(page);
+		await row.tap();
+		await expect(sheet).toBeHidden();
+		const chip = page.getByRole("button", { name: `Branch: ${branch}` });
+		await expect(chip).toBeVisible();
+		await expect(page).toHaveURL(/mode=continue.*from=\d+/);
+
+		// The choice survives a reload, and the first send starts on that branch.
+		await page.reload();
+		await expect(chip).toBeVisible();
+		await page.getByRole("textbox", { name: "Describe the task…" }).fill("What does greet() return?");
+		await page.getByRole("button", { name: "Send", exact: true }).tap();
+		await expect(page).toHaveURL(/\/s\/\d+$/);
+		await expect(page.locator(".subtitle .where")).toContainText(branch);
+		await expect(page.locator(".session-status")).toHaveText("Replied");
+
+		// Pin it from the picker; it heads the list.
+		const menu = page.getByRole("button", { name: /^Sessions/ });
+		await menu.tap();
+		const picker = page.getByRole("dialog", { name: "Sessions" });
+		await picker.getByRole("button", { name: "Pin What does greet() return?" }).first().tap();
+		await expect(picker.getByRole("list", { name: "Pinned" }).getByRole("link", { name: /What does greet\(\) return\?/ })).toBeVisible();
 		expect(errors).toEqual([]);
 	});
 

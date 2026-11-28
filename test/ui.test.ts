@@ -42,24 +42,31 @@ describe("safe server-side markdown", () => {
 });
 
 describe("SSR pages, fragments, SSE, and static assets", () => {
-	test("serves SSR HTML pages, redirects invalid /start, and returns 404 HTML for missing sessions", async () => {
+	test("serves the New session page at its target, sends old /start links there, and 404s missing sessions", async () => {
 		const server = await TestServer.start();
 		try {
-			const splash = await fetch(`${server.app.url}/`);
-			assert.equal(splash.status, 200);
-			assert.match(splash.headers.get("content-type") ?? "", /text\/html/);
-			const splashHtml = await splash.text();
-			assert.match(splashHtml, /data-page="splash"/);
-			assert.match(splashHtml, /href="\/css\/app\.css"/);
-			assert.match(splashHtml, /src="\/js\/app\.js"/);
+			const page = await fetch(`${server.app.url}/`);
+			assert.equal(page.status, 200);
+			assert.match(page.headers.get("content-type") ?? "", /text\/html/);
+			const pageHtml = await page.text();
+			assert.match(pageHtml, /data-page="new"/);
+			assert.match(pageHtml, /href="\/css\/app\.css"/);
+			assert.match(pageHtml, /src="\/js\/app\.js"/);
+			assert.match(pageHtml, /data-composer="start"/);
+			assert.match(pageHtml, /Choose a repository/, "a fresh server asks for a repository rather than guessing one");
 
-			const badStart = await fetch(`${server.app.url}/start`, { redirect: "manual" });
-			assert.equal(badStart.status, 302);
-			assert.equal(badStart.headers.get("location"), "/");
+			const oldStart = await fetch(`${server.app.url}/start?place=repo&repo=demo/greeter&mode=new&base=main`, { redirect: "manual" });
+			assert.equal(oldStart.status, 302);
+			assert.equal(oldStart.headers.get("location"), "/?place=repo&repo=demo/greeter&mode=new&base=main");
 
-			const validStart = await fetch(`${server.app.url}/start?place=repo&repo=demo/greeter&mode=new&base=main`);
-			assert.equal(validStart.status, 200);
-			assert.match(await validStart.text(), /demo\/greeter · new branch from main/);
+			const chosen = await (await fetch(`${server.app.url}/?place=repo&repo=demo/greeter&mode=continue&branch=feature/farewell&from=7`)).text();
+			assert.match(chosen, /aria-label="Repository: demo\/greeter"/);
+			assert.match(chosen, /aria-label="Branch: feature\/farewell"/);
+			assert.match(chosen, /data-from="7"/);
+
+			const bad = await fetch(`${server.app.url}/?place=repo&repo=not-a-repo`, { redirect: "manual" });
+			assert.equal(bad.status, 302);
+			assert.equal(bad.headers.get("location"), "/");
 
 			const missing = await fetch(`${server.app.url}/s/99999`);
 			assert.equal(missing.status, 404);
@@ -99,9 +106,24 @@ describe("SSR pages, fragments, SSE, and static assets", () => {
 			assert.match(pickerHtml, /aria-current="page"/);
 			assert.match(pickerHtml, /data-sort-name="/);
 
-			const reposRes = await fetch(`${server.app.url}/ui/repos`);
-			assert.equal(reposRes.status, 200);
-			assert.match(await reposRes.text(), /demo\/greeter/);
+			const places = await (await fetch(`${server.app.url}/ui/places?place=repo&repo=demo/greeter&mode=new`)).text();
+			assert.match(places, /data-choose-place="repo" data-repo="demo\/greeter"/);
+			assert.match(places, /aria-current="true" aria-label="demo\/greeter"/);
+
+			const branches = await (await fetch(`${server.app.url}/ui/branches?place=repo&repo=demo/greeter&mode=new`)).text();
+			assert.match(branches, /New branch/);
+			assert.match(branches, /from main/);
+			assert.match(branches, /data-branch="feature\/farewell"/);
+
+			const chips = await (await fetch(`${server.app.url}/ui/target?place=repo&repo=demo/greeter&mode=continue&branch=feature/farewell`)).text();
+			assert.match(chips, /data-branch-mode="continue"/);
+			assert.match(chips, /Branch: feature\/farewell/);
+			assert.equal((await fetch(`${server.app.url}/ui/target?place=nowhere`)).status, 400);
+
+			// Where the newest session worked is where the next one starts, on a new branch.
+			const defaulted = await (await fetch(`${server.app.url}/`)).text();
+			assert.match(defaulted, /aria-label="Repository: demo\/greeter"/);
+			assert.match(defaulted, /aria-label="Branch: New branch"/);
 
 			// Granular SSE emits ready, attention, header, and blocks — never raw Chord ops.
 			const controller = new AbortController();
@@ -127,28 +149,32 @@ describe("SSR pages, fragments, SSE, and static assets", () => {
 		}
 	});
 
-	test("negative-caches broken starred repositories on / so repeated loads never storm the repo host", async () => {
+	test("the New session page never waits on GitHub, and the picker lists pinned sessions first", async () => {
 		const server = await TestServer.start();
 		try {
+			let hostCalls = 0;
+			const origBranches = server.app.host.branches.bind(server.app.host);
+			server.app.host.branches = async (repo: string) => {
+				hostCalls += 1;
+				return origBranches(repo);
+			};
 			await server.app.harness.commit(async (tx) => {
 				const index = await tx.doc(SessionIndexToken);
 				index.starredRepos = ["ghost/does-not-exist"];
 			}, context);
+			for (let i = 0; i < 3; i++) assert.equal((await fetch(`${server.app.url}/`)).status, 200);
+			assert.equal(hostCalls, 0, "the page renders from the index alone; GitHub is asked only when a sheet opens");
 
-			let branchCalls = 0;
-			const origBranches = server.app.host.branches.bind(server.app.host);
-			server.app.host.branches = async (repo: string) => {
-				branchCalls += 1;
-				return origBranches(repo);
-			};
-
-			for (let i = 0; i < 5; i++) {
-				const res = await fetch(`${server.app.url}/`);
-				assert.equal(res.status, 200);
-				const body = await res.text();
-				assert.match(body, /ghost\/does-not-exist/);
-			}
-			assert.equal(branchCalls, 1, "broken starred repo is queried once and cached, never retried per load");
+			const pinned = await server.createSession("What does greet() return?");
+			const other = await server.createSession("What is in src?");
+			await server.settled(pinned);
+			await server.settled(other);
+			await server.post(`/api/sessions/${pinned}/pin`, { pinned: true });
+			const picker = await (await fetch(`${server.app.url}/ui/picker?sort=modified&dir=desc`)).text();
+			const pinnedList = picker.slice(picker.indexOf('aria-label="Pinned"'), picker.indexOf('aria-label="Under way"'));
+			assert.match(pinnedList, new RegExp(`href="/s/${pinned}"`));
+			assert.doesNotMatch(pinnedList, new RegExp(`href="/s/${other}"`));
+			assert.match(picker, /1 pinned, /);
 		} finally {
 			await server.close();
 		}

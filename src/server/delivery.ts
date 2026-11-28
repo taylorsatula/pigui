@@ -7,7 +7,7 @@ import type { DeliveryResult, SessionDiff } from "../shared/api.ts";
 import { type Report, reportOf, type RepoSessionDoc } from "../shared/session.ts";
 import { editSession, SessionDocToken } from "./documents.ts";
 import { HttpError, notFound } from "./errors.ts";
-import { comparisonPoint, diffFiles, head, push, PushRejected, uncommitted } from "./git.ts";
+import { comparisonPoint, diffFiles, head, isRepository, push, PushRejected, uncommitted, unpushedCount } from "./git.ts";
 import type { RepoHost } from "./host.ts";
 import { errorKind, type Logger } from "./log.ts";
 
@@ -153,5 +153,15 @@ export class Delivery {
 		const workspace = this.#deps.workspace(id);
 		const from = await comparisonPoint(workspace, doc.startCommit ?? "HEAD", doc.base);
 		return { base: doc.base, files: await diffFiles(workspace, from), uncommitted: (await uncommitted(workspace)).length };
+	}
+
+	/**
+	 * How many commits of `branch` in a session's clone GitHub does not have yet, as last fetched; undefined when the
+	 * clone is gone or has no such branch, which offering the branch for a new session can live without.
+	 */
+	async unpushed(id: number, branch: string): Promise<number | undefined> {
+		const workspace = this.#deps.workspace(id);
+		if (!(await isRepository(workspace))) return undefined;
+		return unpushedCount(workspace, branch).catch(() => undefined);
 	}
 }

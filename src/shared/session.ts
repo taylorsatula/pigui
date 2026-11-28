@@ -9,8 +9,11 @@
 export type SessionStart =
 	/** A new branch cut from `base`. */
 	| { kind: "new"; base: string }
-	/** An existing branch; pushes update it and any pull request open for it. */
-	| { kind: "continue"; branch: string };
+	/**
+	 * An existing branch; pushes update it and any pull request open for it. With `from`, the branch is fetched from
+	 * that earlier session's clone rather than from GitHub, so commits it never pushed are carried over.
+	 */
+	| { kind: "continue"; branch: string; from?: number };
 
 export type SetupStep = "clone" | "branch" | "start";
 

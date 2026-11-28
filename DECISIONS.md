@@ -264,6 +264,31 @@ tight loop — hundreds of failing calls per minute on the splash, nagging the p
 “Repository” as it did before; restoring access retries on the next page load. *Rejected:* a toast per failure (noise on
 someone else's outage) and an unbounded retry with backoff (still load for a permanently gone repo).
 
+**New session is the composer, with two chips for where the work happens** (2026-11-28). Replaces the IF-tree splash
+and the blank start screen above, and with them the starred-repository default-branch fetch. The owner found the
+splash too decision-heavy and pointed at the Claude Code iOS app: the page opened on two tiles and three lists, each
+row having already decided new-or-continue, and only a second screen had a field to type in. Now `/` is the blank
+screen itself, the composer focused, and above its field a repository chip and a branch chip, which is the
+runbook's "a repo choice and a branch choice with sensible defaults, then the composer" taken literally. The repository
+defaults to where the newest session worked (OnPrem: this computer, when that is where it was); the branch defaults to
+a new one cut from the default branch, which the server now resolves itself (`start.base` is optional), so rendering
+the page asks GitHub nothing. Each chip opens a sheet: Where lists this computer (OnPrem), the starred repositories
+with their stars, then the rest; Branch lists New branch, then the branches non-archived sessions worked on, newest
+first with the session's title, age and unpushed-commit count, then GitHub's other branches. The chosen target lives in
+the URL query (`/?place=repo&repo=…&mode=continue&branch=…&from=…`), so a reload keeps it and old `/start?…` links
+redirect onto it; the server renders the chips from it, and a sheet choice swaps them for `/ui/target`'s rendering.
+Pinned sessions move to the top of the sessions picker, the place rows are managed; Recent goes, since the picker
+already lists sessions by recency. **Continuing a session's branch carries its unpushed commits** (`start.from`):
+before, continue always cloned the branch from GitHub, so a new session on an unpushed branch either failed or lost
+the work. With `from`, setup clones from that session's clone, then points `origin` back at GitHub and fetches, so
+pushes go to GitHub and what is already pushed reads as pushed. The base comes from an open PR, else the earlier
+session's base. If that clone was cleaned up, it falls back to GitHub, and if GitHub has no such branch either, setup
+fails saying so. Uncommitted changes in the earlier clone are not carried; Pi commits before it reports. Choosing a
+base other than the default for a new branch is no longer offered in the UI (the API still takes `base`).
+*Alternatives:* keep the splash with a composer added (still the list of choices up front); one combined
+"repo · branch" chip (one fewer chip, but two decisions behind one tap); continuing by `git fetch` from the old clone
+into a GitHub clone (a branch equal to the cloned one, such as `main`, cannot be fetched into while checked out).
+
 ## Fake mode
 
 The scripted model is Pi's faux provider, one response factory queued per request; a conversation's step is read from

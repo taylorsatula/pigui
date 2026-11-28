@@ -136,9 +136,10 @@ export async function comparisonPoint(cwd: string, startCommit: string, base: st
 	return startCommit;
 }
 
-/** Commits on any local branch that no `origin` branch has. */
-export async function unpushedCount(cwd: string): Promise<number> {
-	return Number(await stdoutOf(cwd, ["rev-list", "--count", "--branches", "--not", "--remotes=origin"]));
+/** Commits on `branch`, or on any local branch, that no `origin` branch has. */
+export async function unpushedCount(cwd: string, branch?: string): Promise<number> {
+	const from = branch === undefined ? "--branches" : `refs/heads/${branch}`;
+	return Number(await stdoutOf(cwd, ["rev-list", "--count", from, "--not", "--remotes=origin"]));
 }
 
 export class PushRejected extends Error {}

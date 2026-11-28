@@ -64,9 +64,7 @@ a {
 /* Labels: what a card is, a field, a call's input and output. Monospace capitals. */
 .card-title,
 .io-label,
-.field > span,
-.field > label,
-.splash-heading {
+.list-heading {
 	font-family: var(--mono);
 	font-size: var(--label);
 	font-weight: 400;

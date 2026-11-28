@@ -177,25 +177,44 @@ export function initComposer(form, opts = {}) {
 		renderButtons();
 	};
 
+	// On the New session page, where the first send starts the work: the chips above the field carry it, and a sheet
+	// can swap them at any time, so it is read when needed rather than kept.
+	const target = () => form.querySelector("[data-start-target]")?.dataset ?? {};
+
 	const fetchFiles = async () => {
 		if (mode === "session") {
 			const res = await getJson(`/api/sessions/${form.dataset.sessionId}/files`);
 			return res.files ?? [];
 		}
-		if (form.dataset.place === "local") {
-			const res = await getJson(`/api/local/files?dir=${encodeURIComponent(form.dataset.dir || "~")}`);
+		const where = target();
+		if (where.place === "local") {
+			const res = await getJson(`/api/local/files?dir=${encodeURIComponent(where.dir || "~")}`);
 			return res.files ?? [];
 		}
-		const [owner, name] = (form.dataset.repo || "").split("/");
-		const res = await getJson(`/api/repos/${encodeURIComponent(owner)}/${encodeURIComponent(name)}/files?ref=${encodeURIComponent(form.dataset.ref || "")}`);
+		if (where.place !== "repo") return [];
+		const [owner, name] = (where.repo || "").split("/");
+		const res = await getJson(`/api/repos/${encodeURIComponent(owner)}/${encodeURIComponent(name)}/files?ref=${encodeURIComponent(where.ref || "")}`);
 		return res.files ?? [];
 	};
 
 	const fetchSkills = async () => {
 		if (mode === "session") return getJson(`/api/sessions/${form.dataset.sessionId}/skills`);
-		if (form.dataset.place === "local") return getJson(`/api/local/skills?dir=${encodeURIComponent(form.dataset.dir || "~")}`);
-		const [owner, name] = (form.dataset.repo || "").split("/");
-		return getJson(`/api/repos/${encodeURIComponent(owner)}/${encodeURIComponent(name)}/skills?ref=${encodeURIComponent(form.dataset.ref || "")}`);
+		const where = target();
+		if (where.place === "local") return getJson(`/api/local/skills?dir=${encodeURIComponent(where.dir || "~")}`);
+		if (where.place !== "repo") return [];
+		const [owner, name] = (where.repo || "").split("/");
+		return getJson(`/api/repos/${encodeURIComponent(owner)}/${encodeURIComponent(name)}/skills?ref=${encodeURIComponent(where.ref || "")}`);
+	};
+
+	const startBody = (requestId, pending) => {
+		const where = target();
+		const opening = { requestId, text: pending.text, attachments: pending.attachments.map((a) => a.id) };
+		if (where.place === "local") return { ...opening, place: "local", dir: where.dir || "~" };
+		const start =
+			where.branchMode === "continue"
+				? { kind: "continue", branch: where.ref, ...(where.from ? { from: Number(where.from) } : {}) }
+				: { kind: "new", ...(where.ref ? { base: where.ref } : {}) };
+		return { ...opening, place: "repo", repo: where.repo, start };
 	};
 
 	const refreshTrigger = () => {
@@ -236,6 +255,10 @@ export function initComposer(form, opts = {}) {
 	const send = async () => {
 		const empty = draft.text.trim() === "" && draft.attachments.length === 0;
 		if (empty || sending || uploading > 0 || disabled) return;
+		if (mode === "start" && !target().place) {
+			form.querySelector('[data-action="open-place"]')?.click();
+			return;
+		}
 		const requestId = draft.requestId ?? newRequestId();
 		const pending = { ...draft, requestId };
 		updateDraft(pending);
@@ -244,18 +267,7 @@ export function initComposer(form, opts = {}) {
 		try {
 			const attachmentIds = pending.attachments.map((a) => a.id);
 			if (mode === "start") {
-				const body =
-					form.dataset.place === "local"
-						? { requestId, place: "local", dir: form.dataset.dir || "~", text: pending.text, attachments: attachmentIds }
-						: {
-								requestId,
-								place: "repo",
-								repo: form.dataset.repo,
-								start: form.dataset.branchMode === "continue" ? { kind: "continue", branch: form.dataset.ref } : { kind: "new", base: form.dataset.ref },
-								text: pending.text,
-								attachments: attachmentIds,
-							};
-				const { id } = await postJson("/api/sessions", body);
+				const { id } = await postJson("/api/sessions", startBody(requestId, pending));
 				updateDraft({ text: "", attachments: [] });
 				location.href = `/s/${id}`;
 				return;
@@ -348,12 +360,19 @@ export function initComposer(form, opts = {}) {
 		}
 	});
 
+	// A sheet changed where the work starts: the files and skills on offer are another clone's.
+	form.addEventListener("target-change", () => {
+		candidates = { files: undefined, skills: undefined };
+		trigger = undefined;
+		renderPicker();
+	});
+
 	form.addEventListener("submit", (event) => {
 		event.preventDefault();
 		void send();
 	});
 
-	// Hydrate initial draft and focus on keyboard devices (or always on /start).
+	// Hydrate initial draft and focus on keyboard devices (or always on the New session page).
 	textarea.value = draft.text;
 	resizeTextarea();
 	renderAttachments();

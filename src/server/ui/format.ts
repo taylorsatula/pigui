@@ -119,10 +119,6 @@ export function whereOfRow(row: SessionRow, home: string | undefined): string {
 	return row.place === "local" ? shortDir(row.dir, home) : row.repo;
 }
 
-export function whereOfFavorite(row: SessionRow, home: string | undefined): string {
-	return row.place === "local" ? shortDir(row.dir, home) : `${row.repo} · ${row.branch}`;
-}
-
 export function placeholderFor(doc: SessionDoc, running: boolean): string {
 	if (doc.setup.status === "preparing") return "Setting up the workspace…";
 	if (doc.card?.kind === "questions") return "Answer in your own words…";

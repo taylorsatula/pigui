@@ -1,7 +1,7 @@
 // HTTP payloads, shared by the server and the phone. Request bodies are pi-schema schemas, so the server validates
 // exactly the shapes the client types against; responses are plain types the client renders.
 
-import { arr, bool, lit, num, obj, oneOf, opt, str, union, type Static } from "@earendil-works/pi-schema";
+import { arr, bool, int, lit, num, obj, oneOf, opt, str, union, type Static } from "@earendil-works/pi-schema";
 
 // Client-chosen, unique per send; the server records it with the change, so a retried request answers from memory
 // instead of acting twice.
@@ -25,7 +25,12 @@ export const CreateSessionBody = union([
 		...Opening,
 		place: lit("repo"),
 		repo: Repo,
-		start: union([obj({ kind: lit("new"), base: BranchName }), obj({ kind: lit("continue"), branch: BranchName })]),
+		start: union([
+			// Without a base, the new branch is cut from the repository's default branch, which the server looks up.
+			obj({ kind: lit("new"), base: opt(BranchName) }),
+			// With `from`, the branch is taken from that session's clone, so its unpushed commits come along.
+			obj({ kind: lit("continue"), branch: BranchName, from: opt(int({ minimum: 1 })) }),
+		]),
 	}),
 	obj({ ...Opening, place: lit("local"), dir: LocalDir }),
 ]);

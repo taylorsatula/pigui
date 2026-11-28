@@ -1,175 +1,94 @@
 @layer components {
-/* ---- New session */
+/* ---- New session: the composer is the page. Above its field, two chips say where the work happens, each already
+   set to a sensible default and each opening a sheet that changes it. */
 
-/* The splash: two big choices first, then the starred and the most recent repositories/branches. The task entry box
-   lives on the spawned screen, not here, so there is exactly one decision on arrival. */
+/* One row: a long branch name shortens with an ellipsis rather than pushing the chips onto a second line. */
+.start-target {
+	display: flex;
+	gap: 8px;
+	/* In line with the field, past the attach button. */
+	margin: 2px 0 8px 44px;
+	min-width: 0;
+}
 
-.splash {
-	--inset: 16px;
-	flex: 1;
+.start-chip {
+	flex: 0 1 auto;
+	min-width: 0;
+	max-width: 100%;
+	padding: 0 14px 0 11px;
+	gap: 6px;
+	border-radius: var(--radius-full);
+	box-shadow: inset 0 0 0 1px var(--rule);
+	color: var(--text);
+	font-family: var(--mono);
+	font-size: var(--record);
+	font-weight: 400;
+	-webkit-tap-highlight-color: transparent;
+}
+
+/* The repository's name is short; the branch gets the rest of the row. */
+.start-chip[data-action="open-place"]:not(:only-child) {
+	flex-shrink: 0;
+	max-width: 45%;
+}
+
+.start-chip > .icon {
+	flex: none;
+	color: var(--text-2);
+}
+
+.start-chip:active {
+	background: var(--fill);
+	transition: none;
+}
+
+.start-chip-label {
+	min-width: 0;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+/* The Where and Branch sheets hold a few rows at most, so they rise only as far as their rows need. */
+#start-sheet {
+	top: auto;
+	max-height: calc(100dvh - var(--safe-top) - 12px);
+}
+
+@media (min-width: 900px) and (min-height: 600px) {
+	#start-sheet {
+		top: 50%;
+		width: min(560px, calc(100vw - 64px));
+		height: auto;
+		max-height: min(720px, calc(100dvh - 64px));
+	}
+}
+
+.choice-body {
 	min-height: 0;
-	overflow-y: auto;
-	padding-top: 22px;
-	padding-bottom: 16px;
 	display: flex;
 	flex-direction: column;
 	gap: 18px;
 }
 
-/* The two choices, drawn as control-center modules: tappable, generous, one word each. */
-.tiles {
-	display: grid;
-	grid-auto-flow: column;
-	grid-auto-columns: minmax(0, 1fr);
-	gap: 12px;
-	max-width: 30rem;
-	margin-inline: auto;
-	width: 100%;
-}
-
-.tile {
-	display: flex;
-	flex-direction: column;
-	align-items: center;
-	justify-content: center;
-	gap: 10px;
-	aspect-ratio: 1 / 1;
-	border-radius: 22px;
-	border: var(--hairline) solid var(--separator);
-	background: var(--surface-2);
-	color: var(--text);
-	text-decoration: none;
-	cursor: pointer;
-	-webkit-tap-highlight-color: transparent;
-	transition: background-color var(--press) var(--ease-out);
-}
-
-.tile:active {
-	background: var(--fill);
-	transition: none;
-}
-
-.tile-label {
-	font-family: var(--serif);
-	font-weight: var(--w-display);
-	font-size: 1.05rem;
-	line-height: var(--leading-tight);
-	text-align: center;
-}
-
-/* The full-screen repository chooser: the two picks, the branch, then one button. */
-.repo-picker {
-	position: fixed;
-	inset: 0;
-	z-index: 40;
-	display: flex;
-	flex-direction: column;
-	background: var(--bg);
-}
-
-.repo-picker-body {
-	--inset: 16px;
-	flex: 1;
-	min-height: 0;
-	overflow-y: auto;
-	display: flex;
-	flex-direction: column;
-	gap: 16px;
-	padding-top: 8px;
-	padding-bottom: 16px;
-	padding-inline: max(var(--inset), calc((100% - var(--column)) / 2 + var(--inset)));
-}
-
-.field {
-	display: flex;
-	flex-direction: column;
-	gap: 6px;
-}
-
-.field > span {
-	font-family: var(--mono);
-	font-size: var(--label);
-	font-weight: 400;
-	color: var(--text-2);
-	text-transform: uppercase;
-	letter-spacing: var(--label-tracking);
-	line-height: var(--leading-tight);
-}
-
-select,
-.field input {
+.choice-filter {
 	min-height: var(--target);
 	border-radius: var(--radius-s);
 	border: var(--hairline) solid var(--separator);
 	background: var(--surface);
 	color: var(--text);
 	padding: 0 12px;
+	/* 16 px or more, so iOS does not zoom in on focus. */
 	font-size: max(1rem, 16px);
-	max-width: 100%;
 }
 
-.repo-picker-footer {
-	--inset: 16px;
-	display: flex;
-	justify-content: center;
-	padding: 12px max(var(--inset), calc((100% - var(--column)) / 2 + var(--inset)));
-	padding-bottom: max(12px, var(--safe-bottom));
-	border-top: var(--hairline) solid var(--separator);
-	background: var(--bar);
-}
-
-.start-button {
-	width: 100%;
-	max-width: 30rem;
-	min-height: 54px;
-	border-radius: var(--radius-l);
-	border: none;
-	background: var(--accent-fill);
-	color: var(--accent-text);
-	font-family: var(--serif);
-	font-size: 1.0625rem;
-	font-weight: var(--w-display);
-}
-
-.start-button:disabled {
-	opacity: 0.5;
-}
-
-/* Two choices drawn as one ruled control, the chosen one in ink. */
-.segmented {
-	display: flex;
-	border-radius: var(--radius-s);
-	box-shadow: inset 0 0 0 1px var(--rule);
-	overflow: hidden;
-}
-
-.segmented button {
-	flex: 1;
-	color: var(--text);
-	font-weight: var(--w-display);
-	border-radius: 0;
-}
-
-.segmented button + button {
-	box-shadow: inset 1px 0 0 var(--rule);
-}
-
-.segmented button.selected {
-	background: var(--accent-fill);
-	color: var(--accent-text);
-}
-
-/* The short lists: starred repositories, then the five most recent repository branches. */
-.splash-section {
+.choice-section {
 	display: flex;
 	flex-direction: column;
 	gap: 6px;
-	max-width: 34rem;
-	width: 100%;
-	margin-inline: auto;
 }
 
-.splash-heading {
+.list-heading {
 	margin: 0 0 2px;
 }
 
@@ -231,17 +150,33 @@ select,
 	gap: 2px;
 }
 
-.place-name {
+.place-name,
+.place-sub {
 	font-family: var(--mono);
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.place-name {
 	font-size: var(--record);
 	color: var(--text);
 }
 
 .place-sub {
-	font-family: var(--mono);
 	font-size: var(--label);
+	font-weight: 400;
 	color: var(--text-2);
 	font-variant-numeric: tabular-nums;
+}
+
+/* The chosen row carries a check in ink, as an iOS list does. */
+.choice-check {
+	flex: none;
+	width: 28px;
+	display: flex;
+	justify-content: center;
+	color: var(--text);
 }
 
 /* An outline toggle — a star, or a pin — drawn in text-2, inked and filled once taken: in ink rather than the yellow. */
@@ -265,7 +200,7 @@ select,
 	}
 }
 
-/* The blank screen: as much room as the transcript will have, for nothing yet. */
+/* The blank space above the composer: as much room as the transcript will have, for nothing yet. */
 .blank-body {
 	flex: 1;
 	min-height: 0;

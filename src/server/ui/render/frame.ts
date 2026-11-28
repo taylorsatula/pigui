@@ -4,7 +4,7 @@ import { escapeHtml, type Html, html, raw } from "../html.ts";
 
 export type PageFrameOptions = {
 	title: string;
-	page: "splash" | "start" | "session" | "agent" | "not-found";
+	page: "new" | "session" | "agent" | "not-found";
 	body: Html;
 	vapidPublicKey: string;
 	speech: boolean;
@@ -65,7 +65,7 @@ export function renderPage(opts: PageFrameOptions): string {
 		<dialog id="session-picker" class="session-picker" aria-label="Sessions"></dialog>
 		<dialog id="agents-panel" class="agents-panel" aria-label="Agents"></dialog>
 		<dialog id="diff-sheet" class="sheet" aria-labelledby="diff-title"></dialog>
-		<dialog id="repo-picker" class="repo-picker" aria-label="Start from a repository"></dialog>
+		<dialog id="start-sheet" class="sheet" aria-labelledby="start-sheet-title"></dialog>
 		<div id="toast-host" popover="manual" aria-live="polite"></div>
 		<div id="screensaver-host" aria-hidden="true"></div>
 		<script type="module" src="/js/app.js"></script>

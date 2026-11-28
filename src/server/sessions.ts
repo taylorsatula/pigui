@@ -134,12 +134,38 @@ export class Sessions {
 			await this.#advance(runtime, "start", context);
 			return;
 		}
+		const remote = this.#deps.host.remoteUrl(doc.repo);
+		const from = doc.start.kind === "continue" ? doc.start.from : undefined;
 		if (!(await isRepository(workspace))) {
 			await mkdir(join(workspace, ".."), { recursive: true });
-			const ref = doc.start.kind === "new" ? doc.start.base : doc.start.branch;
-			await cloneInto(this.#deps.host.remoteUrl(doc.repo), ref, workspace);
+			if (doc.start.kind === "new") await cloneInto(remote, doc.start.base, workspace);
+			else await this.#cloneContinued(doc.start.branch, from, remote, workspace);
+		}
+		if (from !== undefined) {
+			// A clone taken from an earlier session's clone points back at GitHub, whose branches are then what reads as
+			// pushed. Run on every pass, so a crash between the clone and this leaves nothing pointing at the old clone.
+			await git(workspace, ["remote", "set-url", "origin", remote]);
+			await git(workspace, ["fetch", "--quiet", "--prune", "origin"]);
 		}
 		await this.#advance(runtime, "branch", context);
+	}
+
+	/**
+	 * Clone a continued branch. Taken from the earlier session's clone when there is one, so the commits it never pushed
+	 * come along; from GitHub otherwise, which is also the fallback once that clone has been cleaned up.
+	 */
+	async #cloneContinued(branch: string, from: number | undefined, remote: string, workspace: string): Promise<void> {
+		const source = from === undefined ? undefined : this.#workspace(from);
+		if (source !== undefined && (await isRepository(source))) {
+			await cloneInto(source, branch, workspace);
+			return;
+		}
+		try {
+			await cloneInto(remote, branch, workspace);
+		} catch (error) {
+			if (from === undefined) throw error;
+			throw new Error(`Session ${from}'s clone was cleaned up and GitHub has no ${branch}, so there is nothing to continue.`, { cause: error });
+		}
 	}
 
 	async #branch(runtime: SetupRuntime, context: Context): Promise<void> {
@@ -233,7 +259,7 @@ export class Sessions {
 	}
 
 	/** Where a new session works, checked before anything is created: its repository and branches, or its directory. */
-	async #placeFor(body: CreateSessionBody): Promise<(id: number, title: string) => SessionPlace> {
+	async #placeFor(body: CreateSessionBody, context: Context): Promise<(id: number, title: string) => SessionPlace> {
 		if (body.place === "local") {
 			if (this.#deps.onPrem === undefined) {
 				throw new HttpError(
@@ -245,8 +271,7 @@ export class Sessions {
 			const dir = await localDirectory(body.dir, this.#deps.onPrem.home);
 			return () => ({ place: "local", dir });
 		}
-		const start: SessionStart = body.start;
-		const { base, pr } = await this.#baseFor(body.repo, start);
+		const { start, base, pr } = await this.#startFor(body.repo, body.start, context);
 		return (id, title) => ({
 			place: "repo",
 			repo: body.repo,
@@ -261,7 +286,7 @@ export class Sessions {
 		const harness = this.#deps.harness();
 		const prior = (await harness.snapshot(SessionIndexToken, context))?.created.find((entry) => entry.id === body.requestId);
 		if (prior !== undefined) return prior.session;
-		const place = await this.#placeFor(body);
+		const place = await this.#placeFor(body, context);
 		const title = titleOf(body.text);
 		const now = this.#deps.now();
 		return harness.commit(async (tx) => {
@@ -308,12 +333,32 @@ export class Sessions {
 		}, context);
 	}
 
-	/** The branch to compare with: the chosen base, or for a continued branch its open PR's base or the default branch. */
-	async #baseFor(repo: string, start: SessionStart): Promise<{ base: string; pr?: { number: number; url: string } }> {
-		if (start.kind === "new") return { base: start.base };
-		const pr = await this.#deps.host.findPullRequest(repo, start.branch);
-		if (pr !== undefined) return { base: pr.base, pr: { number: pr.number, url: pr.url } };
-		return { base: (await this.#deps.host.branches(repo)).defaultBranch };
+	/**
+	 * The start as stored, and the branch to compare with: for a new branch its base, the default branch unless one was
+	 * chosen; for a continued branch its open PR's base, else the base of the session it is taken from, else the default.
+	 */
+	async #startFor(
+		repo: string,
+		requested: Extract<CreateSessionBody, { place: "repo" }>["start"],
+		context: Context,
+	): Promise<{ start: SessionStart; base: string; pr?: { number: number; url: string } }> {
+		if (requested.kind === "new") {
+			const base = requested.base ?? (await this.#deps.host.branches(repo)).defaultBranch;
+			return { start: { kind: "new", base }, base };
+		}
+		const { branch, from } = requested;
+		let sourceBase: string | undefined;
+		if (from !== undefined) {
+			const source = await this.#deps.harness().snapshot(SessionDocToken, from as ConversationId, context);
+			if (source?.place !== "repo" || source.repo !== repo || source.branch !== branch) {
+				throw new HttpError(400, `Session ${from} does not work on ${repo}'s ${branch}.`, "Choose the branch again from the list.");
+			}
+			sourceBase = source.base;
+		}
+		const start: SessionStart = from === undefined ? { kind: "continue", branch } : { kind: "continue", branch, from };
+		const pr = await this.#deps.host.findPullRequest(repo, branch);
+		if (pr !== undefined) return { start, base: pr.base, pr: { number: pr.number, url: pr.url } };
+		return { start, base: sourceBase ?? (await this.#deps.host.branches(repo)).defaultBranch };
 	}
 
 	async retrySetup(id: number, context: Context): Promise<void> {

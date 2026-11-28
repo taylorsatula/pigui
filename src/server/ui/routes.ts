@@ -11,7 +11,7 @@ import {
 	UsageDoc,
 	type UsageState,
 } from "@earendil-works/pi-durable";
-import type { BranchList, MemoryStatus } from "../../shared/api.ts";
+import type { BranchList, MemoryStatus, RepoSummary } from "../../shared/api.ts";
 import { type SessionDoc, type SessionIndex, type SessionRow } from "../../shared/session.ts";
 import { sessionSpent } from "../../shared/spend.ts";
 import type { OnPrem } from "../config.ts";
@@ -31,12 +31,14 @@ import {
 	renderAgentPage,
 	renderAgentsDialog,
 	renderDiffDialog,
+	renderBranchSheet,
+	renderNewSessionPage,
 	renderNotFoundPage,
 	renderPickerDialog,
-	renderRepoPickerDialog,
+	renderPlaceSheet,
 	renderSessionPage,
-	renderSplashPage,
-	renderStartPage,
+	renderStartTarget,
+	type SessionBranch,
 	type StartTarget,
 } from "./render/pages.ts";
 import { buildBlocks, sourceFromEntries } from "./transcript.ts";
@@ -55,9 +57,6 @@ export type UiDeps = {
 };
 
 const CSP = "default-src 'self'; img-src 'self' data: blob:; media-src 'self' blob:; style-src 'self' 'unsafe-inline'; connect-src 'self'; frame-ancestors 'none'";
-
-const BRANCH_CACHE_TTL_MS = 5 * 60 * 1000;
-const BRANCH_LOOKUP_TIMEOUT_MS = 1_500;
 
 function sendHtml(response: ServerResponse, status: number, body: string, fullDocument: boolean): void {
 	response.writeHead(status, {
@@ -80,6 +79,7 @@ function parsePositiveInt(raw: string | undefined | null): number | undefined {
 	return Number.isSafeInteger(n) && n > 0 ? n : undefined;
 }
 
+/** The target a query names, as `startQuery` writes it; undefined when it names none, or one that is not valid. */
 function parseStartTarget(url: URL, onPrem: boolean): StartTarget | undefined {
 	const place = url.searchParams.get("place");
 	if (place === "local") {
@@ -90,17 +90,41 @@ function parseStartTarget(url: URL, onPrem: boolean): StartTarget | undefined {
 	if (place === "repo") {
 		const repo = url.searchParams.get("repo")?.trim() ?? "";
 		if (!/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(repo)) return undefined;
-		const mode = url.searchParams.get("mode") === "continue" ? "continue" : "new";
-		if (mode === "continue") {
+		if (url.searchParams.get("mode") === "continue") {
 			const branch = url.searchParams.get("branch")?.trim() ?? "";
 			if (branch === "") return undefined;
-			return { place: "repo", repo, mode: "continue", branch };
+			const from = parsePositiveInt(url.searchParams.get("from"));
+			return from === undefined ? { place: "repo", repo, mode: "continue", branch } : { place: "repo", repo, mode: "continue", branch, from };
 		}
 		const base = url.searchParams.get("base")?.trim() ?? "";
-		if (base === "") return undefined;
-		return { place: "repo", repo, mode: "new", base };
+		return base === "" ? { place: "repo", repo, mode: "new" } : { place: "repo", repo, mode: "new", base };
 	}
 	return undefined;
+}
+
+/**
+ * Where a new session starts when the person has not said: where the newest session worked, on a new branch; else the
+ * last repository; else, in OnPrem, this computer. Nothing on a fresh server, where the chip asks for a repository.
+ */
+function defaultStartTarget(index: SessionIndex | undefined, onPrem: boolean): StartTarget | undefined {
+	const newest = Object.values(index?.rows ?? {})
+		.filter((row) => !row.archived && (row.place === "repo" || onPrem))
+		.sort((a, b) => b.updatedAt - a.updatedAt)[0];
+	if (newest?.place === "local") return { place: "local", dir: newest.dir };
+	const repo = newest?.place === "repo" ? newest.repo : index?.lastRepo;
+	if (repo !== undefined) return { place: "repo", repo, mode: "new" };
+	return onPrem ? { place: "local", dir: "~" } : undefined;
+}
+
+/** The branches sessions have worked on in `repo`, newest first, one per branch, from sessions that are not put away. */
+function sessionBranchesOf(index: SessionIndex | undefined, repo: string): Array<{ branch: string; session: SessionRow }> {
+	const newest = new Map<string, SessionRow & { place: "repo" }>();
+	for (const row of Object.values(index?.rows ?? {})) {
+		if (row.place !== "repo" || row.repo !== repo || row.archived) continue;
+		const seen = newest.get(row.branch);
+		if (seen === undefined || row.updatedAt > seen.updatedAt) newest.set(row.branch, row);
+	}
+	return [...newest.values()].sort((a, b) => b.updatedAt - a.updatedAt).map((session) => ({ branch: session.branch, session }));
 }
 
 async function readAgentDocs(harness: Harness, doc: SessionDoc, context: Context): Promise<Record<number, Partial<AgentDocs>>> {
@@ -121,40 +145,6 @@ async function readAgentDocs(harness: Harness, doc: SessionDoc, context: Context
 }
 
 export function createUiRouter(deps: UiDeps) {
-	// Bounded positive + negative cache for starred-repo default branches so unreachable repos never hammer gh.
-	const defaultBranchCache = new Map<string, { value: string | undefined; until: number }>();
-
-	async function lookupDefaultBranch(repo: string): Promise<string | undefined> {
-		const now = deps.now();
-		const cached = defaultBranchCache.get(repo);
-		if (cached !== undefined && cached.until > now) return cached.value;
-		try {
-			const list = await Promise.race<BranchList | undefined>([
-				deps.host.branches(repo),
-				new Promise<undefined>((resolve) => setTimeout(() => resolve(undefined), BRANCH_LOOKUP_TIMEOUT_MS)),
-			]);
-			const value = list?.defaultBranch;
-			defaultBranchCache.set(repo, { value, until: now + BRANCH_CACHE_TTL_MS });
-			return value;
-		} catch {
-			defaultBranchCache.set(repo, { value: undefined, until: now + BRANCH_CACHE_TTL_MS });
-			return undefined;
-		}
-	}
-
-	async function starredDefaultsFor(index: SessionIndex | undefined, repos: readonly string[]): Promise<Record<string, string>> {
-		const rows = Object.values(index?.rows ?? {});
-		const needed = repos.filter(
-			(name) => !rows.some((row) => row.place === "repo" && row.repo === name && !row.archived),
-		);
-		const entries = await Promise.all(needed.map(async (name) => [name, await lookupDefaultBranch(name)] as const));
-		const out: Record<string, string> = {};
-		for (const [name, branch] of entries) {
-			if (branch !== undefined) out[name] = branch;
-		}
-		return out;
-	}
-
 	const frameBase = () => ({
 		vapidPublicKey: deps.vapidPublicKey,
 		speech: deps.speech,
@@ -167,30 +157,27 @@ export function createUiRouter(deps: UiDeps) {
 		const harness = deps.harness();
 		const index = await harness.snapshot(SessionIndexToken, context);
 
-		// GET / -> Splash / New session
+		// GET /?place=... -> New session, at the target the query names or the default one
 		if (parts.length === 0) {
-			const starredDefaults = await starredDefaultsFor(index, index?.starredRepos ?? []);
-			const body = renderSplashPage({
-				index,
-				onPrem: deps.onPrem !== undefined,
-				home: deps.onPrem?.home,
-				starredDefaults,
-				now: deps.now(),
-			});
-			sendHtml(response, 200, renderPage({ ...frameBase(), title: "pigui", page: "splash", body }), true);
-			return true;
-		}
-
-		// GET /start?... -> Blank start screen
-		if (parts.length === 1 && parts[0] === "start") {
 			const target = parseStartTarget(url, deps.onPrem !== undefined);
-			if (target === undefined) {
+			if (target === undefined && url.searchParams.has("place")) {
 				response.writeHead(302, { Location: "/" });
 				response.end();
 				return true;
 			}
-			const body = renderStartPage(target);
-			sendHtml(response, 200, renderPage({ ...frameBase(), title: "New session · pigui", page: "start", body }), true);
+			const body = renderNewSessionPage({
+				index,
+				target: target ?? defaultStartTarget(index, deps.onPrem !== undefined),
+				...(deps.onPrem !== undefined ? { home: deps.onPrem.home } : {}),
+			});
+			sendHtml(response, 200, renderPage({ ...frameBase(), title: "New session · pigui", page: "new", body }), true);
+			return true;
+		}
+
+		// GET /start?... -> the New session page, which took over the blank start screen; kept for old links
+		if (parts.length === 1 && parts[0] === "start") {
+			response.writeHead(302, { Location: `/${url.search}` });
+			response.end();
 			return true;
 		}
 
@@ -328,26 +315,56 @@ export function createUiRouter(deps: UiDeps) {
 			return true;
 		}
 
-		// GET /ui/repos
-		if (parts.length === 2 && parts[1] === "repos") {
+		// GET /ui/target?<target> -> the chips for a target the person just chose in a sheet
+		if (parts.length === 2 && parts[1] === "target") {
+			const target = parseStartTarget(url, deps.onPrem !== undefined);
+			if (target === undefined) throw new HttpError(400, "That is not a place a session can start.", "Choose it again from the list.");
+			sendHtml(response, 200, renderStartTarget(target, deps.onPrem?.home).value, false);
+			return true;
+		}
+
+		// GET /ui/places?<target> -> the Where sheet
+		if (parts.length === 2 && parts[1] === "places") {
 			const index = await harness.snapshot(SessionIndexToken, context);
-			const requestedRepo = url.searchParams.get("repo") ?? undefined;
+			const current = parseStartTarget(url, deps.onPrem !== undefined);
+			const common = { starred: index?.starredRepos ?? [], current, onPrem: deps.onPrem !== undefined };
+			let repos: RepoSummary[] = [];
+			let error: string | undefined;
 			try {
-				const repos = await deps.host.listRepos();
-				const newestRepo = Object.values(index?.rows ?? {})
-					.filter((row): row is SessionRow & { place: "repo" } => row.place === "repo" && !row.archived)
-					.sort((a, b) => b.updatedAt - a.updatedAt)[0]?.repo;
-				const preferred =
-					repos.find((item) => item.name === requestedRepo)?.name ??
-					repos.find((item) => item.name === index?.lastRepo)?.name ??
-					repos.find((item) => item.name === newestRepo)?.name ??
-					repos[0]?.name;
-				const branches = preferred !== undefined ? await deps.host.branches(preferred).catch(() => undefined) : undefined;
-				sendHtml(response, 200, renderRepoPickerDialog({ repos, selectedRepo: preferred, branches }).value, false);
-			} catch (error) {
-				const message = error instanceof Error ? error.message : "Could not load repositories.";
-				sendHtml(response, 200, renderRepoPickerDialog({ repos: [], error: message }).value, false);
+				repos = await deps.host.listRepos();
+			} catch (failure) {
+				error = failure instanceof Error ? failure.message : "Could not load repositories.";
 			}
+			sendHtml(response, 200, renderPlaceSheet({ ...common, repos, ...(error !== undefined ? { error } : {}) }).value, false);
+			return true;
+		}
+
+		// GET /ui/branches?<target> -> the Branch sheet for the target's repository
+		if (parts.length === 2 && parts[1] === "branches") {
+			const current = parseStartTarget(url, deps.onPrem !== undefined);
+			if (current?.place !== "repo") throw new HttpError(400, "Choose a repository first.");
+			const index = await harness.snapshot(SessionIndexToken, context);
+			const sessionBranches: SessionBranch[] = await Promise.all(
+				sessionBranchesOf(index, current.repo).map(async (item) => {
+					const unpushed = await deps.delivery.unpushed(item.session.id, item.branch);
+					return unpushed === undefined ? item : { ...item, unpushed };
+				}),
+			);
+			let branches: BranchList | undefined;
+			let error: string | undefined;
+			try {
+				branches = await deps.host.branches(current.repo);
+			} catch (failure) {
+				error = `GitHub's branches could not be listed: ${failure instanceof Error ? failure.message : String(failure)}`;
+			}
+			const sheet = renderBranchSheet({
+				current,
+				sessionBranches,
+				...(branches !== undefined ? { branches } : {}),
+				...(error !== undefined ? { error } : {}),
+				now: deps.now(),
+			});
+			sendHtml(response, 200, sheet.value, false);
 			return true;
 		}
 
@@ -383,11 +400,11 @@ export function createUiRouter(deps: UiDeps) {
 	async function handleEvents(url: URL, response: ServerResponse, context: Context): Promise<void> {
 		const pageParam = url.searchParams.get("page");
 		const page: EventStreamRequest["page"] =
-			pageParam === "splash" || pageParam === "start" || pageParam === "session" || pageParam === "agent"
+			pageParam === "new" || pageParam === "session" || pageParam === "agent"
 				? pageParam
 				: url.searchParams.get("session") !== null
 					? "session"
-					: "splash";
+					: "new";
 		const sessionParam = url.searchParams.get("session");
 		const agentParam = url.searchParams.get("agent");
 		const sinceParam = url.searchParams.get("since");
@@ -415,9 +432,7 @@ export function createUiRouter(deps: UiDeps) {
 				presence: deps.presence,
 				now: deps.now,
 				speech: deps.speech,
-				onPrem: deps.onPrem !== undefined,
 				home: deps.onPrem?.home,
-				starredDefaults: (liveIndex, repos) => starredDefaultsFor(liveIndex, repos),
 				markSeen: (sessionId) => deps.sessions.seen(sessionId, context),
 			},
 			context,

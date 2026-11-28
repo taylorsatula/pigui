@@ -42,7 +42,7 @@ Small is a result, not a goal. Never drop correct behavior, error handling or a 
 ## Write clean TypeScript and plain web code
 - **TypeScript on the server and tests, strict mode.** No `any` unless it's at a library boundary, with a comment
   saying why.
-- **Server-rendered HTML + plain CSS + zero-build Vanilla JS in the browser.** Pages (`/` splash, `/start`, `/s/:id`,
+- **Server-rendered HTML + plain CSS + zero-build Vanilla JS in the browser.** Pages (`/` New session, `/s/:id`,
   `/s/:id/agent/:agent`), `<dialog>` fragments (`/ui/*`), and granular block-diff SSE events (`/api/events`) are
   rendered on the server under `src/server/ui/` (`html.ts` via `escape-html`, `markdown.ts` via `marked` +
   `sanitize-html`, `transcript.ts`, `format.ts`, `icons.ts`, `render/`, `events.ts`, `routes.ts`). Static CSS
