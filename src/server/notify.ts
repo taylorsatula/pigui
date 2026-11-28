@@ -81,7 +81,7 @@ export class Notifications implements NotificationsPort {
 			return;
 		}
 		const subscriptions = (await harness().snapshot(PushSubscriptionsToken, context))?.subscriptions ?? [];
-		const payload: PushPayload = { title: notice.title, body: notice.body, url: `/#/s/${notice.session}`, tag: `session-${notice.session}` };
+		const payload: PushPayload = { title: notice.title, body: notice.body, url: `/s/${notice.session}`, tag: `session-${notice.session}` };
 		const gone: string[] = [];
 		for (const subscription of subscriptions) {
 			try {

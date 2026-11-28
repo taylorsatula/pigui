@@ -39,7 +39,8 @@ import { trackedFiles } from "./git.ts";
 import type { RepoHost } from "./host.ts";
 import { MAX_UPLOAD_BYTES, type Uploads } from "./input.ts";
 import { absolutePath, listDirectory, localDirectory } from "./local.ts";
-import { type LiveRequest, openLines, serveLive } from "./live.ts";
+import { renderServiceWorker } from "./assets.ts";
+import { createUiRouter } from "./ui/routes.ts";
 import { errorKind, type Logger } from "./log.ts";
 import type { Presence } from "./presence.ts";
 import type { Sessions } from "./sessions.ts";
@@ -64,7 +65,10 @@ export type HttpDeps = {
 	workingDir: (doc: Readonly<SessionDoc>) => string;
 	/** pigui OnPrem: reached at this computer's loopback names and its allowed tailnet names, with local sessions. */
 	onPrem: OnPrem | undefined;
-	staticDir: string;
+	/** Where committed zero-build static assets (css, js, manifest, sw.js) live. */
+	publicDir: string;
+	/** Where build/startup-generated assets (fonts, icons) live. */
+	assetsDir: string;
 	/** Undefined when this server does not read aloud. */
 	speech: Speech | undefined;
 	/** Long-term memory's state, shown in the sidebar while it is off. */
@@ -138,12 +142,24 @@ function send(response: ServerResponse, status: number, body: unknown): void {
 	response.end(text);
 }
 
+function openLines<T>(response: ServerResponse): (message: T) => void {
+	response.writeHead(200, {
+		"Content-Type": "application/x-ndjson; charset=utf-8",
+		"Cache-Control": "no-store",
+		"X-Accel-Buffering": "no",
+	});
+	return (message) => {
+		if (!response.writableEnded && !response.destroyed) response.write(`${JSON.stringify(message)}\n`);
+	};
+}
+
 const TYPES: Record<string, string> = {
 	".html": "text/html; charset=utf-8",
 	".js": "text/javascript; charset=utf-8",
 	".css": "text/css; charset=utf-8",
 	".webmanifest": "application/manifest+json",
 	".png": "image/png",
+	".gif": "image/gif",
 	".woff2": "font/woff2",
 	".txt": "text/plain; charset=utf-8",
 	".svg": "image/svg+xml",
@@ -225,26 +241,48 @@ function repoName(owner: string | undefined, name: string | undefined): string {
 
 export function createHttpServer(deps: HttpDeps): Server {
 	const context = BACKGROUND_CONTEXT;
+	const ui = createUiRouter({
+		harness: deps.harness,
+		sessions: deps.sessions,
+		delivery: deps.delivery,
+		host: deps.host,
+		presence: deps.presence,
+		now: deps.now,
+		vapidPublicKey: deps.vapidPublicKey,
+		onPrem: deps.onPrem,
+		speech: deps.speech !== undefined,
+		memory: deps.memory,
+	});
 
-	async function staticFile(path: string, response: ServerResponse): Promise<void> {
-		const relative = normalize(path === "/" ? "/index.html" : path).replace(/^([/\\])+/, "");
-		const file = join(deps.staticDir, relative);
-		if (!file.startsWith(deps.staticDir + sep)) throw notFound("The file");
+	async function serveStaticFrom(rootDir: string, relative: string, response: ServerResponse): Promise<boolean> {
+		const file = join(rootDir, relative);
+		if (!file.startsWith(rootDir + sep)) return false;
 		const info = await stat(file).catch(() => undefined);
-		if (info === undefined || !info.isFile()) {
-			// The app routes in the fragment, so any other path is the app shell.
-			if (extname(relative) === "") return staticFile("/index.html", response);
-			throw notFound("The file");
-		}
+		if (info === undefined || !info.isFile()) return false;
 		response.writeHead(200, {
 			"Content-Type": TYPES[extname(file)] ?? "application/octet-stream",
 			"Cache-Control": "no-cache",
 			"X-Content-Type-Options": "nosniff",
-			...(extname(file) === ".html"
-				? { "Content-Security-Policy": "default-src 'self'; img-src 'self' data: blob:; media-src 'self' blob:; style-src 'self' 'unsafe-inline'; connect-src 'self'; frame-ancestors 'none'" }
-				: {}),
 		});
 		response.end(await readFile(file));
+		return true;
+	}
+
+	async function staticFile(path: string, response: ServerResponse): Promise<void> {
+		const relative = normalize(path).replace(/^([/\\])+/, "");
+		if (relative === "sw.js") {
+			const script = await renderServiceWorker(deps.publicDir, deps.assetsDir);
+			response.writeHead(200, {
+				"Content-Type": "text/javascript; charset=utf-8",
+				"Cache-Control": "no-cache",
+				"X-Content-Type-Options": "nosniff",
+			});
+			response.end(script);
+			return;
+		}
+		if (await serveStaticFrom(deps.publicDir, relative, response)) return;
+		if (await serveStaticFrom(deps.assetsDir, relative, response)) return;
+		throw notFound("The file");
 	}
 
 	async function projectSkills(repo: string, ref: string): Promise<SkillSummary[]> {
@@ -287,7 +325,15 @@ export function createHttpServer(deps: HttpDeps): Server {
 		const parts = url.pathname.split("/").filter((part) => part !== "").map(decodeURIComponent);
 		if (parts[0] !== "api") {
 			if (method !== "GET" && method !== "HEAD") throw new HttpError(405, "Only GET is allowed here.");
-			return staticFile(url.pathname, response);
+			if (parts[0] === "ui") {
+				if (await ui.handleFragment(url, response, context)) return;
+				throw notFound("That address");
+			}
+			if (url.pathname === "/sw.js" || extname(url.pathname) !== "") {
+				return staticFile(url.pathname, response);
+			}
+			if (await ui.handlePage(url, response, context)) return;
+			throw notFound("That page");
 		}
 		const [, area] = parts;
 		const harness = deps.harness();
@@ -300,15 +346,8 @@ export function createHttpServer(deps: HttpDeps): Server {
 			if (deps.onPrem !== undefined) body.onPrem = { home: deps.onPrem.home };
 			return send(response, 200, body);
 		}
-		if (is("GET", "live") && parts.length === 2) {
-			const session = url.searchParams.get("session");
-			const agent = url.searchParams.get("agent");
-			const from = url.searchParams.get("from");
-			const live: LiveRequest = {};
-			if (session !== null) live.session = sessionId(session);
-			if (agent !== null) live.agent = await agentOf(harness, live.session ?? 0, agent);
-			if (from !== null && /^\d+$/.test(from)) live.from = Number(from);
-			return serveLive(response, live, harness, deps.presence, context);
+		if (is("GET", "events") && parts.length === 2) {
+			return ui.handleEvents(url, response, context);
 		}
 		if (is("POST", "push", "subscribe") && parts.length === 3) {
 			const body = await json(request, bodies.push);
@@ -354,7 +393,7 @@ export function createHttpServer(deps: HttpDeps): Server {
 				if (starred.includes(dir) === body.starred) return;
 				index.starred = body.starred ? [...starred, dir] : starred.filter((path) => path !== dir);
 			}, context);
-			return send(response, 200, {});
+			return send(response, 200, { ok: true, dir, starred: body.starred });
 		}
 		if (is("POST", "repos", "starred") && parts.length === 3) {
 			const body = await json(request, bodies.starRepo);
@@ -365,7 +404,7 @@ export function createHttpServer(deps: HttpDeps): Server {
 				if (starred.includes(body.repo) === body.starred) return;
 				index.starredRepos = body.starred ? [...starred, body.repo] : starred.filter((name) => name !== body.repo);
 			}, context);
-			return send(response, 200, {});
+			return send(response, 200, { ok: true, repo: body.repo, starred: body.starred });
 		}
 		if (area === "local") return localRoutes(request, response, url, parts);
 		if (area === "repos") return reposRoutes(request, response, url, parts);
@@ -454,30 +493,36 @@ export function createHttpServer(deps: HttpDeps): Server {
 					return send(response, 200, { route: await deps.sessions.send(id, await json(request, bodies.send), context) });
 				case "answer":
 					await deps.sessions.answer(id, await json(request, bodies.answer), context);
-					return send(response, 200, {});
+					return send(response, 200, { ok: true });
 				case "stop":
 					await deps.sessions.stop(id, context);
-					return send(response, 200, {});
+					return send(response, 200, { ok: true });
 				case "continue":
 					await deps.sessions.continue(id, context);
-					return send(response, 200, {});
-				case "budget":
-					await deps.sessions.raiseBudget(id, (await json(request, bodies.budget)).cap, context);
-					return send(response, 200, {});
+					return send(response, 200, { ok: true });
+				case "budget": {
+					const { cap } = await json(request, bodies.budget);
+					await deps.sessions.raiseBudget(id, cap, context);
+					return send(response, 200, { ok: true, cap });
+				}
 				case "deliver":
 					return send(response, 200, await deps.delivery.deliver(id, (await json(request, bodies.deliver)).action, context));
-				case "archive":
-					await deps.sessions.archive(id, (await json(request, bodies.archive)).archived, context);
-					return send(response, 200, {});
-				case "pin":
-					await deps.sessions.pin(id, (await json(request, bodies.pin)).pinned, context);
-					return send(response, 200, {});
+				case "archive": {
+					const { archived } = await json(request, bodies.archive);
+					await deps.sessions.archive(id, archived, context);
+					return send(response, 200, { ok: true, archived });
+				}
+				case "pin": {
+					const { pinned } = await json(request, bodies.pin);
+					await deps.sessions.pin(id, pinned, context);
+					return send(response, 200, { ok: true, pinned });
+				}
 				case "seen":
 					await deps.sessions.seen(id, context);
-					return send(response, 200, {});
+					return send(response, 200, { ok: true });
 				case "retry-setup":
 					await deps.sessions.retrySetup(id, context);
-					return send(response, 200, {});
+					return send(response, 200, { ok: true });
 				case "queued":
 					if (parts.length === 6 && parts[5] === "cancel") {
 						const submission = Number(c);
@@ -488,7 +533,7 @@ export function createHttpServer(deps: HttpDeps): Server {
 				case "agents":
 					if (parts.length === 6 && parts[5] === "stop") {
 						await deps.sessions.stopAgent(id, await agentOf(harness, id, c), context);
-						return send(response, 200, {});
+						return send(response, 200, { ok: true });
 					}
 					break;
 			}
@@ -524,7 +569,7 @@ export function createHttpServer(deps: HttpDeps): Server {
 		const url = new URL(request.url ?? "/", "http://pigui.local");
 		const done = (status: number) => {
 			// Paths and status only: no query strings, bodies or headers, which can carry content.
-			if (!url.pathname.startsWith("/api/live")) deps.log.info("http", { method: request.method, path: url.pathname, status, ms: Date.now() - started });
+			if (!url.pathname.startsWith("/api/events")) deps.log.info("http", { method: request.method, path: url.pathname, status, ms: Date.now() - started });
 		};
 		const refuse = (event: string, body: ApiError) => {
 			deps.log.warn(event, { path: url.pathname });

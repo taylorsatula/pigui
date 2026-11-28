@@ -61,7 +61,7 @@ describe("notifications", () => {
 			await server.post("/api/push/subscribe", SUBSCRIPTION);
 			const id = await server.createSession("Add a shout() function");
 			const controller = new AbortController();
-			const response = await fetch(`${server.app.url}/api/live?session=${id}`, { signal: controller.signal });
+			const response = await fetch(`${server.app.url}/api/events?session=${id}`, { signal: controller.signal });
 			const reader = response.body!.getReader();
 			await reader.read();
 			await server.until(id, (doc) => doc.card?.kind === "questions", "questions");
@@ -77,7 +77,7 @@ describe("notifications", () => {
 			for (const task of await notifications(server, id)) await server.app.harness.waitForTask(task.id, context);
 			assert.equal(server.push.sent.length, 1, "the plan notifies once nobody is looking");
 			const payload = JSON.parse(server.push.sent[0]!.payload) as { url: string; tag: string };
-			assert.equal(payload.url, `/#/s/${id}`, "tapping opens the session");
+			assert.equal(payload.url, `/s/${id}`, "tapping opens the session");
 			assert.equal(payload.tag, `session-${id}`);
 		} finally {
 			await server.close();

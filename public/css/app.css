@@ -1,0 +1,20 @@
+/* The design system, split into per-area partials. Layer order is fixed here:
+   tokens (custom properties), base (element defaults and shared primitives), components (everything else).
+   Plain global CSS served straight from public/css/ with zero build step. */
+@layer tokens, base, components;
+@import "./tokens.css";
+@import "./base.css";
+@import "./buttons.css";
+@import "./layout.css";
+@import "./picker.css";
+@import "./agents.css";
+@import "./transcript.css";
+@import "./cards.css";
+@import "./banners.css";
+@import "./toast.css";
+@import "./composer.css";
+@import "./new-session.css";
+@import "./sheets.css";
+@import "./screensaver.css";
+@import "./dialogs.css";
+@import "./reduced-motion.css";

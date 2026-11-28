@@ -26,6 +26,7 @@ import { type ScriptedModelOptions, scriptedModels } from "./fake/model.ts";
 import { fakeSynthesizer } from "./fake/synthesizer.ts";
 import { currentBranch } from "./git.ts";
 import { GhHost, type RepoHost } from "./host.ts";
+import { generateAssets } from "./assets.ts";
 import { callerCheck } from "./callers.ts";
 import { createHttpServer } from "./http.ts";
 import { Uploads } from "./input.ts";
@@ -61,8 +62,10 @@ export type AppOptions = {
 	faults?: Faults;
 	/** The clock pigui stamps its records with; tests move it to make sessions old. */
 	now?: () => number;
-	/** Where the built client is; default `dist/public` beside the sources. */
-	staticDir?: string;
+	/** Where committed static assets live; default `public` beside the sources. */
+	publicDir?: string;
+	/** Where generated fonts and icons live; default `dist/assets`. */
+	assetsDir?: string;
 	/**
 	 * Check who opened each connection (see callers.ts): on a server, refuse pigui's own user; in OnPrem on Linux,
 	 * allow only it and root (tailscaled). On in real mode; off in fake mode, where tests connect as pigui's own user.
@@ -285,6 +288,11 @@ export async function startApp(options: AppOptions): Promise<App> {
 	await supervisor.start(context);
 	opened.resume();
 
+	const root = join(import.meta.dirname, "..", "..");
+	const publicDir = options.publicDir ?? join(root, "public");
+	const assetsDir = options.assetsDir ?? join(root, "dist", "assets");
+	await generateAssets(root, assetsDir);
+
 	const server = createHttpServer({
 		harness,
 		sessions,
@@ -301,7 +309,8 @@ export async function startApp(options: AppOptions): Promise<App> {
 		agentDir: options.agentDir,
 		workingDir,
 		onPrem: config.onPrem,
-		staticDir: options.staticDir ?? join(import.meta.dirname, "..", "..", "dist", "public"),
+		publicDir,
+		assetsDir,
 		speech,
 		memory: memoryStatus,
 	});

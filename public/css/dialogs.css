@@ -1,0 +1,114 @@
+@layer components {
+/* ---- Native <dialog> and Popover API integration: browser-native top layer, backdrop, Escape, focus trap, and
+   opener focus return without manual scrim divs or mounted-while-closed effects. */
+
+dialog {
+	padding: 0;
+	margin: 0;
+	max-width: none;
+	max-height: none;
+	color: var(--text);
+	background: transparent;
+	border: none;
+}
+
+dialog:not([open]) {
+	display: none;
+}
+
+dialog.session-picker,
+dialog.agents-panel {
+	background: var(--raised);
+	border: var(--hairline) solid var(--separator);
+}
+
+dialog.session-picker::backdrop,
+dialog.agents-panel::backdrop {
+	background: var(--veil);
+	-webkit-backdrop-filter: blur(3px);
+	backdrop-filter: blur(3px);
+}
+
+dialog.sheet {
+	background: var(--bg);
+	margin: 0 auto;
+	padding: 0 var(--safe-right) 0 var(--safe-left);
+	height: auto;
+	width: 100%;
+	max-width: 760px;
+}
+
+dialog.sheet::backdrop {
+	background: var(--scrim);
+}
+
+@media (min-width: 900px) and (min-height: 600px) {
+	dialog.sheet {
+		width: min(960px, calc(100vw - 64px));
+		height: min(860px, calc(100dvh - 64px));
+		max-width: none;
+		margin: 0;
+	}
+}
+
+dialog.repo-picker {
+	width: 100vw;
+	height: 100dvh;
+	background: var(--bg);
+}
+
+dialog.repo-picker::backdrop {
+	background: var(--bg);
+}
+
+.repo-picker-form {
+	flex: 1;
+	min-height: 0;
+	display: flex;
+	flex-direction: column;
+}
+
+/* Top-layer popover host for toasts so status/Undo slips stay visible above open modal <dialog>s. */
+#toast-host {
+	position: fixed;
+	inset: 0;
+	margin: 0;
+	padding: 0;
+	border: none;
+	background: transparent;
+	width: 100%;
+	height: 100%;
+	max-width: none;
+	max-height: none;
+	overflow: visible;
+	pointer-events: none;
+}
+
+#toast-host .toast {
+	pointer-events: auto;
+}
+
+/* Ensure [hidden] always wins over component display rules (e.g. .picker, .attachments, .halt, .send, .listing). */
+[hidden] {
+	display: none !important;
+}
+
+/* Keep the session-banner wrapper invisible when empty. */
+#session-banner:empty,
+#agents-button-slot:empty,
+#agent-stop-slot:empty,
+#screensaver-host:empty {
+	display: none;
+}
+
+/* Splash list container preserves vertical rhythm between sections. */
+#splash-lists {
+	display: flex;
+	flex-direction: column;
+	gap: 18px;
+}
+
+#splash-lists:empty {
+	display: none;
+}
+}

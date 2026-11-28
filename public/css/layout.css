@@ -1,0 +1,184 @@
+@layer components {
+/* ---- Layout */
+
+/* The app is a fixed-height shell: the bars are plain flex children and the transcript (or form) scrolls inside it.
+   Nothing is viewport-anchored, so iOS has no sticky/fixed geometry to desync hit-testing against. */
+.app {
+	display: flex;
+	height: var(--viewport-height, 100dvh);
+	overflow: hidden;
+}
+
+.main {
+	flex: 1;
+	min-width: 0;
+	display: flex;
+	flex-direction: column;
+	min-height: 0;
+}
+
+.session {
+	display: flex;
+	flex-direction: column;
+	height: 100%;
+	min-height: 0;
+	overflow: hidden;
+	padding-left: var(--safe-left);
+	padding-right: var(--safe-right);
+}
+
+/* Each band of a page (title bar, transcript, composer bar, form) runs the full width of its pane, so bars and their
+   rules meet the pane's edges, while its content sits in a centred column of --column at most. --inset is the band's
+   own side padding inside that column. */
+.topbar,
+.transcript,
+.composer-dock,
+.splash,
+.session > .empty {
+	--gutter: max(0px, (100% - var(--column)) / 2);
+	padding-left: calc(var(--gutter) + var(--inset-left, var(--inset)));
+	padding-right: calc(var(--gutter) + var(--inset));
+}
+
+.pinned,
+.new-session > .topbar {
+	background: var(--bar);
+	border-bottom: var(--hairline) solid var(--separator);
+}
+
+.topbar {
+	--inset: 4px;
+	display: flex;
+	align-items: center;
+	gap: 4px;
+	padding-top: calc(var(--safe-top) + 4px);
+	padding-bottom: 4px;
+}
+
+.title-block {
+	flex: 1;
+	min-width: 0;
+	padding: 2px 0;
+	container-type: inline-size;
+}
+
+.title {
+	margin: 0;
+	font-size: 1.0625rem;
+	font-weight: var(--w-display);
+	line-height: var(--leading-tight);
+	flex: 1;
+	min-width: 0;
+	font-family: var(--serif);
+	text-wrap: balance;
+}
+
+/* One line of record under the title: status first, then where the work is, then what it has cost. */
+.subtitle {
+	margin: 2px 0 0;
+	font-family: var(--mono);
+	font-size: var(--label);
+	line-height: var(--leading-tight);
+	color: var(--text-2);
+	display: flex;
+	align-items: baseline;
+	gap: 8px;
+	min-width: 0;
+	white-space: nowrap;
+}
+
+.where {
+	flex: 1 1 auto;
+	min-width: 0;
+}
+
+/* Where the work is needs room beside the status and the spend, which do not shrink. A title too narrow to give it ten
+   characters with the longest status (a phone, with the session's buttons) reads it aloud but does not show it, as the
+   session picker does on a phone, rather than cut it to a letter. */
+@container (max-width: 19rem) {
+	.where {
+		position: absolute;
+		width: 1px;
+		height: 1px;
+		overflow: hidden;
+		clip-path: inset(50%);
+		white-space: nowrap;
+	}
+}
+
+.session-status {
+	flex: none;
+	text-transform: uppercase;
+	letter-spacing: var(--label-tracking);
+	font-weight: 400;
+	color: var(--text);
+}
+
+/* The session's status in its meaning's colour; the person's turn in the yellow. */
+.session-status.attention {
+	color: var(--mark-text);
+	background: var(--mark);
+	padding: 0 4px;
+	margin: 0 -4px;
+}
+
+.session-status.working {
+	color: var(--working);
+}
+
+.session-status.warn {
+	color: var(--warn);
+}
+
+.session-status.error {
+	color: var(--error);
+}
+
+.session-status.done {
+	color: var(--done);
+}
+
+.session-status.idle {
+	color: var(--text-2);
+}
+
+.session-status.working::after {
+	content: "";
+	display: inline-block;
+	width: 0.5em;
+	height: 1em;
+	margin-left: 4px;
+	vertical-align: -0.15em;
+	background: currentColor;
+	opacity: 0.7;
+	animation: blink 1.1s steps(1, end) infinite;
+}
+
+.spend {
+	flex: none;
+	margin-left: auto;
+}
+
+/* Near the spend cap, then at it. */
+.spend.near {
+	color: var(--warn);
+}
+
+.spend.over {
+	color: var(--error);
+}
+
+.sheet-scrim {
+	position: fixed;
+	inset: 0;
+	background: var(--scrim);
+	touch-action: none;
+}
+
+/* While a finger moves a sheet, it tracks the finger exactly. */
+.dragging {
+	transition: none !important;
+	visibility: visible !important;
+}
+
+}

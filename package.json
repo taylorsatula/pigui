@@ -9,16 +9,14 @@
 		"node": ">=22.19"
 	},
 	"scripts": {
-		"build": "node scripts/build.ts",
-		"dev": "vite",
-		"typecheck": "tsc -p tsconfig.json && svelte-check --tsconfig ./src/client/tsconfig.json && tsc -p e2e/tsconfig.json",
+		"build": "node --disable-warning=ExperimentalWarning scripts/build.ts",
+		"typecheck": "tsc -p tsconfig.json",
 		"start": "node --disable-warning=ExperimentalWarning src/server/main.ts",
 		"fake": "node --disable-warning=ExperimentalWarning scripts/fake.ts",
 		"pretest": "node --disable-warning=ExperimentalWarning scripts/check-install.ts",
 		"test": "node --disable-warning=ExperimentalWarning --test --test-concurrency=4 \"test/**/*.test.ts\"",
-		"e2e": "npm run build && playwright test --trace off",
-		"check": "npm run typecheck && npm run build && npm test && npm run e2e",
-		"test:unit": "vitest run --passWithNoTests --dir src"
+		"test:browser": "playwright test --trace off",
+		"check": "npm run typecheck && npm run build && npm test && npm run test:browser"
 	},
 	"dependencies": {
 		"@earendil-works/chord": "1.6.0",
@@ -26,21 +24,20 @@
 		"@earendil-works/pi-coding-agent": "1.6.0",
 		"@earendil-works/pi-durable": "1.6.0",
 		"@earendil-works/pi-schema": "1.6.0",
-		"dompurify": "3.4.17",
+		"escape-html": "1.0.3",
+		"idiomorph": "0.8.0",
 		"marked": "18.1.2",
-		"svelte": "5.59.1"
+		"sanitize-html": "2.18.2"
 	},
 	"devDependencies": {
 		"@fontsource-variable/ibm-plex-sans": "5.3.0",
 		"@fontsource-variable/source-serif-4": "5.3.1",
 		"@fontsource/ibm-plex-mono": "5.3.0",
 		"@playwright/test": "1.63.0",
-		"@sveltejs/vite-plugin-svelte": "7.3.2",
+		"@types/escape-html": "1.0.4",
 		"@types/node": "22.20.5",
-		"svelte-check": "4.7.8",
-		"typescript": "6.0.3",
-		"vite": "8.3.8",
-		"vitest": "^5.1.1"
+		"@types/sanitize-html": "2.16.2",
+		"typescript": "6.0.3"
 	},
 	"optionalDependencies": {
 		"@huggingface/transformers": "3.8.1",

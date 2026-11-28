@@ -1,0 +1,427 @@
+@layer components {
+/* ---- The session picker: every session listed in columns, as a file browser lists a folder, in a panel over the page
+   dimmed to 0.6 and blurred, opened from the ☰ button. */
+
+.picker-veil {
+	position: fixed;
+	z-index: 15;
+	inset: 0;
+	background: var(--veil);
+	-webkit-backdrop-filter: blur(3px);
+	backdrop-filter: blur(3px);
+	touch-action: none;
+	transition: opacity var(--present) var(--ease-sheet);
+}
+
+.session-picker,
+.agents-panel {
+	position: fixed;
+	z-index: 20;
+	top: calc(var(--safe-top) + 8px);
+	left: 50%;
+	translate: -50% 0;
+	width: min(calc(100vw - 16px - var(--safe-left) - var(--safe-right)), 820px);
+	max-height: calc(100dvh - var(--safe-top) - var(--safe-bottom) - 16px);
+	display: flex;
+	flex-direction: column;
+	background: var(--raised);
+	border: var(--hairline) solid var(--separator);
+	border-radius: var(--radius-l);
+	box-shadow: var(--shadow);
+	overflow: hidden;
+	transition:
+		opacity var(--present) var(--ease-sheet),
+		transform var(--present) var(--ease-sheet);
+}
+
+@starting-style {
+	.picker-veil {
+		opacity: 0;
+	}
+
+	.session-picker,
+	.agents-panel {
+		opacity: 0;
+		transform: translateY(-8px) scale(0.98);
+	}
+}
+
+/* While a modal dialog is open, the page under it stays put. */
+html:has(dialog[open]) {
+	overflow: hidden;
+}
+
+@media (min-width: 900px) {
+	.session-picker,
+	.agents-panel {
+		top: calc(var(--safe-top) + 10vh);
+		max-height: 70dvh;
+	}
+}
+
+/* The window's bar: its title, New, and Close. */
+.picker-bar {
+	display: flex;
+	align-items: center;
+	gap: 4px;
+	padding: 4px 4px 4px 16px;
+	border-bottom: var(--hairline) solid var(--separator);
+	background: var(--surface);
+}
+
+.picker-bar h2 {
+	flex: 1;
+	margin: 0;
+	font-family: var(--serif);
+	font-size: 1.0625rem;
+	font-weight: var(--w-display);
+}
+
+/* The columns, as a file browser sets them out: the name takes what is left, and on a phone only it and the time
+   since the last change show, with where and the status still read aloud. */
+.session-picker {
+	--columns: minmax(0, 1fr) auto;
+	--row: var(--target);
+}
+
+@media (min-width: 640px) {
+	.session-picker {
+		--columns: minmax(0, 1fr) minmax(0, 11rem) 10.5rem 9rem;
+	}
+}
+
+/* With a pointer, rows sit at a file browser's density; a finger keeps the 44 pt target. */
+@media (hover: hover) and (pointer: fine) {
+	.session-picker {
+		--row: 30px;
+	}
+}
+
+.picker-columns,
+.row {
+	display: grid;
+	grid-template-columns: var(--columns);
+	align-items: center;
+	column-gap: 12px;
+	padding: 0 12px;
+}
+
+.picker-columns {
+	border-bottom: var(--hairline) solid var(--separator);
+	padding-top: 2px;
+	padding-bottom: 2px;
+}
+
+.heading {
+	display: flex;
+	align-items: center;
+	justify-content: flex-start;
+	gap: 4px;
+	min-height: 28px;
+	padding: 0;
+	border: none;
+	background: none;
+	color: var(--text-2);
+	font: inherit;
+	font-size: var(--footnote);
+	font-weight: var(--w-ui);
+	text-align: left;
+	cursor: pointer;
+}
+
+/* A hairline between column headings, as a file browser draws it. */
+.heading + .heading {
+	box-shadow: inset 1px 0 0 var(--separator);
+	padding-left: 8px;
+	margin-left: -8px;
+}
+
+.heading.sorted {
+	color: var(--text);
+}
+
+.sort-mark {
+	display: inline-flex;
+	transition: rotate var(--quick) var(--ease-out);
+}
+
+.sort-mark.up {
+	rotate: -90deg;
+}
+
+.sort-mark.down {
+	rotate: 90deg;
+}
+
+.picker-list {
+	flex: 1;
+	overflow-y: auto;
+	overscroll-behavior: contain;
+	padding: 4px 6px;
+}
+
+.listing {
+	list-style: none;
+	margin: 0;
+	padding: 0;
+}
+
+.row {
+	width: 100%;
+	min-height: var(--row);
+	border: none;
+	border-radius: var(--radius-s);
+	background: none;
+	padding: 0 6px;
+	font: inherit;
+	font-size: var(--subhead);
+	line-height: var(--leading-tight);
+	text-align: left;
+	color: var(--text);
+	text-decoration: none;
+	transition: background-color var(--quick) var(--ease-out);
+	-webkit-touch-callout: none;
+	-webkit-user-select: none;
+	user-select: none;
+}
+
+/* A line's pin and archive or restore buttons sit on its right edge. The line's own padding leaves them room, so the
+   stripes and the selection run under them, and the headings keep the same room so each column stays over its own. */
+.entry {
+	position: relative;
+}
+
+.picker-columns {
+	padding-right: calc(12px + 2 * var(--row));
+}
+
+.row {
+	padding-right: calc(6px + 2 * var(--row));
+}
+
+.row-action {
+	position: absolute;
+	top: 0;
+	right: 0;
+	width: var(--row);
+	min-width: var(--row);
+	height: var(--row);
+	min-height: var(--row);
+	color: var(--text-2);
+	border-radius: var(--radius-s);
+}
+
+/* The pin sits a row inside the archive button; the pressed state fills the pin in ink, as the star does. */
+.row-pin {
+	right: var(--row);
+}
+
+.entry:has(> .row.current) > .row-action,
+.entry:has(> .row:focus-visible) > .row-action {
+	color: var(--accent-text);
+}
+
+.picker-list:has(.row:focus-visible) .entry:has(> .row.current:not(:focus-visible)) > .row-action {
+	color: var(--text-2);
+}
+
+/* Every other row a shade apart, across the folder's contents too. */
+.row.striped {
+	background: color-mix(in srgb, var(--text) 4%, transparent);
+}
+
+.row:active {
+	background-color: var(--fill);
+	transition: none;
+}
+
+/* The selection: the open session, or the row the arrow keys reached. Filled in ink, as a file browser fills its
+   selection with its accent. */
+.row.current,
+.row:focus-visible {
+	background: var(--accent-fill);
+	color: var(--accent-text);
+	outline: none;
+}
+
+.picker-list:has(.row:focus-visible) .row.current:not(:focus-visible) {
+	background: var(--fill);
+	color: var(--text);
+}
+
+.row-name {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	min-width: 0;
+}
+
+.row.nested .row-name {
+	padding-left: 40px;
+}
+
+.row-title {
+	min-width: 0;
+}
+
+/* Something new on a session that needs the person: its title in the strong weight until they look. */
+.row.unseen .row-title {
+	font-weight: var(--w-strong);
+}
+
+.row-where,
+.row-modified,
+.row-status {
+	min-width: 0;
+	font-size: var(--footnote);
+	color: var(--text-2);
+}
+
+.row-where,
+.row-modified {
+	font-family: var(--mono);
+	font-size: var(--record);
+}
+
+.row.current :is(.row-where, .row-modified, .row-status),
+.row:focus-visible :is(.row-where, .row-modified, .row-status) {
+	color: inherit;
+	opacity: 0.8;
+}
+
+.when-wide {
+	display: none;
+}
+
+/* On a phone, where and the status are read aloud but not shown, and the time is how long ago. */
+@media (max-width: 639px) {
+	.heading-where,
+	.heading-status {
+		display: none;
+	}
+
+	.row-where,
+	.row-status {
+		position: absolute;
+		width: 1px;
+		height: 1px;
+		overflow: hidden;
+		clip-path: inset(50%);
+	}
+}
+
+@media (min-width: 640px) {
+	.when-wide {
+		display: inline;
+	}
+
+	.when-narrow {
+		display: none;
+	}
+}
+
+/* The folder of inactive sessions: a disclosure triangle that turns as it opens, and a folder. */
+.row.folder {
+	cursor: pointer;
+}
+
+.disclosure {
+	display: inline-flex;
+	color: var(--text-2);
+	transition: rotate var(--quick) var(--ease-out);
+}
+
+.row.folder[aria-expanded="true"] .disclosure {
+	rotate: 90deg;
+}
+
+.folder-mark {
+	display: inline-flex;
+	color: var(--text-2);
+}
+
+.row.folder.current .disclosure,
+.row.folder:focus-visible .disclosure,
+.row.folder:focus-visible .folder-mark {
+	color: inherit;
+}
+
+/* The status mark, in the status's colour; the agent at work breathes, and a session with nothing going on is an
+   empty ring. */
+.indicator {
+	flex: none;
+	width: 8px;
+	height: 8px;
+	border-radius: var(--radius-full);
+	background: var(--text-2);
+}
+
+.indicator.working {
+	background: var(--working);
+	animation: breathe 2.4s ease-in-out infinite;
+}
+
+.indicator.attention {
+	background: var(--mark);
+	box-shadow: 0 0 0 1px color-mix(in srgb, var(--text) 45%, transparent);
+}
+
+.indicator.warn {
+	background: var(--warn);
+}
+
+.indicator.error {
+	background: var(--error);
+}
+
+.indicator.done {
+	background: var(--done);
+}
+
+.indicator.idle {
+	background: none;
+	box-shadow: inset 0 0 0 1.5px currentColor;
+	opacity: 0.6;
+}
+
+@keyframes breathe {
+	50% {
+		opacity: 0.35;
+	}
+}
+
+/* The window's status bar: how many there are, memory being off, and notifications to turn on. */
+.picker-status {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: 4px 16px;
+	padding: 6px 16px;
+	border-top: var(--hairline) solid var(--separator);
+	background: var(--surface);
+}
+
+.picker-count {
+	flex: 1;
+	margin: 0;
+	white-space: nowrap;
+	font-family: var(--mono);
+	font-size: var(--label);
+	color: var(--text-2);
+}
+
+.picker-status .link {
+	padding: 0;
+}
+
+.banner.picker-notice {
+	flex-basis: 100%;
+	order: -1;
+	margin: 4px 0;
+}
+
+.banner.picker-notice p {
+	font-size: var(--footnote);
+}
+
+}

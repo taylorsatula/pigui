@@ -125,8 +125,9 @@ export { expect };
 export async function startSession(page: Page, text: string): Promise<void> {
 	await page.goto("/");
 	// The spawn lands on the blank screen; the first send is what creates the session.
-	if ((await page.getByRole("button", { name: "This computer" }).count()) > 0) {
-		await page.getByRole("button", { name: "This computer" }).tap();
+	const localTile = page.getByRole("link", { name: "This computer" });
+	if ((await localTile.count()) > 0) {
+		await localTile.tap();
 	} else {
 		await page.getByRole("button", { name: "Repository" }).tap();
 		await page.getByRole("button", { name: "Start session" }).tap();
@@ -135,7 +136,7 @@ export async function startSession(page: Page, text: string): Promise<void> {
 	await expect(composer).toBeEnabled();
 	await composer.fill(text);
 	await page.getByRole("button", { name: "Send", exact: true }).tap();
-	await expect(page).toHaveURL(/#\/s\/\d+/);
+	await expect(page).toHaveURL(/\/s\/\d+$/);
 }
 
 /** Accept the recommended answers, then approve the plan. */
