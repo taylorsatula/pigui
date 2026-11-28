@@ -99,7 +99,10 @@ if [[ -r $OS_RELEASE ]]; then
 	if [[ $release == debian/* || $release == ubuntu/* ]]; then tailscale_source=$release; fi
 fi
 [[ -f $SOURCE_DIR/package.json && -f $SOURCE_DIR/package-lock.json ]] || { echo "Run the installer from a pigui checkout." >&2; exit 1; }
-[[ -z $PORT_OPTION || $PORT_OPTION =~ ^[0-9]+$ ]] || { echo "--port must be a number." >&2; exit 2; }
+if [[ -n $PORT_OPTION ]]; then
+	[[ $PORT_OPTION =~ ^[0-9]+$ ]] && ((10#$PORT_OPTION >= 1 && 10#$PORT_OPTION <= 65535)) || { echo "--port must be a number from 1 to 65535." >&2; exit 2; }
+fi
+[[ -z $SPEND_CAP || $SPEND_CAP =~ ^[0-9]+(\.[0-9]+)?$ ]] || { echo "--spend-cap must be a number of dollars." >&2; exit 2; }
 [[ $SPEECH == on || $SPEECH == off ]] || { echo "--speech must be on or off." >&2; exit 2; }
 [[ $MEMORY_LOCAL == on || $MEMORY_LOCAL == off ]] || { echo "--memory-local must be on or off." >&2; exit 2; }
 # Empty keeps the value an earlier install wrote; otherwise the rule pigui applies to PIGUI_MODELS_UNLOAD (deploy/lib.sh).
@@ -178,7 +181,7 @@ else
 fi
 
 step "Install the pigui app into $APP_DIR"
-run rsync -a --delete --exclude .git --exclude node_modules --exclude dist --exclude test-results --exclude models "$SOURCE_DIR/" "$APP_DIR/"
+run rsync -a --delete --exclude .git --exclude node_modules --exclude dist --exclude test-results --exclude models --exclude .env "$SOURCE_DIR/" "$APP_DIR/"
 run sh -c "cd '$APP_DIR' && npm ci --no-audit --no-fund"
 run sh -c "cd '$APP_DIR' && npm run build"
 run chown -R root:root "$APP_DIR"

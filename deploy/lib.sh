@@ -72,8 +72,12 @@ write_file() {
 		printf '%s\n' "$content" | sed 's/^/      | /'
 		return
 	fi
-	install -m "$mode" -o "${owner%%:*}" -g "${owner##*:}" /dev/null "$path"
-	printf '%s\n' "$content" >"$path"
+	# Written to a temporary file and renamed, so a crash mid-write never leaves a truncated file behind.
+	local tmp
+	tmp=$(mktemp "${path}.tmp.XXXXXX")
+	install -m "$mode" -o "${owner%%:*}" -g "${owner##*:}" /dev/null "$tmp"
+	printf '%s\n' "$content" >"$tmp"
+	mv "$tmp" "$path"
 	note "wrote $path"
 }
 
