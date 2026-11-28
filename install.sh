@@ -55,7 +55,7 @@
 #                               remote sandboxed: the agent's read-only token, from FILE (default: this computer's .env)
 #                                                                                       [PIGUI_AGENT_GITHUB_TOKEN_FILE]
 #   --local-full                run only the OnPrem path, without the questions
-#   --uninstall                 with --local-full: stop and remove the service and the app; the data stays
+#   --uninstall                 stop and remove the service and the app; the data stays (implies --local-full)
 #   --dry-run                   show every step without changing anything
 #   -h, --help                  show this help
 #
@@ -198,7 +198,21 @@ done
 [[ $MEMORY_LOCAL == on || $MEMORY_LOCAL == off ]] || { echo "--memory-local must be on or off." >&2; exit 2; }
 [[ $TAILSCALE == on || $TAILSCALE == off ]] || { echo "--tailscale must be on or off." >&2; exit 2; }
 [[ $PORT =~ ^[0-9]+$ ]] && ((PORT >= 1 && PORT <= 65535)) || { echo "--port must be a number from 1 to 65535." >&2; exit 2; }
-[[ $ALLOWED_LOGINS =~ ^[^[:space:]=]*$ ]] || { echo "--allowed-logins takes logins separated by commas, without spaces." >&2; exit 2; }
+# Everything that lands inside a shell command on a server, or a unit file, is checked here: a mistyped value must
+# stop the install before anything changes, not halfway through it. Run again after the questions, which may set them.
+validate_inputs() {
+	[[ $REMOTE == "" || $REMOTE =~ ^[A-Za-z0-9._:-]+$ ]] || { echo "--remote must be a host name or IP address (letters, digits, dots, colons, hyphens)." >&2; exit 2; }
+	[[ $SSH_USER =~ ^[a-z_][a-z0-9_-]*$ ]] || { echo "--ssh-user must be a user name (lowercase letters, digits, _ and -)." >&2; exit 2; }
+	[[ $RUSER =~ ^[a-z_][a-z0-9_-]*$ ]] || { echo "--user must be a user name (lowercase letters, digits, _ and -)." >&2; exit 2; }
+	[[ $REF =~ ^[A-Za-z0-9][A-Za-z0-9._/-]*$ ]] || { echo "--ref must be a branch, tag or commit (letters, digits, . _ / -)." >&2; exit 2; }
+	[[ $HOSTNAME_OPTION =~ ^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$ ]] || { echo "--hostname must be a host name (lowercase letters, digits, hyphens, 63 characters at most)." >&2; exit 2; }
+	[[ -z $TS_AUTHKEY || $TS_AUTHKEY =~ ^[A-Za-z0-9-]+$ ]] || { echo "--tailscale-auth-key must not contain spaces or quotes." >&2; exit 2; }
+	[[ -z $SPEND_CAP || $SPEND_CAP =~ ^[0-9]+(\.[0-9]+)?$ ]] || { echo "--spend-cap must be a number of dollars." >&2; exit 2; }
+	[[ -z $ALLOWED_LOGINS || $ALLOWED_LOGINS =~ ^[^[:space:]=]*$ ]] || { echo "--allowed-logins takes logins separated by commas, without spaces." >&2; exit 2; }
+}
+# --uninstall is the OnPrem path's removal; on its own it means that path, not the decision tree.
+if [[ $UNINSTALL == 1 ]]; then LOCAL_FULL=1; fi
+validate_inputs
 
 # ---- Piped from curl, this script has no checkout around it, so it gets one first and runs the copy in it: the
 # installed app's when there is one (which updates itself to --ref), otherwise a fresh clone of --ref. A dry run or an
@@ -266,8 +280,14 @@ unit_value() { printf '%s' "${1//%/%%}"; }
 if [[ -n $SSH_KEY ]]; then
 	[[ -f $SSH_KEY && -r $SSH_KEY ]] || { echo "--ssh-key: $SSH_KEY is not a readable file." >&2; exit 2; }
 fi
-SSH=${PIGUI_SSH:-${SSH_KEY:+ssh -i $SSH_KEY -o IdentitiesOnly=yes}}
-SSH=${SSH:-ssh}
+# The SSH command as an array, so a key path with spaces stays one word. PIGUI_SSH (a single command, used by the
+# tests) overrides it.
+SSH=(ssh)
+if [[ -n ${PIGUI_SSH:-} ]]; then
+	SSH=("$PIGUI_SSH")
+elif [[ -n $SSH_KEY ]]; then
+	SSH=(ssh -i "$SSH_KEY" -o IdentitiesOnly=yes)
+fi
 ssh_target() { printf '%s@%s' "$SSH_USER" "$REMOTE"; }
 
 # A reachable server with a key already installed, or say what is missing and stop.
@@ -275,7 +295,7 @@ ssh_target() { printf '%s@%s' "$SSH_USER" "$REMOTE"; }
 candidate_keys() {
 	local f
 	for f in "$HOME"/.ssh/id_* "$HOME"/.ssh/*_ed25519 "$HOME"/.ssh/*_rsa "$HOME"/.ssh/*_ecdsa; do
-		[[ -f $f && -r $f && $f != *.pub ]] && grep -q 'PRIVATE KEY' "$f" 2>/dev/null && printf '%s\n' "$f"
+		[[ -f $f && -r $f && $f != *.pub && $f != *[[:space:]\'\"]* ]] && grep -q 'PRIVATE KEY' "$f" 2>/dev/null && printf '%s\n' "$f"
 	done | awk '!seen[$0]++' | head -10
 }
 
@@ -284,7 +304,7 @@ ssh_check() {
 		echo "--remote needs the server's address." >&2
 		exit 2
 	fi
-	if $SSH -o BatchMode=yes -o ConnectTimeout=8 "$(ssh_target)" true 2>/dev/null; then
+	if "${SSH[@]}" -o BatchMode=yes -o ConnectTimeout=8 "$(ssh_target)" true 2>/dev/null; then
 		return 0
 	fi
 	# The default keys and agent did not work. If no key was pinned, try the private keys in ~/.ssh before giving up;
@@ -294,7 +314,7 @@ ssh_check() {
 		while IFS= read -r key; do
 			if ssh -i "$key" -o IdentitiesOnly=yes -o BatchMode=yes -o ConnectTimeout=5 "$(ssh_target)" true 2>/dev/null; then
 				SSH_KEY=$key
-				SSH="ssh -i $key -o IdentitiesOnly=yes"
+				SSH=(ssh -i "$key" -o IdentitiesOnly=yes)
 				echo "Using $key to reach $(ssh_target)."
 				# Remember it, so the next run does not probe again.
 				if [[ $DRY_RUN != 1 && -f $TREE_CONF ]]; then
@@ -380,7 +400,10 @@ ask_yes_no() {
 	fi
 	read_line "${P_CYAN}${prompt}${P_RESET} ${P_DIM}[${default}]${P_RESET} "
 	ANSWER=${ANSWER:-$default}
-	[[ $ANSWER == y || $ANSWER == Y || $ANSWER == yes ]]
+	case "$(printf '%s' "$ANSWER" | tr '[:upper:]' '[:lower:]')" in
+		y | yes | on | 1 | true) return 0 ;;
+		*) return 1 ;;
+	esac
 }
 
 # A numbered choice, asked only on a terminal; otherwise the flag (or the default) stands.
@@ -396,10 +419,15 @@ choose() {
 	for index in "${!options[@]}"; do
 		printf '   %s%d)%s %s\n' "${P_CYAN}" "$((index + 1))" "${P_RESET}" "${options[$index]}" >&2
 	done
-	read_line "${P_DIM}Choose${P_RESET} ${P_DIM}[$((default + 1))]${P_RESET} "
-	ANSWER=${ANSWER:-$((default + 1))}
-	[[ $ANSWER =~ ^[0-9]+$ ]] && ((ANSWER >= 1 && ANSWER <= ${#options[@]})) || { echo "Not a choice: $ANSWER" >&2; exit 2; }
-	printf '%s' "$((ANSWER - 1))"
+	while :; do
+		read_line "${P_DIM}Choose${P_RESET} ${P_DIM}[$((default + 1))]${P_RESET} "
+		ANSWER=${ANSWER:-$((default + 1))}
+		if [[ $ANSWER =~ ^[0-9]+$ ]] && ((ANSWER >= 1 && ANSWER <= ${#options[@]})); then
+			printf '%s' "$((ANSWER - 1))"
+			return
+		fi
+		echo "a number from 1 to ${#options[@]}." >&2
+	done
 }
 
 # ---- The questions, in order: container or not, this computer or a server, then the flags.
@@ -455,8 +483,16 @@ ask_tree() {
 	fi
 	TAILSCALE=$(ask_on_off "Serve pigui to your tailnet (on/off)" "$TAILSCALE")
 	if [[ $TAILSCALE == on ]]; then
-		ALLOWED_LOGINS=$(ask "Tailscale logins allowed in, comma-separated (empty for everyone)" "$ALLOWED_LOGINS")
-		HOSTNAME_OPTION=$(ask "The Tailscale machine name" "$HOSTNAME_OPTION")
+		while :; do
+			ALLOWED_LOGINS=$(ask "Tailscale logins allowed in, comma-separated (empty for everyone)" "$ALLOWED_LOGINS")
+			[[ -z $ALLOWED_LOGINS || $ALLOWED_LOGINS =~ ^[^[:space:]=]*$ ]] && break
+			echo "logins separated by commas, without spaces." >&2
+		done
+		while :; do
+			HOSTNAME_OPTION=$(ask "The Tailscale machine name" "$HOSTNAME_OPTION")
+			[[ $HOSTNAME_OPTION =~ ^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$ ]] && break
+			echo "lowercase letters, digits and hyphens, starting and ending with a letter or digit." >&2
+		done
 	fi
 	# Remember the answers for next time.
 	if [[ $DRY_RUN != 1 ]]; then
@@ -475,6 +511,8 @@ if [[ $LOCAL_FULL == 0 && ( $HAS_TTY == 0 || -n ${PIGUI_ASSUME_YES:-} ) ]]; then
 	[[ $HOW != full || -n $PI_CONFIG ]] || PI_CONFIG=overlap
 	elif [[ $LOCAL_FULL == 0 ]]; then
 	ask_tree
+	# The questions may have set anything the checks above guard (a host name, a login list); check again.
+	validate_inputs
 fi
 [[ $HOW == full && -z $PI_CONFIG ]] && PI_CONFIG=overlap
 [[ $PI_CONFIG == standalone && -z $PI_AGENT_DIR ]] && PI_AGENT_DIR=$ROOT/pi-agent
@@ -569,6 +607,7 @@ run_onprem() {
 		step "Remove the app ($APP)"
 		if [[ -d $APP ]]; then run rm -rf "$APP"; else note "not installed"; fi
 		if [[ -f $CONF ]]; then run rm "$CONF"; fi
+		if [[ -f $TREE_CONF ]]; then run rm "$TREE_CONF"; fi
 		printf '\nYour sessions, database and backups remain in %s, and the logs in %s. Remove %s to delete them too.\n' "$DATA" "$LOGS" "$ROOT"
 		exit 0
 	fi
@@ -886,10 +925,24 @@ EOF
 		note "dry run: would wait for $URL/api/bootstrap"
 	else
 		ready=0
-		for _ in $(seq 1 60); do
+		for tick in $(seq 1 60); do
 			if curl --fail --silent --max-time 2 "http://127.0.0.1:$PORT/api/bootstrap" >/dev/null; then
 				ready=1
 				break
+			fi
+			# If the service died on the way (Pi not signed in, a bad configuration), say so now, not after the minute.
+			if (( tick == 15 )); then
+				if [[ $SYSTEM == macos ]]; then
+					if ! pgrep -f "$APP/src/server/main.ts" >/dev/null; then
+						echo "pigui is not running. Its log says why: $logs" >&2
+						exit 1
+					fi
+				else
+					if [[ $(systemctl ${SCOPE[@]+"${SCOPE[@]}"} is-active "$SERVICE" 2>/dev/null || true) == failed ]]; then
+						echo "pigui failed to start. Its log says why: $logs" >&2
+						exit 1
+					fi
+				fi
 			fi
 			sleep 1
 		done
@@ -956,7 +1009,13 @@ install_local_sandboxed() {
 		if command -v gh >/dev/null && gh auth token >/dev/null 2>&1; then
 			if ask_yes_no "Use this computer's gh token as pigui's own token (GH_TOKEN)?" y; then
 				gh_token=$(gh auth token)
-				[[ $DRY_RUN == 1 ]] || sed -i.bak "s|^GH_TOKEN=.*|GH_TOKEN=$gh_token|" "$env_file" && rm -f "$env_file.bak"
+				if [[ $DRY_RUN != 1 ]]; then
+					if grep -q '^GH_TOKEN=' "$env_file"; then
+						sed -i.bak "s|^GH_TOKEN=.*|GH_TOKEN=$gh_token|" "$env_file" && rm -f "$env_file.bak"
+					else
+						printf 'GH_TOKEN=%s\n' "$gh_token" >>"$env_file"
+					fi
+				fi
 				note "GH_TOKEN set from gh auth token"
 			fi
 		fi
@@ -966,7 +1025,13 @@ install_local_sandboxed() {
 			read_secret "${P_CYAN}The agent's read-only token (AGENT_GH_TOKEN, Contents and Metadata: read), or empty to stop:${P_RESET} "
 			agent_token=$ANSWER
 			if [[ -n $agent_token ]]; then
-				[[ $DRY_RUN == 1 ]] || sed -i.bak "s|^AGENT_GH_TOKEN=.*|AGENT_GH_TOKEN=$agent_token|" "$env_file" && rm -f "$env_file.bak"
+				if [[ $DRY_RUN != 1 ]]; then
+					if grep -q '^AGENT_GH_TOKEN=' "$env_file"; then
+						sed -i.bak "s|^AGENT_GH_TOKEN=.*|AGENT_GH_TOKEN=$agent_token|" "$env_file" && rm -f "$env_file.bak"
+					else
+						printf 'AGENT_GH_TOKEN=%s\n' "$agent_token" >>"$env_file"
+					fi
+				fi
 				note "AGENT_GH_TOKEN set"
 			fi
 		fi
@@ -1015,6 +1080,9 @@ install_remote_sandboxed() {
 	local target
 	target=$(ssh_target)
 
+	[[ -z $GITHUB_TOKEN_FILE || -r $GITHUB_TOKEN_FILE ]] || { echo "Cannot read the GitHub token file $GITHUB_TOKEN_FILE." >&2; exit 2; }
+	[[ -z $AGENT_GITHUB_TOKEN_FILE || -r $AGENT_GITHUB_TOKEN_FILE ]] || { echo "Cannot read the agent's GitHub token file $AGENT_GITHUB_TOKEN_FILE." >&2; exit 2; }
+
 	step "Clone pigui ($REF) on $REMOTE"
 	# A private repository: the server signs in to GitHub first, with this computer's token, so the clone works.
 	local gh_token=${GH_TOKEN:-}
@@ -1025,14 +1093,14 @@ install_remote_sandboxed() {
 		echo "No GitHub token to clone the private repository with: set GH_TOKEN in $SOURCE_DIR/.env, or sign in to gh on this computer." >&2
 		exit 1
 	fi
-	run $SSH "$target" "command -v gh >/dev/null || (apt-get update -qq && DEBIAN_FRONTEND=noninteractive apt-get install -y -qq gh git)"
+	run "${SSH[@]}" "$target" "command -v gh >/dev/null || (apt-get update -qq && DEBIAN_FRONTEND=noninteractive apt-get install -y -qq gh git)"
 	if [[ $DRY_RUN == 1 ]]; then
 		note "[dry run] gh auth login --with-token on $REMOTE (token from this computer)"
 	else
-		printf '%s' "$gh_token" | $SSH "$target" "gh auth status >/dev/null 2>&1 || gh auth login --with-token"
+		printf '%s' "$gh_token" | "${SSH[@]}" "$target" "gh auth status >/dev/null 2>&1 || gh auth login --with-token"
 	fi
-	run $SSH "$target" "gh auth setup-git"
-	run $SSH "$target" "if [ -d /root/pigui-src/.git ]; then git -C /root/pigui-src fetch --quiet origin '$REF' && git -C /root/pigui-src checkout --quiet --detach FETCH_HEAD; else git clone --quiet --branch '$REF' '$REPOSITORY' /root/pigui-src; fi"
+	run "${SSH[@]}" "$target" "gh auth setup-git"
+	run "${SSH[@]}" "$target" "if [ -d /root/pigui-src/.git ]; then git -C /root/pigui-src fetch --quiet origin '$REF' && git -C /root/pigui-src checkout --quiet --detach FETCH_HEAD; else git clone --quiet --branch '$REF' '$REPOSITORY' /root/pigui-src; fi"
 
 	step "Copy the tokens to $REMOTE"
 	local agent_token=${AGENT_GH_TOKEN:-}
@@ -1045,8 +1113,8 @@ install_remote_sandboxed() {
 	if [[ $DRY_RUN == 1 ]]; then
 		note "[dry run] write /root/github-token and /root/agent-github-token on $REMOTE (mode 600)"
 	else
-		printf '%s' "$gh_token" | $SSH "$target" "cat > /root/github-token && chmod 600 /root/github-token"
-		printf '%s' "$agent_token" | $SSH "$target" "cat > /root/agent-github-token && chmod 600 /root/agent-github-token"
+		printf '%s' "$gh_token" | "${SSH[@]}" "$target" "cat > /root/github-token && chmod 600 /root/github-token"
+		printf '%s' "$agent_token" | "${SSH[@]}" "$target" "cat > /root/agent-github-token && chmod 600 /root/agent-github-token"
 	fi
 
 	step "Run the server installer on $REMOTE"
@@ -1058,7 +1126,7 @@ install_remote_sandboxed() {
 	extra+=(--hostname "$HOSTNAME_OPTION" --speech "$SPEECH" --memory-local "$MEMORY_LOCAL" --models-unload "$MODELS_UNLOAD")
 	extra+=(--github-token-file /root/github-token --agent-github-token-file /root/agent-github-token)
 	printf -v extra_quoted '%q ' "${extra[@]}"
-	run $SSH "$target" "bash /root/pigui-src/deploy/install.sh $extra_quoted"
+	run "${SSH[@]}" "$target" "bash /root/pigui-src/deploy/install.sh $extra_quoted"
 
 	printf '\npigui is installing on %s. When it finishes, the steps that need a person are printed there (sign Pi in, open the phone app).\n' "$REMOTE"
 }
@@ -1069,18 +1137,23 @@ install_remote_sandboxed() {
 install_remote_full() {
 	[[ $SSH_USER == root ]] || { echo "The remote paths need root on the server (creating the user and installing packages). Use --ssh-user root." >&2; exit 2; }
 	ssh_check
+	# Overlap needs this computer's Pi configuration; check before anything changes, not after the user exists.
+	if [[ $PI_CONFIG == overlap && ! -d $HOME/.pi/agent ]]; then
+		echo "Overlap shares this computer's Pi configuration, but ~/.pi/agent does not exist. Run pi once and /login, or use --pi-config standalone." >&2
+		exit 1
+	fi
 	local target
 	target=$(ssh_target)
 
 	step "Create the user $RUSER on $REMOTE"
-	run $SSH "$target" "id -u '$RUSER' >/dev/null 2>&1 || useradd -m -s /bin/bash '$RUSER'"
-	run $SSH "$target" "usermod -aG sudo '$RUSER'"
-	run $SSH "$target" "loginctl enable-linger '$RUSER' || true"
+	run "${SSH[@]}" "$target" "id -u '$RUSER' >/dev/null 2>&1 || useradd -m -s /bin/bash '$RUSER'"
+	run "${SSH[@]}" "$target" "usermod -aG sudo '$RUSER'"
+	run "${SSH[@]}" "$target" "loginctl enable-linger '$RUSER' || true"
 
 	step "Install Node.js 22, gh and Tailscale on $REMOTE"
-	run $SSH "$target" "command -v node >/dev/null && node --version | grep -qE '^v(2[2-9]|[3-9][0-9])\.' || (cd /tmp && curl -fsSLO https://nodejs.org/dist/v22.21.1/node-v22.21.1-linux-x64.tar.xz && tar -xJf node-v22.21.1-linux-x64.tar.xz -C /usr/local --strip-components=1 && rm node-v22.21.1-linux-x64.tar.xz)"
-	run $SSH "$target" "DEBIAN_FRONTEND=noninteractive apt-get update -qq && DEBIAN_FRONTEND=noninteractive apt-get install -y -qq git curl ca-certificates gh ripgrep unzip build-essential"
-	run $SSH "$target" "command -v tailscale >/dev/null || curl -fsSL https://tailscale.com/install.sh | sh"
+	run "${SSH[@]}" "$target" "command -v node >/dev/null && node --version | grep -qE '^v(2[2-9]|[3-9][0-9])\.' || (cd /tmp && curl -fsSLO https://nodejs.org/dist/v22.21.1/node-v22.21.1-linux-x64.tar.xz && tar -xJf node-v22.21.1-linux-x64.tar.xz -C /usr/local --strip-components=1 && rm node-v22.21.1-linux-x64.tar.xz)"
+	run "${SSH[@]}" "$target" "DEBIAN_FRONTEND=noninteractive apt-get update -qq && DEBIAN_FRONTEND=noninteractive apt-get install -y -qq git curl ca-certificates gh ripgrep unzip build-essential"
+	run "${SSH[@]}" "$target" "command -v tailscale >/dev/null || curl -fsSL https://tailscale.com/install.sh | sh"
 
 	step "Copy the GitHub credentials to $REMOTE"
 	local gh_token=${GH_TOKEN:-}
@@ -1092,23 +1165,36 @@ install_remote_full() {
 	if [[ $DRY_RUN == 1 ]]; then
 		note "[dry run] gh auth login --with-token as $RUSER on $REMOTE (token from this computer)"
 	else
-		printf '%s' "$gh_token" | $SSH "$target" "sudo -u '$RUSER' gh auth login --with-token && sudo -u '$RUSER' gh auth setup-git"
+		printf '%s' "$gh_token" | "${SSH[@]}" "$target" "sudo -u '$RUSER' gh auth login --with-token && sudo -u '$RUSER' gh auth setup-git"
 	fi
 
 	step "Copy the Pi configuration to $REMOTE ($PI_CONFIG)"
 	if [[ $PI_CONFIG == overlap ]]; then
 		# Sessions and backups stay behind; the sign-in, models, settings and skills cross.
-		run $SSH "$target" "mkdir -p /home/'$RUSER'/.pi && chown '$RUSER':'$RUSER' /home/'$RUSER'/.pi"
-		run bash -c "tar -C '$HOME/.pi' --exclude=sessions --exclude=backups -czf - agent | '$SSH' '$target' \"tar -C /home/'$RUSER'/.pi -xzf - && chown -R '$RUSER':'$RUSER' /home/'$RUSER'/.pi\""
+		note "the two machines share Pi's sign-in; if one refreshes it, the other may need to /login again"
+		run "${SSH[@]}" "$target" "mkdir -p /home/$RUSER/.pi && chown $RUSER:$RUSER /home/$RUSER/.pi"
+		if [[ $DRY_RUN == 1 ]]; then
+			note "[dry run] copy ~/.pi/agent to $target:/home/$RUSER/.pi/agent (without sessions and backups)"
+		else
+			tar -C "$HOME/.pi" --exclude=sessions --exclude=backups -czf - agent | "${SSH[@]}" "$target" "tar -C /home/$RUSER/.pi -xzf - && chown -R $RUSER:$RUSER /home/$RUSER/.pi"
+		fi
 	else
 		# Standalone: the local standalone directory when there is one, else one built from ~/.pi/agent's models.json.
 		if [[ -d $ROOT/pi-agent ]]; then
-			run $SSH "$target" "mkdir -p /home/'$RUSER'/.pigui && chown '$RUSER':'$RUSER' /home/'$RUSER'/.pigui"
-			run bash -c "tar -C '$ROOT' -czf - pi-agent | '$SSH' '$target' \"tar -C /home/'$RUSER'/.pigui -xzf - && chown -R '$RUSER':'$RUSER' /home/'$RUSER'/.pigui\""
+			run "${SSH[@]}" "$target" "mkdir -p /home/$RUSER/.pigui && chown $RUSER:$RUSER /home/$RUSER/.pigui"
+			if [[ $DRY_RUN == 1 ]]; then
+				note "[dry run] copy ~/.pigui/pi-agent to $target:/home/$RUSER/.pigui/pi-agent"
+			else
+				tar -C "$ROOT" -czf - pi-agent | "${SSH[@]}" "$target" "tar -C /home/$RUSER/.pigui -xzf - && chown -R $RUSER:$RUSER /home/$RUSER/.pigui"
+			fi
 		else
-			run $SSH "$target" "mkdir -p /home/'$RUSER'/.pigui/pi-agent && chown -R '$RUSER':'$RUSER' /home/'$RUSER'/.pigui"
+			run "${SSH[@]}" "$target" "mkdir -p /home/$RUSER/.pigui/pi-agent && chown -R $RUSER:$RUSER /home/$RUSER/.pigui"
 			if [[ -f $HOME/.pi/agent/models.json ]]; then
-				run bash -c "tar -C '$HOME/.pi/agent' -czf - models.json | '$SSH' '$target' \"tar -C /home/'$RUSER'/.pigui/pi-agent -xzf - && chmod 600 /home/'$RUSER'/.pigui/pi-agent/models.json && chown -R '$RUSER':'$RUSER' /home/'$RUSER'/.pigui\""
+				if [[ $DRY_RUN == 1 ]]; then
+					note "[dry run] copy ~/.pi/agent/models.json to $target:/home/$RUSER/.pigui/pi-agent/models.json"
+				else
+					tar -C "$HOME/.pi/agent" -czf - models.json | "${SSH[@]}" "$target" "tar -C /home/$RUSER/.pigui/pi-agent -xzf - && chmod 600 /home/$RUSER/.pigui/pi-agent/models.json && chown -R $RUSER:$RUSER /home/$RUSER/.pigui"
+				fi
 			fi
 		fi
 	fi
@@ -1120,11 +1206,11 @@ install_remote_full() {
 			TS_AUTHKEY=$ANSWER
 		fi
 		if [[ -n $TS_AUTHKEY ]]; then
-			run $SSH "$target" "tailscale up --authkey='$TS_AUTHKEY' --hostname='$HOSTNAME_OPTION'"
+			run "${SSH[@]}" "$target" "tailscale up --authkey='$TS_AUTHKEY' --hostname='$HOSTNAME_OPTION'"
 		else
-			run $SSH "$target" "tailscale up --hostname='$HOSTNAME_OPTION'"
+			run "${SSH[@]}" "$target" "tailscale up --hostname='$HOSTNAME_OPTION'"
 		fi
-		run $SSH "$target" "tailscale set --operator='$RUSER'"
+		run "${SSH[@]}" "$target" "tailscale set --operator='$RUSER'"
 	fi
 
 	step "Install pigui on $REMOTE"
@@ -1132,7 +1218,7 @@ install_remote_full() {
 	[[ $PI_CONFIG == standalone ]] && remote_args+=(--pi-config standalone --pi-agent-dir /home/"$RUSER"/.pigui/pi-agent)
 	printf -v remote_quoted '%q ' "${remote_args[@]}"
 	# The script pipes itself to the server, which clones the repository and runs the OnPrem path there as the user.
-	run $SSH "$(printf '%s@%s' "$RUSER" "$REMOTE")" "XDG_RUNTIME_DIR=/run/user/\$(id -u) bash -s -- $remote_quoted" <"$SOURCE_DIR/install.sh"
+	run "${SSH[@]}" "$RUSER@$REMOTE" "XDG_RUNTIME_DIR=/run/user/\$(id -u) bash -s -- $remote_quoted" <"$SOURCE_DIR/install.sh"
 
 	printf '\npigui is installing on %s as %s. When it finishes: https://%s.<tailnet>.ts.net (or http://%s:2025 on the server).\n' "$REMOTE" "$RUSER" "$HOSTNAME_OPTION" "$REMOTE"
 }
