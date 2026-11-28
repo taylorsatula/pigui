@@ -224,7 +224,7 @@ test("the OnPrem installer passes a syntax check, and says how to use it", () =>
 	assert.equal(spawnSync("bash", ["-n", install], { encoding: "utf8" }).status, 0);
 	const help = spawnSync("bash", [install, "--local-full", "--help"], { encoding: "utf8" });
 	assert.equal(help.status, 0);
-	for (const flag of ["--speech on|off", "--memory-local on|off", "--port PORT", "--ref REF", "--tailscale on|off", "--allowed-logins LIST", "--dry-run", "--uninstall", "-h, --help"]) {
+	for (const flag of ["--speech on|off", "--memory-local on|off", "--port PORT", "--ref REF", "--tailscale on|off", "--auto-update on|off", "--allowed-logins LIST", "--dry-run", "--uninstall", "-h, --help"]) {
 		assert.ok(help.stdout.includes(flag), flag);
 	}
 	assert.match(help.stdout, /curl -fsSL https:\/\/raw\.githubusercontent\.com\/taylorsatula\/pigui\/main\/install\.sh \| bash -s --/);
@@ -243,6 +243,7 @@ test("its dry run on macOS writes a LaunchAgent with the login shell's PATH, OnP
 			"Tailscale (off)",
 			"Install the service (LaunchAgent com.github.taylorsatula.pigui)",
 			"Start (or restart) pigui",
+			"Automatic updates (on)",
 		]);
 		assert.doesNotMatch(run.stdout, /^ {3}\$ /m, "every command that would change something is shown, not run");
 		const app = join(run.home, ".pigui", "app");
@@ -261,6 +262,10 @@ test("its dry run on macOS writes a LaunchAgent with the login shell's PATH, OnP
 		assert.ok(written.includes("<key>RunAtLoad</key>\n\t<true/>") && written.includes("<key>KeepAlive</key>\n\t<true/>"));
 		assert.ok(written.includes(`<key>StandardErrorPath</key>\n\t<string>${run.home}/.pigui/logs/pigui.log</string>`));
 		assert.match(run.stdout, new RegExp(`\\[dry run\\] launchctl bootstrap gui/1000 ${plist}$`, "m"));
+		const updaterPlist = join(run.home, "Library", "LaunchAgents", "com.github.taylorsatula.pigui.updater.plist");
+		assert.ok(run.stdout.includes(`[dry run] write ${updaterPlist} (mode 0644`), run.stdout);
+		assert.ok(run.stdout.includes("<integer>86400</integer>"), "updater runs every 24 hours");
+		assert.match(run.stdout, new RegExp(`\\[dry run\\] launchctl bootstrap gui/1000 ${updaterPlist}$`, "m"));
 		assert.match(run.stdout, /would run at http:\/\/localhost:4100/);
 		assert.match(run.stdout, /Full Disk Access/);
 		assert.match(run.stdout, /\[dry run\] open http:\/\/localhost:4100$/m);
@@ -274,7 +279,11 @@ test("its dry run on Linux writes a systemd user unit, and maps the model flags 
 	const run = onPremDryRun("Linux", ["--speech", "off", "--memory-local", "on", "--ref", "v2.0"]);
 	try {
 		assert.equal(run.status, 0, run.stderr);
-		assert.equal(stepsOf(run.stdout).at(-2), "Install the service (systemd user unit pigui.service)");
+		assert.equal(stepsOf(run.stdout).at(-3), "Install the service (systemd user unit pigui.service)");
+		assert.equal(stepsOf(run.stdout).at(-1), "Automatic updates (on)");
+		assert.ok(run.stdout.includes("pigui-update.timer"));
+		assert.ok(run.stdout.includes("| OnCalendar=daily\n"));
+		assert.match(run.stdout, /\[dry run\] systemctl --user enable --now pigui-update\.timer$/m);
 		assert.match(run.stdout, /fetch --quiet origin v2\.0$/m);
 		assert.match(run.stdout, /^== \d+\. Install the local models \(speech off, memory on\)$/m);
 		assert.match(run.stdout, /\/deploy\/models\.sh \S+\/models memory$/m);
@@ -314,6 +323,7 @@ test("its dry run refuses flags it cannot use, and an uninstall removes the serv
 		[["--port", "http"], /--port must be a number/],
 		[["--port", "70000"], /--port must be a number/],
 		[["--tailscale", "yes"], /--tailscale must be on or off/],
+		[["--auto-update", "maybe"], /--auto-update must be on or off/],
 		[["--allowed-logins", "a@b.c, d@e.f"], /--allowed-logins takes logins separated by commas/],
 		[["--sandbox", "on"], /Unknown option: --sandbox/],
 	] as const) {
@@ -329,11 +339,22 @@ test("its dry run refuses flags it cannot use, and an uninstall removes the serv
 			const service = system === "Darwin" ? join(home, "Library", "LaunchAgents", "com.github.taylorsatula.pigui.plist") : join(home, ".config", "systemd", "user", "pigui.service");
 			mkdirSync(join(service, ".."), { recursive: true });
 			writeFileSync(service, "installed\n");
+			if (system === "Darwin") {
+				writeFileSync(join(home, "Library", "LaunchAgents", "com.github.taylorsatula.pigui.updater.plist"), "installed\n");
+			} else {
+				writeFileSync(join(home, ".config", "systemd", "user", "pigui-update.service"), "installed\n");
+				writeFileSync(join(home, ".config", "systemd", "user", "pigui-update.timer"), "installed\n");
+			}
 		} });
 		try {
 			assert.equal(run.status, 0, run.stderr);
 			assert.deepEqual(stepsOf(run.stdout), ["Stop and remove the service", `Remove the app (${run.home}/.pigui/app)`]);
-			if (system === "Linux") assert.match(run.stdout, /\[dry run\] systemctl --user disable --now pigui\.service$/m);
+			if (system === "Linux") {
+				assert.match(run.stdout, /\[dry run\] systemctl --user disable --now pigui-update\.timer$/m);
+				assert.match(run.stdout, /\[dry run\] systemctl --user disable --now pigui\.service$/m);
+			} else {
+				assert.match(run.stdout, /\[dry run\] rm \S+\/Library\/LaunchAgents\/com\.github\.taylorsatula\.pigui\.updater\.plist$/m);
+			}
 			assert.match(run.stdout, system === "Darwin" ? /\[dry run\] rm \S+\/Library\/LaunchAgents\/com\.github\.taylorsatula\.pigui\.plist$/m : /\[dry run\] rm \S+\/systemd\/user\/pigui\.service$/m);
 			assert.match(run.stdout, /\[dry run\] rm -rf \S+\/\.pigui\/app$/m);
 			assert.doesNotMatch(run.stdout, /rm -rf \S+\/\.pigui\/data/);
@@ -397,12 +418,15 @@ test("a run with no options keeps the last install's choices, and turning Tailsc
 	} finally {
 		rmSync(again.home, { recursive: true, force: true });
 	}
-	const off = onPremDryRun("Linux", ["--tailscale", "off"], { prepare: remembered, tailscale: { name: "box.tail1234.ts.net", servedTo: "http://127.0.0.1:4100" } });
+	const off = onPremDryRun("Linux", ["--tailscale", "off", "--auto-update", "off"], { prepare: remembered, tailscale: { name: "box.tail1234.ts.net", servedTo: "http://127.0.0.1:4100" } });
 	try {
 		assert.equal(off.status, 0, off.stderr);
 		assert.match(off.stdout, /\[dry run\] \S+\/tailscale serve --https=443 off$/m);
 		assert.doesNotMatch(off.stdout, /PIGUI_ALLOWED_HOSTS/);
 		assert.ok(off.stdout.includes("| TAILSCALE=off\n"));
+		assert.ok(off.stdout.includes("| AUTO_UPDATE=off\n"));
+		assert.match(off.stdout, /^== \d+\. Automatic updates \(off\)$/m);
+		assert.doesNotMatch(off.stdout, /enable --now pigui-update\.timer/);
 	} finally {
 		rmSync(off.home, { recursive: true, force: true });
 	}
@@ -430,6 +454,9 @@ test("as root on a Linux server it installs what it needs, joins the tailnet, an
 		assert.match(fresh.stdout, /\[dry run\] \S+\/tailscale up --auth-key=tskey-auth-123$/m);
 		assert.doesNotMatch(fresh.stdout, /systemd's user instance/);
 		assert.ok(steps.includes("Install the service (systemd system unit pigui-onprem.service)"));
+		assert.ok(steps.includes("Automatic updates (on)"));
+		assert.ok(fresh.stdout.includes("[dry run] write /etc/systemd/system/pigui-onprem-update.timer (mode 0644, owner root:root):"));
+		assert.match(fresh.stdout, /\[dry run\] systemctl enable --now pigui-onprem-update\.timer$/m);
 		assert.ok(fresh.stdout.includes("[dry run] write /etc/systemd/system/pigui-onprem.service (mode 0644, owner root:root):"));
 		assert.ok(fresh.stdout.includes("| Wants=network-online.target\n      | After=network-online.target tailscaled.service\n"));
 		assert.ok(fresh.stdout.includes("| WantedBy=multi-user.target\n"));

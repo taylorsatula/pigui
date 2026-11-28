@@ -114,6 +114,7 @@ test("remote full: creates the user, copies the credentials, installs OnPrem ove
 		assert.match(run.stdout, /useradd -m -s \/bin\/bash 'taylor'/);
 		assert.match(run.stdout, /--pi-agent-dir \/home\/taylor\/\.pigui\/pi-agent/);
 		assert.match(run.stdout, /--models-unload never/);
+		assert.match(run.stdout, /--auto-update on/);
 		assert.doesNotMatch(run.stdout, /test-gh-token/, "the token is piped, never printed");
 	} finally {
 		rmSync(run.home, { recursive: true, force: true });
@@ -186,10 +187,10 @@ test("the OnPrem shim runs install.sh's OnPrem path", () => {
 });
 
 // Through a pty, as `curl ... | bash -s --` runs it: stdin is the pipe, and the questions are asked on the
-// terminal instead. Answers: full access, this computer, then the defaults, then yes to proceed.
+// terminal instead. Answers: full access, this computer, then the defaults (including auto-update), then yes to proceed.
 const ptyRun = (env: NodeJS.ProcessEnv = {}) => {
 	const home = realpathSync(mkdtempSync(join(tmpdir(), "pigui-install-pty-")));
-	const answers = ["2", "1", "", "", "", "", "", "", "y"].join("\n") + "\n";
+	const answers = ["2", "1", "", "", "", "", "", "", "", "y"].join("\n") + "\n";
 	const result = spawnSync("script", ["-qec", `bash ${install} --dry-run`, "/dev/null"], {
 		encoding: "utf8",
 		input: answers,

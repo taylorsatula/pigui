@@ -45,6 +45,7 @@
 #   --port PORT                 local full: the localhost port (default 2025)                         [PIGUI_PORT]
 #   --hostname NAME             the Tailscale machine name (default pigui)                           [PIGUI_TS_HOSTNAME]
 #   --tailscale on|off          serve pigui to your tailnet (default off)                           [PIGUI_TAILSCALE]
+#   --auto-update on|off        check origin/<REF> every 24 hours and pull updates (default on)     [PIGUI_AUTO_UPDATE]
 #   --allowed-logins LIST       comma-separated Tailscale logins allowed in through the tailnet       [PIGUI_ALLOWED_LOGINS]
 #   --tailscale-auth-key KEY    join the tailnet without a browser login                  [TS_AUTHKEY]
 #   --push-subject URL          remote sandboxed: mailto: or https: contact for push services        [PIGUI_PUSH_SUBJECT]
@@ -71,6 +72,7 @@ DATA=$ROOT/data
 LOGS=$ROOT/logs
 readonly NODE_MINIMUM=22.19.0
 readonly LABEL=com.github.taylorsatula.pigui
+readonly UPDATER_LABEL=com.github.taylorsatula.pigui.updater
 CONF=$ROOT/onprem.conf
 TREE_CONF=$ROOT/install.conf
 
@@ -109,6 +111,7 @@ MODELS_UNLOAD=${PIGUI_MODELS_UNLOAD:-}
 PORT=${PIGUI_PORT:-}
 REF=${PIGUI_REF:-}
 TAILSCALE=${PIGUI_TAILSCALE:-}
+AUTO_UPDATE=${PIGUI_AUTO_UPDATE:-}
 ALLOWED_LOGINS=${PIGUI_ALLOWED_LOGINS:-}
 TS_AUTHKEY=${TS_AUTHKEY:-}
 PUSH_SUBJECT=${PIGUI_PUSH_SUBJECT:-}
@@ -133,21 +136,21 @@ norm_on_off() {
 if [[ -f $TREE_CONF ]]; then
 	while IFS='=' read -r key value; do
 		case $key in
-			WHERE | REMOTE | SSH_USER | SSH_KEY | HOW | PI_CONFIG | PI_AGENT_DIR | RUSER | REF | SPEECH | MEMORY_LOCAL | MODELS_UNLOAD | PORT | TAILSCALE | ALLOWED_LOGINS | HOSTNAME_OPTION) [[ -z ${!key:-} ]] && printf -v "$key" '%s' "$value" ;;
+			WHERE | REMOTE | SSH_USER | SSH_KEY | HOW | PI_CONFIG | PI_AGENT_DIR | RUSER | REF | SPEECH | MEMORY_LOCAL | MODELS_UNLOAD | PORT | TAILSCALE | AUTO_UPDATE | ALLOWED_LOGINS | HOSTNAME_OPTION) [[ -z ${!key:-} ]] && printf -v "$key" '%s' "$value" ;;
 		esac
 	done <"$TREE_CONF"
 fi
 if [[ -f $CONF ]]; then
 	while IFS='=' read -r key value; do
 		case $key in
-			SPEECH | MEMORY_LOCAL | MODELS_UNLOAD | PORT | REF | TAILSCALE | ALLOWED_LOGINS | PI_AGENT_DIR) [[ -z ${!key:-} ]] && printf -v "$key" '%s' "$value" ;;
+			SPEECH | MEMORY_LOCAL | MODELS_UNLOAD | PORT | REF | TAILSCALE | AUTO_UPDATE | ALLOWED_LOGINS | PI_AGENT_DIR) [[ -z ${!key:-} ]] && printf -v "$key" '%s' "$value" ;;
 		esac
 	done <"$CONF"
 fi
 # What neither the environment nor the saved choices set, the defaults do.
-: "${SSH_USER:=root}" "${RUSER:=taylor}" "${SPEECH:=on}" "${MEMORY_LOCAL:=off}" "${MODELS_UNLOAD:=never}" "${PORT:=2025}" "${REF:=main}" "${TAILSCALE:=off}" "${HOSTNAME_OPTION:=pigui}"
+: "${SSH_USER:=root}" "${RUSER:=taylor}" "${SPEECH:=on}" "${MEMORY_LOCAL:=off}" "${MODELS_UNLOAD:=never}" "${PORT:=2025}" "${REF:=main}" "${TAILSCALE:=off}" "${AUTO_UPDATE:=on}" "${HOSTNAME_OPTION:=pigui}"
 # on/off answers may arrive as yes/no/y/n/1/0 (an older saved choice, the environment, a flag); read them as on/off.
-for key in SPEECH MEMORY_LOCAL TAILSCALE; do
+for key in SPEECH MEMORY_LOCAL TAILSCALE AUTO_UPDATE; do
 	if ! norm_on_off "${!key}" >/dev/null; then
 		echo "$key must be on or off (got: ${!key})." >&2
 		exit 2
@@ -174,6 +177,7 @@ while [[ $# -gt 0 ]]; do
 		--port) PORT=${2:?--port needs a number}; shift ;;
 		--hostname) HOSTNAME_OPTION=${2:?--hostname needs a name}; shift ;;
 		--tailscale) TAILSCALE=${2:?--tailscale needs on or off}; shift ;;
+		--auto-update) AUTO_UPDATE=${2:?--auto-update needs on or off}; shift ;;
 		--allowed-logins) ALLOWED_LOGINS=${2?--allowed-logins needs a list, or '' for everyone on the tailnet}; shift ;;
 		--tailscale-auth-key) TS_AUTHKEY=${2:?--tailscale-auth-key needs a key}; shift ;;
 		--push-subject) PUSH_SUBJECT=${2:?--push-subject needs a URL}; shift ;;
@@ -197,6 +201,7 @@ done
 [[ $SPEECH == on || $SPEECH == off ]] || { echo "--speech must be on or off." >&2; exit 2; }
 [[ $MEMORY_LOCAL == on || $MEMORY_LOCAL == off ]] || { echo "--memory-local must be on or off." >&2; exit 2; }
 [[ $TAILSCALE == on || $TAILSCALE == off ]] || { echo "--tailscale must be on or off." >&2; exit 2; }
+[[ $AUTO_UPDATE == on || $AUTO_UPDATE == off ]] || { echo "--auto-update must be on or off." >&2; exit 2; }
 [[ $PORT =~ ^[0-9]+$ ]] && ((PORT >= 1 && PORT <= 65535)) || { echo "--port must be a number from 1 to 65535." >&2; exit 2; }
 # Everything that lands inside a shell command on a server, or a unit file, is checked here: a mistyped value must
 # stop the install before anything changes, not halfway through it. Run again after the questions, which may set them.
@@ -494,12 +499,15 @@ ask_tree() {
 			echo "lowercase letters, digits and hyphens, starting and ending with a letter or digit." >&2
 		done
 	fi
+	if [[ $HOW == full ]]; then
+		AUTO_UPDATE=$(ask_on_off "Check for pigui updates every 24 hours (on/off)" "$AUTO_UPDATE")
+	fi
 	# Remember the answers for next time.
 	if [[ $DRY_RUN != 1 ]]; then
 		mkdir -p "$ROOT"
 		{
-			printf 'WHERE=%s\nREMOTE=%s\nSSH_USER=%s\nSSH_KEY=%s\nHOW=%s\nPI_CONFIG=%s\nPI_AGENT_DIR=%s\nRUSER=%s\nREF=%s\nSPEECH=%s\nMEMORY_LOCAL=%s\nMODELS_UNLOAD=%s\nPORT=%s\nTAILSCALE=%s\nALLOWED_LOGINS=%s\nHOSTNAME_OPTION=%s\n' \
-				"$WHERE" "$REMOTE" "$SSH_USER" "$SSH_KEY" "$HOW" "$PI_CONFIG" "$PI_AGENT_DIR" "$RUSER" "$REF" "$SPEECH" "$MEMORY_LOCAL" "$MODELS_UNLOAD" "$PORT" "$TAILSCALE" "$ALLOWED_LOGINS" "$HOSTNAME_OPTION" >"$TREE_CONF"
+			printf 'WHERE=%s\nREMOTE=%s\nSSH_USER=%s\nSSH_KEY=%s\nHOW=%s\nPI_CONFIG=%s\nPI_AGENT_DIR=%s\nRUSER=%s\nREF=%s\nSPEECH=%s\nMEMORY_LOCAL=%s\nMODELS_UNLOAD=%s\nPORT=%s\nTAILSCALE=%s\nAUTO_UPDATE=%s\nALLOWED_LOGINS=%s\nHOSTNAME_OPTION=%s\n' \
+				"$WHERE" "$REMOTE" "$SSH_USER" "$SSH_KEY" "$HOW" "$PI_CONFIG" "$PI_AGENT_DIR" "$RUSER" "$REF" "$SPEECH" "$MEMORY_LOCAL" "$MODELS_UNLOAD" "$PORT" "$TAILSCALE" "$AUTO_UPDATE" "$ALLOWED_LOGINS" "$HOSTNAME_OPTION" >"$TREE_CONF"
 		}
 	fi
 }
@@ -533,15 +541,24 @@ run_onprem() {
 		*) echo "pigui OnPrem runs on macOS and Linux; this is $(uname -s)." >&2; exit 1 ;;
 	esac
 	PLIST=$HOME/Library/LaunchAgents/$LABEL.plist
+	UPDATER_PLIST=$HOME/Library/LaunchAgents/$UPDATER_LABEL.plist
 	# A user's own unit; as root, a system unit, named apart from the server installer's pigui.service.
 	if [[ $AS_ROOT == 1 ]]; then
 		SERVICE=pigui-onprem.service
 		UNIT=/etc/systemd/system/$SERVICE
+		UPDATER_SERVICE=pigui-onprem-update.service
+		UPDATER_TIMER=pigui-onprem-update.timer
+		UPDATER_UNIT=/etc/systemd/system/$UPDATER_SERVICE
+		UPDATER_TIMER_UNIT=/etc/systemd/system/$UPDATER_TIMER
 		SCOPE=()
 		LOG_COMMAND="journalctl -u pigui-onprem"
 	else
 		SERVICE=pigui.service
 		UNIT=${XDG_CONFIG_HOME:-$HOME/.config}/systemd/user/$SERVICE
+		UPDATER_SERVICE=pigui-update.service
+		UPDATER_TIMER=pigui-update.timer
+		UPDATER_UNIT=${XDG_CONFIG_HOME:-$HOME/.config}/systemd/user/$UPDATER_SERVICE
+		UPDATER_TIMER_UNIT=${XDG_CONFIG_HOME:-$HOME/.config}/systemd/user/$UPDATER_TIMER
 		SCOPE=(--user)
 		LOG_COMMAND="journalctl --user -u pigui"
 	fi
@@ -549,18 +566,19 @@ run_onprem() {
 	OWNER=$(id -un):$(id -gn)
 	URL=http://localhost:$PORT
 
-	launch_agent_loaded() { launchctl print "$DOMAIN/$LABEL" >/dev/null 2>&1; }
+	launch_agent_loaded() { launchctl print "$DOMAIN/$1" >/dev/null 2>&1; }
 
 	# launchd unloads in the background; loading again before it has finished fails.
 	stop_launch_agent() {
-		launch_agent_loaded || return 0
-		run launchctl bootout "$DOMAIN/$LABEL"
+		local target_label=${1:-$LABEL}
+		launch_agent_loaded "$target_label" || return 0
+		run launchctl bootout "$DOMAIN/$target_label"
 		[[ $DRY_RUN == 1 ]] && return 0
 		for _ in $(seq 1 20); do
-			launch_agent_loaded || return 0
+			launch_agent_loaded "$target_label" || return 0
 			sleep 0.5
 		done
-		echo "launchd did not stop $LABEL; try again in a moment." >&2
+		echo "launchd did not stop $target_label; try again in a moment." >&2
 		exit 1
 	}
 
@@ -587,14 +605,26 @@ run_onprem() {
 	if [[ $UNINSTALL == 1 ]]; then
 		step "Stop and remove the service"
 		if [[ $SYSTEM == macos ]]; then
-			stop_launch_agent
+			stop_launch_agent "$LABEL"
 			if [[ -f $PLIST ]]; then run rm "$PLIST"; else note "no LaunchAgent at $PLIST"; fi
-		elif [[ -f $UNIT ]]; then
-			run systemctl ${SCOPE[@]+"${SCOPE[@]}"} disable --now "$SERVICE"
-			run rm "$UNIT"
-			run systemctl ${SCOPE[@]+"${SCOPE[@]}"} daemon-reload
+			stop_launch_agent "$UPDATER_LABEL"
+			if [[ -f $UPDATER_PLIST ]]; then run rm "$UPDATER_PLIST"; fi
 		else
-			note "no systemd unit at $UNIT"
+			local reload=0
+			if [[ -f $UPDATER_TIMER_UNIT || -f $UPDATER_UNIT ]]; then
+				run systemctl ${SCOPE[@]+"${SCOPE[@]}"} disable --now "$UPDATER_TIMER"
+				[[ -f $UPDATER_TIMER_UNIT ]] && run rm "$UPDATER_TIMER_UNIT"
+				[[ -f $UPDATER_UNIT ]] && run rm "$UPDATER_UNIT"
+				reload=1
+			fi
+			if [[ -f $UNIT ]]; then
+				run systemctl ${SCOPE[@]+"${SCOPE[@]}"} disable --now "$SERVICE"
+				run rm "$UNIT"
+				reload=1
+			else
+				note "no systemd unit at $UNIT"
+			fi
+			[[ $reload == 1 ]] && run systemctl ${SCOPE[@]+"${SCOPE[@]}"} daemon-reload
 		fi
 		TS=$(tailscale_cli || true)
 		if [[ -n $TS ]] && command -v node >/dev/null; then
@@ -961,7 +991,101 @@ REF=$REF
 TAILSCALE=$TAILSCALE
 ALLOWED_LOGINS=$ALLOWED_LOGINS
 PI_AGENT_DIR=$PI_AGENT_DIR
+AUTO_UPDATE=$AUTO_UPDATE
 EOF
+
+	# ---- Daily self-update check: pulls origin/<REF>, rebuilds, restarts, and rolls back if health check fails.
+	step "Automatic updates ($AUTO_UPDATE)"
+	if [[ $AUTO_UPDATE == on ]]; then
+		if [[ $SYSTEM == macos ]]; then
+			run mkdir -p "$(dirname "$UPDATER_PLIST")"
+			write_file "$UPDATER_PLIST" 0644 "$OWNER" <<EOF
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>Label</key>
+	<string>$UPDATER_LABEL</string>
+	<key>ProgramArguments</key>
+	<array>
+		<string>/bin/bash</string>
+		<string>$(xml "$APP/deploy/update.sh")</string>
+	</array>
+	<key>WorkingDirectory</key>
+	<string>$(xml "$APP")</string>
+	<key>EnvironmentVariables</key>
+	<dict>
+		<key>PATH</key>
+		<string>$(xml "$SERVICE_PATH")</string>
+		<key>HOME</key>
+		<string>$(xml "$HOME")</string>
+		<key>PIGUI_ROOT</key>
+		<string>$(xml "$ROOT")</string>
+		<key>PIGUI_APP_DIR</key>
+		<string>$(xml "$APP")</string>
+		<key>PIGUI_CONF</key>
+		<string>$(xml "$CONF")</string>
+	</dict>
+	<key>StartInterval</key>
+	<integer>86400</integer>
+	<key>StandardOutPath</key>
+	<string>$(xml "$LOGS/update.log")</string>
+	<key>StandardErrorPath</key>
+	<string>$(xml "$LOGS/update.log")</string>
+</dict>
+</plist>
+EOF
+			stop_launch_agent "$UPDATER_LABEL"
+			run launchctl bootstrap "$DOMAIN" "$UPDATER_PLIST"
+			note "checks origin/$REF every 24 hours (log: $LOGS/update.log)"
+		else
+			run mkdir -p "$(dirname "$UPDATER_UNIT")"
+			write_file "$UPDATER_UNIT" 0644 "$OWNER" <<EOF
+[Unit]
+Description=Check for pigui updates on origin/$REF
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=$(unit_value "$APP")
+Environment="PATH=$(unit_value "$SERVICE_PATH")"
+Environment="PIGUI_ROOT=$(unit_value "$ROOT")"
+Environment="PIGUI_APP_DIR=$(unit_value "$APP")"
+Environment="PIGUI_CONF=$(unit_value "$CONF")"
+ExecStart=/bin/bash "$(unit_value "$APP/deploy/update.sh")"
+EOF
+			write_file "$UPDATER_TIMER_UNIT" 0644 "$OWNER" <<EOF
+[Unit]
+Description=Check for pigui updates daily
+
+[Timer]
+OnCalendar=daily
+RandomizedDelaySec=15m
+Persistent=true
+
+[Install]
+WantedBy=timers.target
+EOF
+			run systemctl ${SCOPE[@]+"${SCOPE[@]}"} daemon-reload
+			run systemctl ${SCOPE[@]+"${SCOPE[@]}"} enable --now "$UPDATER_TIMER"
+			note "checks origin/$REF every 24 hours ($UPDATER_TIMER)"
+		fi
+	else
+		if [[ $SYSTEM == macos ]]; then
+			stop_launch_agent "$UPDATER_LABEL"
+			if [[ -f $UPDATER_PLIST ]]; then run rm "$UPDATER_PLIST"; else note "off: run this script again to update manually"; fi
+		else
+			if [[ -f $UPDATER_TIMER_UNIT || -f $UPDATER_UNIT ]]; then
+				run systemctl ${SCOPE[@]+"${SCOPE[@]}"} disable --now "$UPDATER_TIMER"
+				[[ -f $UPDATER_TIMER_UNIT ]] && run rm "$UPDATER_TIMER_UNIT"
+				[[ -f $UPDATER_UNIT ]] && run rm "$UPDATER_UNIT"
+				run systemctl ${SCOPE[@]+"${SCOPE[@]}"} daemon-reload
+			else
+				note "off: run this script again to update manually"
+			fi
+		fi
+	fi
 
 	printf '\npigui OnPrem %s at %s\n' "$([[ $DRY_RUN == 1 ]] && echo "would run" || echo "is running")" "$URL"
 	if [[ -n $TS_NAME ]]; then
@@ -1214,7 +1338,7 @@ install_remote_full() {
 	fi
 
 	step "Install pigui on $REMOTE"
-	local remote_args=(--local-full --ref "$REF" --speech "$SPEECH" --memory-local "$MEMORY_LOCAL" --models-unload "$MODELS_UNLOAD" --tailscale "$TAILSCALE" --allowed-logins "$ALLOWED_LOGINS" --hostname "$HOSTNAME_OPTION")
+	local remote_args=(--local-full --ref "$REF" --speech "$SPEECH" --memory-local "$MEMORY_LOCAL" --models-unload "$MODELS_UNLOAD" --tailscale "$TAILSCALE" --auto-update "$AUTO_UPDATE" --allowed-logins "$ALLOWED_LOGINS" --hostname "$HOSTNAME_OPTION")
 	[[ $PI_CONFIG == standalone ]] && remote_args+=(--pi-config standalone --pi-agent-dir /home/"$RUSER"/.pigui/pi-agent)
 	printf -v remote_quoted '%q ' "${remote_args[@]}"
 	# The script pipes itself to the server, which clones the repository and runs the OnPrem path there as the user.
@@ -1246,6 +1370,7 @@ if [[ $LOCAL_FULL == 0 && $HAS_TTY == 1 && -z ${PIGUI_ASSUME_YES:-} ]]; then
 	else
 		info "$(printf '%-10s %s' 'Tailscale' 'off')"
 	fi
+	if [[ $HOW == full ]]; then info "$(printf '%-10s %s' 'Updates' "$AUTO_UPDATE (check origin/$REF every 24 hours)")"; fi
 	if [[ $HOW == full && $WHERE == local ]]; then info "$(printf '%-10s %s' 'Port' "$PORT")"; fi
 	if [[ $HOW == full && $WHERE == remote ]]; then info "$(printf '%-10s %s' 'User' "$RUSER")"; fi
 	read_line "${P_CYAN}Proceed with the install?${P_RESET} ${P_DIM}[Y/n]${P_RESET} "
