@@ -117,6 +117,17 @@ GITHUB_TOKEN_FILE=${PIGUI_GITHUB_TOKEN_FILE:-}
 AGENT_GITHUB_TOKEN_FILE=${PIGUI_AGENT_GITHUB_TOKEN_FILE:-}
 HOSTNAME_OPTION=${PIGUI_TS_HOSTNAME:-}
 
+# A yes/no-ish answer as on or off. Returns 1 when it is not one.
+norm_on_off() {
+	local v
+	v=$(printf '%s' "$1" | tr '[:upper:]' '[:lower:]')
+	case $v in
+		on|y|yes|1|true) printf 'on' ;;
+		off|n|no|0|false) printf 'off' ;;
+		*) return 1 ;;
+	esac
+}
+
 # The last install's choices, as defaults the options below override. Read as plain values, never run.
 # The saved choices fill what the environment did not set; the flags fill what neither did.
 if [[ -f $TREE_CONF ]]; then
@@ -135,6 +146,14 @@ if [[ -f $CONF ]]; then
 fi
 # What neither the environment nor the saved choices set, the defaults do.
 : "${SSH_USER:=root}" "${RUSER:=taylor}" "${SPEECH:=on}" "${MEMORY_LOCAL:=off}" "${MODELS_UNLOAD:=never}" "${PORT:=2025}" "${REF:=main}" "${TAILSCALE:=off}" "${HOSTNAME_OPTION:=pigui}"
+# on/off answers may arrive as yes/no/y/n/1/0 (an older saved choice, the environment, a flag); read them as on/off.
+for key in SPEECH MEMORY_LOCAL TAILSCALE; do
+	if ! norm_on_off "${!key}" >/dev/null; then
+		echo "$key must be on or off (got: ${!key})." >&2
+		exit 2
+	fi
+	printf -v "$key" '%s' "$(norm_on_off "${!key}")"
+done
 
 usage() { sed -n '2,/^#   -h/p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; }
 
@@ -190,7 +209,11 @@ if [[ -n ${BASH_SOURCE[0]:-} && -f $(dirname "${BASH_SOURCE[0]}")/deploy/lib.sh 
 fi
 if [[ -z $SOURCE_DIR ]]; then
 	command -v git >/dev/null || { echo "pigui needs git. macOS: xcode-select --install. Linux: your package manager, for example sudo apt install git." >&2; exit 1; }
-	if [[ -d $APP/.git ]]; then exec bash "$APP/install.sh" ${ARGS[@]+"${ARGS[@]}"}; fi
+	if [[ -d $APP/.git ]]; then
+		# The installed copy may be older than this one; hand it the terminal so its questions can be asked.
+		if ( : </dev/tty ) 2>/dev/null; then exec bash "$APP/install.sh" ${ARGS[@]+"${ARGS[@]}"} </dev/tty; fi
+		exec bash "$APP/install.sh" ${ARGS[@]+"${ARGS[@]}"}
+	fi
 	if [[ $DRY_RUN == 1 || $UNINSTALL == 1 ]]; then
 		scratch=$(mktemp -d)
 		trap 'rm -rf "$scratch"' EXIT
@@ -203,6 +226,7 @@ if [[ -z $SOURCE_DIR ]]; then
 	fi
 	mkdir -p "$ROOT"
 	git clone --quiet "$REPOSITORY" "$APP"
+	if ( : </dev/tty ) 2>/dev/null; then exec bash "$APP/install.sh" ${ARGS[@]+"${ARGS[@]}"} </dev/tty; fi
 	exec bash "$APP/install.sh" ${ARGS[@]+"${ARGS[@]}"}
 fi
 
@@ -330,6 +354,23 @@ ask() {
 	printf '%s' "${ANSWER:-$default}"
 }
 
+# An on/off question with a default, asked only on a terminal; otherwise the flag (or the default) stands.
+ask_on_off() {
+	local prompt=$1 default=$2
+	if [[ $HAS_TTY == 0 ]]; then
+		printf '%s' "$default"
+		return
+	fi
+	while :; do
+		read_line "${P_CYAN}${prompt}${P_RESET} ${P_DIM}[${default}]${P_RESET} "
+		if norm_on_off "${ANSWER:-$default}" >/dev/null; then
+			norm_on_off "${ANSWER:-$default}"
+			return
+		fi
+		echo "on or off." >&2
+	done
+}
+
 # A yes/no question with a default, asked only on a terminal.
 ask_yes_no() {
 	local prompt=$1 default=$2
@@ -394,13 +435,17 @@ ask_tree() {
 	fi
 	# 4. The flags, each with its default.
 	if [[ $HOW == full && $WHERE == local ]]; then
-		PORT=$(ask "The localhost port" "$PORT")
+		while :; do
+			PORT=$(ask "The localhost port" "$PORT")
+			[[ $PORT =~ ^[0-9]+$ ]] && ((PORT >= 1 && PORT <= 65535)) && break
+			echo "a number from 1 to 65535." >&2
+		done
 	fi
 	if [[ $HOW == full && $WHERE == remote ]]; then
 		RUSER=$(ask "The user to create and run pigui as" "$RUSER")
 	fi
-	SPEECH=$(ask "Read replies aloud with Kokoro (on/off)" "$SPEECH")
-	MEMORY_LOCAL=$(ask "Embed long-term memory on the machine (on/off)" "$MEMORY_LOCAL")
+	SPEECH=$(ask_on_off "Read replies aloud with Kokoro (on/off)" "$SPEECH")
+	MEMORY_LOCAL=$(ask_on_off "Embed long-term memory on the machine (on/off)" "$MEMORY_LOCAL")
 	if [[ $SPEECH == on || $MEMORY_LOCAL == on ]]; then
 		while :; do
 			MODELS_UNLOAD=$(ask "Keep the local models loaded (never), or unload them after how many idle minutes" "$MODELS_UNLOAD")
@@ -408,7 +453,7 @@ ask_tree() {
 			echo "never, or a whole number of minutes from 1 to 1440." >&2
 		done
 	fi
-	TAILSCALE=$(ask "Serve pigui to your tailnet (on/off)" "$TAILSCALE")
+	TAILSCALE=$(ask_on_off "Serve pigui to your tailnet (on/off)" "$TAILSCALE")
 	if [[ $TAILSCALE == on ]]; then
 		ALLOWED_LOGINS=$(ask "Tailscale logins allowed in, comma-separated (empty for everyone)" "$ALLOWED_LOGINS")
 		HOSTNAME_OPTION=$(ask "The Tailscale machine name" "$HOSTNAME_OPTION")
