@@ -221,7 +221,7 @@ pigui loads the same files the Pi CLI does, so what you already use works here w
 delivery, memory, speech, subagents, sandbox. The web UI is being rebuilt from the ground up on the `svelte-rewrite`
 branch (Svelte 5); the shell builds and serves, and the pages land phase by phase. `test` — node:test against the real server in fake mode. `e2e` —
 Playwright. `deploy` — the installer, the Dockerfile pieces and the models script. `MANIFEST.md` — the functional
-specification this reimplementation was built to; `DECISIONS.md` — the design choices and why; `NEW-SESSION.md` — how
-starting a session works: the chips, their defaults, and what continuing a branch carries.
+specification this reimplementation was built to; `DECISIONS.md` — the design choices and why; `NEW-SESSION.md` — why
+starting a session is a text field with two chips, and why that is better for the person.
 
 MIT licensed.
